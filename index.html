@@ -1,0 +1,3087 @@
+<title>教練小幫手</title>
+
+<style>
+/* ───────────────────────────────────────────────
+   教練小幫手 · 網頁版
+   色彩沿用 iOS App 的琥珀金，中性色帶暖調偏向主色。
+   數字一律等寬，讓欄位對得起來。
+   ─────────────────────────────────────────────── */
+
+:root {
+  /* 讓原生控制項（下拉、日期選擇器、捲軸）跟著主題走，深色底下才不會整片變白 */
+  color-scheme: light;
+
+  --paper:      #FBF9F6;
+  --surface:    #FFFFFF;
+  --surface-2:  #F4F0E9;
+  --ink:        #221D16;
+  --ink-2:      #5C5348;
+  --muted:      #8A8074;
+  --line:       #E7E1D8;
+  --line-2:     #D6CEC2;
+  --gold:       #A8721B;
+  --gold-soft:  rgba(168, 114, 27, 0.10);
+  --gold-line:  rgba(168, 114, 27, 0.35);
+  --good:       #15803D;
+  --good-soft:  rgba(21, 128, 61, 0.10);
+  --warn:       #B45309;
+  --warn-soft:  rgba(180, 83, 9, 0.10);
+  --crit:       #BE123C;
+  --crit-soft:  rgba(190, 18, 60, 0.10);
+  --info:       #2563EB;
+  --info-soft:  rgba(37, 99, 235, 0.10);
+  --shadow:     0 1px 2px rgba(34, 29, 22, .05), 0 8px 24px -16px rgba(34, 29, 22, .25);
+
+  --r-card: 14px;
+  --r-in:   10px;
+  --r-pill: 999px;
+
+  --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang TC",
+          "Noto Sans TC", "Microsoft JhengHei", "Helvetica Neue", sans-serif;
+  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+    --paper:     #14110D;
+    --surface:   #1D1913;
+    --surface-2: #262019;
+    --ink:       #F2ECE3;
+    --ink-2:     #C6BCAE;
+    --muted:     #9A9083;
+    --line:      #2E2820;
+    --line-2:    #3D3529;
+    --gold:      #E4A94A;
+    --gold-soft: rgba(228, 169, 74, 0.12);
+    --gold-line: rgba(228, 169, 74, 0.38);
+    --good:      #5CD98A;
+    --good-soft: rgba(92, 217, 138, 0.12);
+    --warn:      #FB923C;
+    --warn-soft: rgba(251, 146, 60, 0.12);
+    --crit:      #FB7185;
+    --crit-soft: rgba(251, 113, 133, 0.12);
+    --info:      #6BA6FF;
+    --info-soft: rgba(107, 166, 255, 0.12);
+    --shadow:    0 1px 2px rgba(0, 0, 0, .3), 0 8px 24px -16px rgba(0, 0, 0, .7);
+  }
+}
+
+/* 使用者手動切換主題時要蓋過系統偏好，兩個方向都要 */
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --paper:     #14110D;
+  --surface:   #1D1913;
+  --surface-2: #262019;
+  --ink:       #F2ECE3;
+  --ink-2:     #C6BCAE;
+  --muted:     #9A9083;
+  --line:      #2E2820;
+  --line-2:    #3D3529;
+  --gold:      #E4A94A;
+  --gold-soft: rgba(228, 169, 74, 0.12);
+  --gold-line: rgba(228, 169, 74, 0.38);
+  --good:      #5CD98A;
+  --good-soft: rgba(92, 217, 138, 0.12);
+  --warn:      #FB923C;
+  --warn-soft: rgba(251, 146, 60, 0.12);
+  --crit:      #FB7185;
+  --crit-soft: rgba(251, 113, 133, 0.12);
+  --info:      #6BA6FF;
+  --info-soft: rgba(107, 166, 255, 0.12);
+  --shadow:    0 1px 2px rgba(0, 0, 0, .3), 0 8px 24px -16px rgba(0, 0, 0, .7);
+}
+:root[data-theme="light"] {
+  color-scheme: light;
+  --paper:     #FBF9F6;
+  --surface:   #FFFFFF;
+  --surface-2: #F4F0E9;
+  --ink:       #221D16;
+  --ink-2:     #5C5348;
+  --muted:     #8A8074;
+  --line:      #E7E1D8;
+  --line-2:    #D6CEC2;
+  --gold:      #A8721B;
+  --gold-soft: rgba(168, 114, 27, 0.10);
+  --gold-line: rgba(168, 114, 27, 0.35);
+  --good:      #15803D;
+  --good-soft: rgba(21, 128, 61, 0.10);
+  --warn:      #B45309;
+  --warn-soft: rgba(180, 83, 9, 0.10);
+  --crit:      #BE123C;
+  --crit-soft: rgba(190, 18, 60, 0.10);
+  --info:      #2563EB;
+  --info-soft: rgba(37, 99, 235, 0.10);
+  --shadow:    0 1px 2px rgba(34, 29, 22, .05), 0 8px 24px -16px rgba(34, 29, 22, .25);
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--sans);
+  font-size: 15px;
+  line-height: 1.55;
+  -webkit-text-size-adjust: 100%;
+}
+
+button, input, select, textarea { font: inherit; color: inherit; }
+
+:focus-visible {
+  outline: 2px solid var(--gold);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * { animation-duration: .01ms !important; transition-duration: .01ms !important; }
+}
+
+/* ── 版面骨架 ───────────────────────────────── */
+
+.app { display: flex; min-height: 100vh; }
+
+.rail {
+  width: 216px;
+  flex: 0 0 216px;
+  border-right: 1px solid var(--line);
+  background: var(--surface);
+  padding: 20px 12px 24px;
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.brand {
+  display: flex; align-items: center; gap: 10px;
+  padding: 4px 10px 18px;
+}
+.brand-mark {
+  width: 30px; height: 30px; flex: none;
+  border-radius: 9px;
+  background: var(--gold-soft);
+  border: 1px solid var(--gold-line);
+  display: grid; place-items: center;
+  color: var(--gold);
+}
+.brand-name { font-weight: 700; letter-spacing: .01em; }
+.brand-sub { font-size: 11px; color: var(--muted); letter-spacing: .06em; }
+
+.nav-btn {
+  display: flex; align-items: center; gap: 10px;
+  width: 100%;
+  padding: 9px 10px;
+  border: 0;
+  border-radius: var(--r-in);
+  background: transparent;
+  color: var(--ink-2);
+  cursor: pointer;
+  text-align: left;
+  position: relative;
+  transition: background .12s ease, color .12s ease;
+}
+.nav-btn:hover { background: var(--surface-2); color: var(--ink); }
+.nav-btn[aria-current="page"] {
+  background: var(--gold-soft);
+  color: var(--gold);
+  font-weight: 600;
+}
+.nav-btn[aria-current="page"]::before {
+  content: "";
+  position: absolute; left: -12px; top: 8px; bottom: 8px;
+  width: 3px; border-radius: 0 3px 3px 0;
+  background: var(--gold);
+}
+.nav-btn svg { flex: none; }
+.rail-foot { margin-top: auto; display: flex; flex-direction: column; gap: 6px; }
+
+main {
+  flex: 1;
+  min-width: 0;
+  padding: 26px 26px 90px;
+}
+.wrap { max-width: 1060px; margin: 0 auto; }
+
+.page-head {
+  display: flex; align-items: flex-end; justify-content: space-between;
+  gap: 14px; flex-wrap: wrap;
+  margin-bottom: 18px;
+}
+.page-title { font-size: 22px; font-weight: 700; margin: 0; letter-spacing: -.01em; }
+.page-sub { color: var(--muted); font-size: 13px; margin: 2px 0 0; }
+.head-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+
+/* 手機底部分頁 */
+.tabbar {
+  display: none;
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 30;
+  background: var(--surface);
+  border-top: 1px solid var(--line);
+  padding: 6px 4px calc(6px + env(safe-area-inset-bottom));
+}
+.tabbar .nav-btn {
+  flex-direction: column; gap: 3px;
+  font-size: 10px; padding: 6px 2px;
+  justify-content: center; text-align: center;
+}
+.tabbar .nav-btn::before { display: none; }
+
+@media (max-width: 860px) {
+  .rail { display: none; }
+  .tabbar { display: flex; }
+  main { padding: 18px 14px 96px; }
+  .page-title { font-size: 20px; }
+}
+
+/* ── 元件 ───────────────────────────────────── */
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-card);
+  padding: 16px;
+  box-shadow: var(--shadow);
+}
+.stack { display: flex; flex-direction: column; gap: 14px; }
+
+.sec-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin-bottom: 12px; }
+.sec-title { font-size: 15px; font-weight: 650; margin: 0; }
+.sec-sub { font-size: 12px; color: var(--muted); }
+
+/* 統計格：一律等高，這是 App 版本最常被抱怨的地方 */
+.tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(158px, 1fr));
+  gap: 12px;
+  align-items: stretch;
+}
+.tile {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-card);
+  padding: 14px;
+  min-height: 118px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  box-shadow: var(--shadow);
+  text-align: left;
+}
+.tile-icon { color: var(--tile-color, var(--gold)); margin-bottom: 6px; }
+.tile-value {
+  font-family: var(--mono);
+  font-size: 25px;
+  font-weight: 600;
+  letter-spacing: -.02em;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.15;
+  overflow-wrap: anywhere;
+}
+.tile-unit { font-size: 12px; color: var(--muted); font-family: var(--sans); margin-left: 2px; }
+.tile-label { font-size: 12.5px; color: var(--ink-2); }
+/* 說明行永遠佔位，四格才不會一高一矮 */
+.tile-note { font-size: 11px; color: var(--muted); margin-top: auto; min-height: 1.4em; font-family: var(--mono); font-variant-numeric: tabular-nums; }
+button.tile { cursor: pointer; font: inherit; transition: border-color .12s ease, transform .12s ease; }
+button.tile:hover { border-color: var(--gold-line); }
+button.tile:active { transform: translateY(1px); }
+
+.btn {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 7px 13px;
+  border-radius: var(--r-pill);
+  border: 1px solid var(--line-2);
+  background: var(--surface);
+  color: var(--ink);
+  cursor: pointer;
+  font-size: 13.5px;
+  transition: background .12s ease, border-color .12s ease;
+}
+.btn:hover { background: var(--surface-2); }
+/* 主色按鈕的文字色跟著主題走：淺色底用白字，深色底的金色較亮要用深字 */
+:root { --on-gold: #FFFFFF; }
+@media (prefers-color-scheme: dark) { :root { --on-gold: #17130C; } }
+:root[data-theme="dark"] { --on-gold: #17130C; }
+:root[data-theme="light"] { --on-gold: #FFFFFF; }
+
+.btn-primary {
+  background: var(--gold); border-color: var(--gold);
+  color: var(--on-gold); font-weight: 600;
+}
+.btn-primary:hover { filter: brightness(1.06); background: var(--gold); }
+.btn-ghost { border-color: transparent; background: transparent; color: var(--muted); }
+.btn-ghost:hover { background: var(--surface-2); color: var(--ink); }
+.btn-danger { color: var(--crit); border-color: var(--line-2); }
+.btn-danger:hover { background: var(--crit-soft); }
+.btn-sm { padding: 4px 10px; font-size: 12.5px; }
+.btn:disabled { opacity: .45; cursor: not-allowed; }
+
+.pill {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 2px 9px;
+  border-radius: var(--r-pill);
+  font-size: 11.5px;
+  font-weight: 550;
+  white-space: nowrap;
+}
+.pill-good { background: var(--good-soft); color: var(--good); }
+.pill-warn { background: var(--warn-soft); color: var(--warn); }
+.pill-crit { background: var(--crit-soft); color: var(--crit); }
+.pill-info { background: var(--info-soft); color: var(--info); }
+.pill-gold { background: var(--gold-soft); color: var(--gold); }
+.pill-mute { background: var(--surface-2); color: var(--muted); }
+
+.row {
+  display: flex; align-items: center; gap: 11px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--line);
+}
+.row:last-child { border-bottom: 0; }
+.row-main { min-width: 0; flex: 1; }
+.row-title { font-weight: 550; display: flex; align-items: center; gap: 7px; flex-wrap: wrap; }
+.row-sub { font-size: 12px; color: var(--muted); }
+.row-end { text-align: right; flex: none; font-variant-numeric: tabular-nums; }
+
+.dot { width: 9px; height: 9px; border-radius: 50%; flex: none; }
+
+.empty {
+  color: var(--muted); font-size: 13px;
+  padding: 22px 4px; text-align: center;
+}
+
+.grid-2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 14px; align-items: start; }
+
+/* 表單 */
+.field { display: flex; flex-direction: column; gap: 5px; margin-bottom: 13px; }
+.field > label { font-size: 12.5px; color: var(--ink-2); font-weight: 550; }
+.field .hint { font-size: 11.5px; color: var(--muted); }
+input[type="text"], input[type="tel"], input[type="email"], input[type="number"],
+input[type="date"], input[type="time"], select, textarea {
+  width: 100%;
+  padding: 8px 11px;
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-in);
+  background: var(--surface);
+  color: var(--ink);
+}
+input[type="number"] { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+textarea { min-height: 66px; resize: vertical; }
+.field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 11px; }
+@media (max-width: 520px) { .field-row { grid-template-columns: 1fr; } }
+
+.seg { display: flex; gap: 4px; background: var(--surface-2); padding: 3px; border-radius: var(--r-in); }
+.seg button {
+  flex: 1; border: 0; background: transparent; color: var(--ink-2);
+  padding: 6px 8px; border-radius: 7px; cursor: pointer; font-size: 13px;
+}
+.seg button[aria-pressed="true"] { background: var(--surface); color: var(--ink); font-weight: 600; box-shadow: var(--shadow); }
+
+.switch { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 7px 0; }
+.switch input { width: 42px; height: 24px; appearance: none; background: var(--line-2); border-radius: 999px; position: relative; cursor: pointer; transition: background .15s ease; flex: none; }
+.switch input::after { content: ""; position: absolute; top: 2px; left: 2px; width: 20px; height: 20px; border-radius: 50%; background: #fff; transition: transform .15s ease; }
+.switch input:checked { background: var(--gold); }
+.switch input:checked::after { transform: translateX(18px); }
+
+/* 對話框 */
+.scrim {
+  position: fixed; inset: 0; z-index: 50;
+  background: rgba(20, 17, 13, .45);
+  display: grid; place-items: end center;
+  padding: 0;
+}
+@media (min-width: 700px) { .scrim { place-items: center; padding: 24px; } }
+dialog.sheet {
+  border: 0; padding: 0; margin: 0;
+  width: 100%; max-width: 560px;
+  max-height: 92vh;
+  background: var(--surface);
+  color: var(--ink);
+  border-radius: 18px 18px 0 0;
+  box-shadow: 0 -8px 40px rgba(0,0,0,.3);
+  display: flex; flex-direction: column;
+  overflow: hidden;
+}
+@media (min-width: 700px) { dialog.sheet { border-radius: 18px; max-height: 86vh; } }
+.sheet-head {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--line);
+  flex: none;
+}
+.sheet-title { font-weight: 650; font-size: 15.5px; }
+.sheet-body { padding: 16px; overflow-y: auto; }
+.sheet-foot {
+  display: flex; gap: 8px; justify-content: flex-end;
+  padding: 12px 16px calc(12px + env(safe-area-inset-bottom));
+  border-top: 1px solid var(--line);
+  flex: none;
+}
+
+/* 提示 */
+#toast {
+  position: fixed; left: 50%; bottom: 84px; z-index: 90;
+  transform: translate(-50%, 12px);
+  background: var(--ink); color: var(--paper);
+  padding: 9px 16px; border-radius: var(--r-pill);
+  font-size: 13.5px;
+  opacity: 0; pointer-events: none;
+  transition: opacity .18s ease, transform .18s ease;
+  box-shadow: 0 8px 30px rgba(0,0,0,.3);
+  max-width: 88vw; text-align: center;
+}
+#toast.on { opacity: 1; transform: translate(-50%, 0); }
+
+/* 圖表：單一色相長條，類別靠列標籤辨識，不靠顏色 */
+.bars { display: flex; flex-direction: column; gap: 9px; }
+.bar-row { display: grid; grid-template-columns: 84px 1fr auto; gap: 10px; align-items: center; }
+.bar-track { display: block; height: 8px; background: var(--surface-2); border-radius: 4px; overflow: hidden; }
+.bar-fill { display: block; height: 100%; background: var(--gold); border-radius: 4px; min-width: 3px; }
+.bar-label { font-size: 12.5px; color: var(--ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bar-value { font-family: var(--mono); font-size: 12px; font-variant-numeric: tabular-nums; color: var(--muted); }
+@media (max-width: 480px) { .bar-row { grid-template-columns: 68px 1fr auto; } }
+
+.week {
+  display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px;
+}
+.day {
+  border: 1px solid transparent; background: transparent;
+  border-radius: var(--r-in); padding: 7px 2px 6px;
+  cursor: pointer; display: flex; flex-direction: column; align-items: center; gap: 3px;
+  color: var(--ink-2);
+}
+.day:hover { background: var(--surface-2); }
+.day[aria-pressed="true"] { background: var(--gold-soft); border-color: var(--gold-line); color: var(--gold); }
+.day-name { font-size: 10.5px; color: var(--muted); }
+.day-num { font-family: var(--mono); font-size: 15px; font-variant-numeric: tabular-nums; }
+.day.today .day-num { background: var(--gold); color: var(--on-gold); border-radius: 50%; width: 26px; height: 26px; display: grid; place-items: center; }
+.day-dot { width: 5px; height: 5px; border-radius: 50%; background: var(--gold); opacity: .55; }
+.day-dot.hidden { visibility: hidden; }
+
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 3px 9px; border-radius: var(--r-pill);
+  background: var(--surface-2); font-size: 12.5px;
+  border: 1px solid var(--line);
+}
+.chip button { border: 0; background: none; cursor: pointer; color: var(--muted); padding: 0; line-height: 1; }
+.chip button:hover { color: var(--crit); }
+
+.tier-add { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; font-size: 13px; color: var(--muted); }
+.tier-add input { width: 62px; }
+
+.note-box {
+  background: var(--gold-soft);
+  border: 1px solid var(--gold-line);
+  border-radius: var(--r-in);
+  padding: 11px 13px;
+  font-size: 12.5px;
+  color: var(--ink-2);
+}
+/* 公告：擺在每一頁最上面，看過按「知道了」就收起來 */
+.notice {
+  display: flex; gap: 12px;
+  background: var(--gold-soft);
+  border: 1px solid var(--gold-line);
+  border-radius: var(--r-card);
+  padding: 14px 16px;
+  margin-bottom: 16px;
+}
+.notice-body { min-width: 0; }
+.notice-title { font-weight: 650; margin-bottom: 4px; }
+.notice-text { margin: 0; font-size: 13px; color: var(--ink-2); line-height: 1.6; }
+
+/* 使用說明：這裡是連續閱讀的文字，行長與行距跟操作介面不同 */
+.guide { max-width: 62ch; }
+.guide h2 {
+  font-size: 18px; font-weight: 700; margin: 0 0 10px;
+  text-wrap: balance;
+}
+.guide h3 {
+  font-size: 14.5px; font-weight: 650; margin: 26px 0 8px;
+  padding-top: 14px; border-top: 1px solid var(--line);
+  color: var(--gold);
+}
+.guide h2 + h3 { margin-top: 18px; }
+.guide p { margin: 0 0 11px; font-size: 14px; line-height: 1.75; color: var(--ink-2); }
+.guide ul, .guide ol { margin: 0 0 12px; padding-left: 1.35em; }
+.guide li { font-size: 14px; line-height: 1.7; color: var(--ink-2); margin-bottom: 5px; }
+.guide strong { color: var(--ink); font-weight: 650; }
+
+.divider { height: 1px; background: var(--line); margin: 4px 0; }
+.mono { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+.muted { color: var(--muted); }
+.right { text-align: right; }
+.nowrap { white-space: nowrap; }
+</style>
+
+<div class="app">
+  <nav class="rail" id="rail" aria-label="主選單">
+    <div class="brand">
+      <div class="brand-mark" aria-hidden="true">
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6.5 6.5h11M6.5 17.5h11M4 9v6M20 9v6M9 4v16M15 4v16"/></svg>
+      </div>
+      <div>
+        <div class="brand-name">教練小幫手</div>
+        <div class="brand-sub">WEB</div>
+      </div>
+    </div>
+    <div id="nav-main"></div>
+    <div class="rail-foot">
+      <div class="divider"></div>
+      <button class="nav-btn" id="theme-btn" type="button"></button>
+    </div>
+  </nav>
+
+  <main>
+    <div class="wrap" id="view"></div>
+  </main>
+</div>
+
+<nav class="tabbar" id="tabbar" aria-label="主選單"></nav>
+<div id="toast" role="status" aria-live="polite"></div>
+
+<script>
+"use strict";
+
+// 手機上沒有 viewport meta 的話會用 980px 排版再縮小，字會小到看不清楚。
+// 外層若已經提供就不重複加。
+if (!document.querySelector('meta[name="viewport"]')) {
+  const meta = document.createElement("meta");
+  meta.name = "viewport";
+  meta.content = "width=device-width, initial-scale=1, viewport-fit=cover";
+  document.head.appendChild(meta);
+}
+
+// 給別人測試時，畫面整片白最難問出原因。攔下沒接住的錯誤，
+// 直接把訊息印在畫面上，對方截圖就知道壞在哪。
+window.addEventListener("error", (e) => showFatal(e.message, e.filename, e.lineno));
+window.addEventListener("unhandledrejection", (e) => showFatal(String(e.reason)));
+
+function showFatal(message, file, line) {
+  if (document.getElementById("fatal")) return;
+  const box = document.createElement("div");
+  box.id = "fatal";
+  box.setAttribute("style", "position:fixed;inset:0;z-index:999;background:#FBF9F6;color:#221D16;" +
+    "font:15px/1.6 -apple-system,BlinkMacSystemFont,'PingFang TC',sans-serif;padding:24px;overflow:auto");
+  box.innerHTML =
+    '<h1 style="font-size:18px;margin:0 0 8px">這頁沒能正常開起來</h1>' +
+    '<p style="margin:0 0 14px;color:#5C5348">把下面這段截圖傳回來就能修。</p>' +
+    '<pre style="white-space:pre-wrap;word-break:break-word;background:#F4F0E9;padding:12px;' +
+    'border-radius:10px;font-size:12px;margin:0 0 14px"></pre>' +
+    '<button style="padding:8px 16px;border-radius:999px;border:1px solid #A8721B;' +
+    'background:#A8721B;color:#fff;font:inherit">重新載入</button>';
+  // 版本在下面才宣告，萬一是載入到一半就出錯，讀不到就算了
+  let build = "";
+  try { build = "版本 " + BUILD; } catch (e) { build = "版本 未知（載入未完成）"; }
+  box.querySelector("pre").textContent =
+    [message, file ? file + ":" + line : "", build, navigator.userAgent].filter(Boolean).join("\n\n");
+  box.querySelector("button").onclick = () => location.reload();
+  (document.body || document.documentElement).appendChild(box);
+}
+
+/* ════════════════════════════════════════════════
+   0. 要改文字的話改這裡
+   ════════════════════════════════════════════════ */
+
+/**
+ * 給所有教練看的公告。改完重新發布，大家重新整理就會看到。
+ * 不想顯示公告就把整個值設成 null。
+ * 換新公告時「一定要改 id」，否則之前按過「知道了」的人不會再看到。
+ */
+const ANNOUNCEMENT = {
+  id: "2026-07-30-c",
+  title: "請先清一次資料再開始",
+  body: "如果你看到「王柏翰」「吳孟儒」這些不是你的學生，那是示範資料。" +
+        "到「設定 → 清除所有資料」清掉，之後就都是你自己的了，不會跟其他教練混在一起。" +
+        "接著看一下使用說明，花兩分鐘把手機設定好，資料就不會不見。",
+};
+
+const NOTICE_KEY = "coach-mate-web-notice-dismissed";
+
+/**
+ * 版本標記。顯示在設定頁最下面，教練唸得出來就知道他手上是哪一版，
+ * 不用再猜是不是拿到舊的快取。每次改版就把這個字串往上加。
+ */
+const BUILD = "2026-07-30 · v7";
+
+/** 開發者署名，顯示在設定頁的「關於」 */
+const DEVELOPER = "杯子蛋糕好好吃";
+
+/** 示範學生的名字。公告用它判斷這台裝置上還留著示範資料。 */
+const DEMO_NAMES = ["林佳蓉", "陳彥廷", "黃郁婷", "張家豪", "吳孟儒", "李思穎", "王柏翰", "劉宜靜"];
+
+/**
+ * 使用說明。刻意用 Markdown 寫，之後要搬到 App 內的說明頁、
+ * App Store 的說明或官網，整段複製過去就能用，不用重打。
+ * 同一份內容也放在 coach-mate-使用說明.md。
+ */
+const GUIDE_MD = `
+# 教練小幫手 使用說明
+
+給教練管學生、課表、收費的小工具。目前是測試版，想聽聽你用起來順不順。
+
+## 一、你的資料存在哪裡
+
+打開網頁就能用，**不用註冊、沒有帳號密碼**。
+
+你輸入的東西存在**你自己手機（或電腦）的瀏覽器裡**，沒有上傳到任何伺服器。
+
+也就是說：
+
+- 只有你看得到自己的資料
+- 其他教練有他們自己的一份，不會跟你的混在一起
+- 連我也看不到你輸入了什麼
+
+## 二、資料會不會不見
+
+**這些情況都會留著：**
+
+- 關掉分頁、關掉瀏覽器
+- 手機關機重開
+- 隔天、下週再打開
+
+**這些情況會不見：**
+
+- 清除瀏覽器資料、快取或網站資料
+- 用無痕模式（隱私瀏覽），關掉視窗就沒了
+- 換手機、換電腦，或換一個瀏覽器（Safari 存的資料 Chrome 看不到）
+- **iPhone 的 Safari：連續 7 天沒打開這個網站，系統會自動清掉**
+- 手機儲存空間快滿時，系統可能清掉網站資料
+
+最後兩點最容易中招，所以請務必做下面兩件事。
+
+## 三、請做這兩件事
+
+**1. 加到主畫面**
+
+- iPhone（Safari）：點下方的分享圖示，選「加入主畫面」
+- Android（Chrome）：右上角選單，選「加到主畫面」
+
+加完桌面會多一個像 App 的圖示，開起來沒有網址列，系統也比較不會把資料清掉。
+
+**2. 定期做一份備份**
+
+到「設定 → 匯出檔案」，會得到一個 .json 檔，存到「檔案」App 或你的雲端硬碟。
+
+**如果按了沒反應**（iPhone 有時候會這樣），改用旁邊的「複製備份文字」，把整段文字複製起來，貼到記事本、傳給自己的 LINE 或 Email 存著，效果完全一樣。
+
+建議時機：輸入完一批學生之後、每週結束時、手機要送修或換機前。
+
+## 四、資料不見了怎麼辦
+
+到「設定 → 匯入檔案」，選你之前存的 .json 檔。
+
+當初是用複製文字備份的，就改用「貼上備份文字」，把那段文字貼回來。
+
+接著選「取代全部」，就會回到備份當下的狀態。
+
+## 五、換手機怎麼搬
+
+1. 舊手機：設定 → 匯出檔案，或複製備份文字
+2. 把檔案或文字傳給自己（AirDrop、LINE、Email 都可以）
+3. 新手機：打開同一個網址 → 設定 → 匯入檔案或貼上備份文字 → 取代全部
+
+## 六、常見問題
+
+**可以多個人共用同一份資料嗎？**
+
+不行。目前每位教練的資料各自獨立，不會互通。
+
+**我的學生資料會被誰看到嗎？**
+
+不會。資料沒有離開你的裝置。
+
+**沒有網路可以用嗎？**
+
+第一次要連網把頁面載進來，之後大部分操作不需要網路。但建議還是在有網路時使用。
+
+**為什麼不用登入？**
+
+測試階段刻意不做帳號，讓你點開就能試。
+
+**網頁版跟手機 App 一樣嗎？**
+
+功能大致相同。兩邊的匯出檔格式互通，網頁版匯出的檔可以匯進 App，反過來也可以。
+
+## 七、怎麼回報問題
+
+直接跟我說，附上這幾件事會最快解決：
+
+- 你用什麼手機、什麼瀏覽器
+- 在哪一頁、按了什麼
+- 發生什麼事（畫面截圖最好）
+`.trim();
+
+/* ════════════════════════════════════════════════
+   1. 儲存層
+   資料存在瀏覽器 localStorage，換裝置要用匯出／匯入搬。
+   ════════════════════════════════════════════════ */
+
+const KEY = "coach-mate-web-v1";
+
+const DEFAULT_SALARY = {
+  baseSalary: 0,
+  perLessonRate: 0,
+  useStudentRate: true,
+  onlyAttended: true,
+  tiers: [{ minSessions: 40, percent: 55 }, { minSessions: 60, percent: 60 }],
+  basePercent: 50,
+  payoutBasisRaw: "perLesson",
+  salesPercent: 10,
+  separateCompanyLeadRate: false,
+  companyLeadSalesPercent: 5,
+};
+
+const DEFAULT_SETTINGS = {
+  employment: "independent",       // independent | company
+  defaultDuration: 90,             // 分鐘
+  customFields: ["性別", "職業", "生日"],
+  packages: [
+    { id: "p1", name: "體驗", sessions: 1, price: 1200 },
+    { id: "p2", name: "10 堂", sessions: 10, price: 11000 },
+    { id: "p3", name: "20 堂", sessions: 20, price: 20000 },
+  ],
+  salary: { ...DEFAULT_SALARY },
+  theme: "auto",
+};
+
+// 舊一點的 iOS Safari（15.4 以前）沒有 structuredClone，直接用會整頁白掉。
+// 這裡的資料都是純 JSON，用序列化複製就夠。
+const clone = (obj) => JSON.parse(JSON.stringify(obj));
+
+function blankState() {
+  return { students: [], lessons: [], leads: [], settings: clone(DEFAULT_SETTINGS) };
+}
+
+let S = blankState();
+
+function load() {
+  try {
+    const raw = localStorage.getItem(KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object") return null;
+    return {
+      students: Array.isArray(parsed.students) ? parsed.students : [],
+      lessons: Array.isArray(parsed.lessons) ? parsed.lessons : [],
+      leads: Array.isArray(parsed.leads) ? parsed.leads : [],
+      settings: {
+        ...clone(DEFAULT_SETTINGS),
+        ...(parsed.settings || {}),
+        salary: { ...DEFAULT_SALARY, ...((parsed.settings || {}).salary || {}) },
+      },
+    };
+  } catch (e) {
+    console.warn("讀取本機資料失敗，改用空白資料", e);
+    return null;
+  }
+}
+
+let saveFailed = false;
+function save() {
+  try {
+    localStorage.setItem(KEY, JSON.stringify(S));
+    saveFailed = false;
+  } catch (e) {
+    if (!saveFailed) {
+      saveFailed = true;
+      toast("存不進瀏覽器空間，請先匯出備份再清理資料");
+    }
+  }
+}
+
+const uid = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4);
+
+/* ════════════════════════════════════════════════
+   2. 日期與格式
+   日期一律 "YYYY-MM-DD" 字串，時間 "HH:mm"。
+   固定格式下字串比較就等於日期比較。
+   ════════════════════════════════════════════════ */
+
+const pad = (n) => String(n).padStart(2, "0");
+const dayStr = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+const monthStr = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}`;
+const today = () => dayStr(new Date());
+const thisMonth = () => monthStr(new Date());
+
+function parseDay(s) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s || "");
+  return m ? new Date(+m[1], +m[2] - 1, +m[3]) : null;
+}
+function addDays(d, n) { const x = new Date(d); x.setDate(x.getDate() + n); return x; }
+function startOfWeek(d) {           // 週一為一週之始
+  const x = new Date(d);
+  const wd = (x.getDay() + 6) % 7;
+  return addDays(x, -wd);
+}
+const WD = ["一", "二", "三", "四", "五", "六", "日"];
+const weekdayName = (d) => WD[(d.getDay() + 6) % 7];
+
+function minutesOf(hhmm) {
+  const m = /^(\d{1,2}):(\d{2})$/.exec(hhmm || "");
+  return m ? +m[1] * 60 + +m[2] : 0;
+}
+const timeOf = (mins) => `${pad(Math.floor(((mins % 1440) + 1440) % 1440 / 60))}:${pad(((mins % 60) + 60) % 60)}`;
+const durationOf = (l) => Math.max(0, minutesOf(l.end) - minutesOf(l.start));
+
+const money = (n) => "$" + Math.round(n || 0).toLocaleString("en-US");
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) =>
+  ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
+/* 課程時長：只留 1 小時與 1.5 小時，其他走自訂 */
+const DURATIONS = [60, 90];
+const DURATION_MIN = 10, DURATION_MAX = 480;
+const clampDuration = (m) => Math.min(Math.max(Math.round(m) || 0, DURATION_MIN), DURATION_MAX);
+const isPresetDuration = (m) => DURATIONS.includes(m);
+function durationLabel(mins) {
+  if (!mins || mins <= 0) return "0 分鐘";
+  const h = Math.floor(mins / 60), m = mins % 60;
+  if (h === 0) return `${m} 分鐘`;
+  if (m === 0) return `${h} 小時`;
+  if (m === 30) return `${(mins / 60).toFixed(1)} 小時`;
+  return `${h} 小時 ${m} 分`;
+}
+
+/* ════════════════════════════════════════════════
+   3. 領域邏輯
+   ════════════════════════════════════════════════ */
+
+const LESSON_STATUS = {
+  scheduled: { label: "已排定", pill: "pill-info" },
+  attended:  { label: "已出席", pill: "pill-good" },
+  late:      { label: "遲到",   pill: "pill-warn" },
+  absent:    { label: "缺席",   pill: "pill-crit" },
+  cancelled: { label: "已取消", pill: "pill-mute" },
+};
+const CONSUMING = ["attended", "late"];   // 有上到課就要扣堂數
+
+const LEAD_SOURCE = {
+  referral: "介紹", online: "網路", walkIn: "路過", company: "公司名單", other: "其他",
+};
+const LEAD_STATUS = {
+  pending:   { label: "待聯繫", pill: "pill-warn" },
+  contacted: { label: "已聯繫", pill: "pill-info" },
+  converted: { label: "已轉正式", pill: "pill-good" },
+};
+const ACQUISITION = {
+  selfDeveloped: "自己開發", companyLead: "公司名單", referral: "學生介紹",
+};
+
+const STUDENT_COLORS = ["#A8721B", "#2563EB", "#15803D", "#BE123C", "#7C3AED", "#0F766E", "#C2410C", "#4338CA"];
+
+const studentById = (id) => S.students.find((s) => s.id === id) || null;
+const onRoster = (s) => s.status !== "archived";
+const activeStudents = () => S.students.filter((s) => onRoster(s));
+
+function newStudent(over = {}) {
+  return {
+    id: uid(), name: "", phone: "", email: "", rate: 0,
+    totalPurchased: 0, remaining: 0, notes: "",
+    color: STUDENT_COLORS[S.students.length % STUDENT_COLORS.length],
+    expiry: "", custom: {}, renewalCount: 0, mayNotRenew: false,
+    acquisition: "selfDeveloped", status: "active",
+    payments: [], renewals: [],
+    createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+    ...over,
+  };
+}
+
+/** 換課程狀態時同步扣還堂數。consumed 旗標讓狀態改來改去也不會多扣。 */
+function setLessonStatus(lesson, status) {
+  const shouldConsume = CONSUMING.includes(status);
+  for (const [idKey, flag] of [["studentId", "consumed"], ["partnerId", "partnerConsumed"]]) {
+    const st = studentById(lesson[idKey]);
+    if (!st) continue;
+    if (shouldConsume && !lesson[flag]) {
+      st.remaining = Math.max(0, st.remaining - 1);
+      lesson[flag] = true;
+    } else if (!shouldConsume && lesson[flag]) {
+      st.remaining += 1;
+      lesson[flag] = false;
+    }
+    st.updatedAt = new Date().toISOString();
+  }
+  lesson.status = status;
+}
+
+/** 刪課要把已扣的堂數還回去 */
+function releaseLesson(lesson) {
+  for (const [idKey, flag] of [["studentId", "consumed"], ["partnerId", "partnerConsumed"]]) {
+    if (!lesson[flag]) continue;
+    const st = studentById(lesson[idKey]);
+    if (st) st.remaining += 1;
+    lesson[flag] = false;
+  }
+}
+
+/** 結束時間已過卻還停在「已排定」的課，補標成已出席 */
+function autoMarkPastLessons() {
+  const now = new Date();
+  const nowDay = dayStr(now), nowMin = now.getHours() * 60 + now.getMinutes();
+  let changed = 0;
+  for (const l of S.lessons) {
+    if (l.status !== "scheduled") continue;
+    const past = l.date < nowDay || (l.date === nowDay && minutesOf(l.end) <= nowMin);
+    if (!past) continue;
+    setLessonStatus(l, "attended");
+    changed++;
+  }
+  return changed;
+}
+
+function lessonsOf(studentId) {
+  return S.lessons.filter((l) => l.studentId === studentId || l.partnerId === studentId);
+}
+function attendedCount(studentId) {
+  return lessonsOf(studentId).filter((l) => CONSUMING.includes(l.status)).length;
+}
+function paymentsOf(studentId) {
+  const st = studentById(studentId);
+  return st ? st.payments : [];
+}
+function allPayments() {
+  return S.students.flatMap((s) => s.payments.map((p) => ({ ...p, studentId: s.id })));
+}
+
+/** 這個月收到的錢 */
+function monthRevenue(ym = thisMonth()) {
+  return allPayments().filter((p) => (p.date || "").startsWith(ym)).reduce((a, p) => a + (p.amount || 0), 0);
+}
+
+/** 抽成級距：當月堂數落在哪一級 */
+function percentForSessions(count) {
+  const rule = S.settings.salary;
+  const sorted = [...(rule.tiers || [])].sort((a, b) => a.minSessions - b.minSessions);
+  let pct = rule.basePercent;
+  for (const t of sorted) if (count >= t.minSessions) pct = t.percent;
+  return pct;
+}
+
+/** 公司教練的當月薪資試算 */
+function salaryFor(ym) {
+  const rule = S.settings.salary;
+  const basis = rule.payoutBasisRaw;
+  const countsLessons = basis !== "onSale";
+  const countsSales = basis !== "perLesson";
+
+  let sessions = 0, lessonRevenue = 0;
+  if (countsLessons) {
+    for (const l of S.lessons) {
+      if (!l.date.startsWith(ym)) continue;
+      const ok = rule.onlyAttended ? CONSUMING.includes(l.status) : l.status !== "cancelled";
+      if (!ok) continue;
+      for (const id of [l.studentId, l.partnerId]) {
+        const st = studentById(id);
+        if (!st) continue;
+        sessions += 1;
+        lessonRevenue += rule.useStudentRate ? (st.rate || 0) : (rule.perLessonRate || 0);
+      }
+    }
+  }
+  const pct = percentForSessions(sessions);
+  const lessonPay = lessonRevenue * pct / 100;
+
+  let salesAmount = 0, companySalesAmount = 0, salesBonus = 0;
+  if (countsSales) {
+    for (const st of S.students) {
+      for (const r of st.renewals) {
+        if (!(r.date || "").startsWith(ym)) continue;
+        const isCompany = rule.separateCompanyLeadRate && st.acquisition === "companyLead";
+        const rate = isCompany ? rule.companyLeadSalesPercent : rule.salesPercent;
+        if (isCompany) companySalesAmount += r.amount; else salesAmount += r.amount;
+        salesBonus += r.amount * rate / 100;
+      }
+    }
+  }
+
+  const total = (rule.baseSalary || 0) + lessonPay + salesBonus;
+  return { sessions, lessonRevenue, pct, lessonPay, salesAmount, companySalesAmount, salesBonus, total };
+}
+
+/* ── 成交率 ─────────────────────────────────── */
+
+function conversionStats(ym = thisMonth()) {
+  const leads = S.leads;
+  const converted = leads.filter((l) => l.status === "converted");
+  const addedThisMonth = leads.filter((l) => (l.createdAt || "").slice(0, 7) === ym);
+  const convertedThisMonth = converted.filter((l) => (l.updatedAt || "").slice(0, 7) === ym);
+  const bySource = Object.keys(LEAD_SOURCE).map((key) => {
+    const group = leads.filter((l) => l.source === key);
+    return { key, label: LEAD_SOURCE[key], total: group.length, converted: group.filter((l) => l.status === "converted").length };
+  }).filter((r) => r.total > 0).sort((a, b) => b.total - a.total);
+
+  return {
+    total: leads.length,
+    converted: converted.length,
+    open: leads.filter((l) => l.status !== "converted").length,
+    rate: leads.length ? converted.length / leads.length * 100 : null,
+    addedThisMonth: addedThisMonth.length,
+    convertedThisMonth: convertedThisMonth.length,
+    monthRate: addedThisMonth.length ? convertedThisMonth.length / addedThisMonth.length * 100 : null,
+    bySource,
+  };
+}
+
+/* ── 客群分析 ───────────────────────────────── */
+
+const AGE_GROUPS = [
+  ["18歲以下", 0, 17], ["18-25歲", 18, 25], ["26-35歲", 26, 35],
+  ["36-45歲", 36, 45], ["46-55歲", 46, 55], ["56歲以上", 56, 200],
+];
+
+function ageOf(student) {
+  const direct = parseInt(student.custom["年齡"], 10);
+  if (Number.isFinite(direct) && direct > 0) return direct;
+  const bd = parseDay(student.custom["生日"]);
+  if (!bd) return null;
+  const now = new Date();
+  let age = now.getFullYear() - bd.getFullYear();
+  const before = now.getMonth() < bd.getMonth() ||
+    (now.getMonth() === bd.getMonth() && now.getDate() < bd.getDate());
+  if (before) age -= 1;
+  return age > 0 ? age : null;
+}
+
+/** 年齡另有長條圖、生日只用來算年齡，不再多做一張分佈 */
+const FIELDS_WITH_OWN_CHART = new Set(["生日", "年齡"]);
+
+/**
+ * 只有真的有學生填了值的自訂欄位，才會多出一張分佈圖。
+ * 設定裡新增一個欄位但沒人填，不該憑空多一欄「未填 100%」。
+ */
+function customFieldDistributions() {
+  const students = activeStudents();
+  const keys = [...S.settings.customFields];
+  for (const s of students) {
+    for (const k of Object.keys(s.custom || {})) if (!keys.includes(k)) keys.push(k);
+  }
+  const out = [];
+  for (const key of keys) {
+    if (FIELDS_WITH_OWN_CHART.has(key)) continue;
+    const dist = new Map();
+    for (const s of students) {
+      const v = String(s.custom?.[key] ?? "").trim();
+      if (!v) continue;
+      dist.set(v, (dist.get(v) || 0) + 1);
+    }
+    const filled = [...dist.values()].reduce((a, b) => a + b, 0);
+    if (!filled) continue;
+    const data = [...dist.entries()]
+      .map(([label, count]) => ({ label, count }))
+      .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label));
+    const blank = students.length - filled;
+    if (blank > 0) data.push({ label: "未填", count: blank });
+    out.push({ field: key, data });
+  }
+  return out;
+}
+
+/* ════════════════════════════════════════════════
+   4. 介面工具
+   ════════════════════════════════════════════════ */
+
+const $ = (sel, root = document) => root.querySelector(sel);
+const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
+
+let toastTimer;
+function toast(msg) {
+  const el = $("#toast");
+  el.textContent = msg;
+  el.classList.add("on");
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.classList.remove("on"), 2400);
+}
+
+const ICONS = {
+  dashboard: '<path d="M4 13h6V4H4v9zm0 7h6v-5H4v5zm10 0h6v-9h-6v9zm0-16v5h6V4h-6z"/>',
+  students: '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/>',
+  calendar: '<rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/>',
+  payments: '<rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20"/>',
+  analysis: '<path d="M3 3v18h18"/><path d="M7 15l4-5 3 3 5-7"/>',
+  settings: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>',
+  clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
+  money: '<path d="M12 2v20M17 6H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>',
+  people: '<path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/>',
+  upcoming: '<rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18M12 14v3l2 1"/>',
+  refresh: '<path d="M21 12a9 9 0 1 1-3-6.7"/><path d="M21 3v6h-6"/>',
+  plus: '<path d="M12 5v14M5 12h14"/>',
+  sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>',
+  moon: '<path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/>',
+  auto: '<circle cx="12" cy="12" r="9"/><path d="M12 3a9 9 0 0 0 0 18z" fill="currentColor" stroke="none"/>',
+  target: '<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1.4" fill="currentColor"/>',
+  download: '<path d="M12 3v12"/><path d="M7 11l5 5 5-5"/><path d="M4 21h16"/>',
+  upload: '<path d="M12 21V9"/><path d="M7 13l5-5 5 5"/><path d="M4 3h16"/>',
+  trash: '<path d="M4 6h16M10 6V4h4v2M6 6l1 14h10l1-14"/>',
+};
+const icon = (name, size = 17) =>
+  `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[name] || ""}</svg>`;
+
+const TABS = [
+  { id: "dashboard", label: "總覽", icon: "dashboard" },
+  { id: "students", label: "學生", icon: "students" },
+  { id: "calendar", label: "課表", icon: "calendar" },
+  { id: "payments", label: "收費", icon: "payments" },
+  { id: "analysis", label: "分析", icon: "analysis" },
+  { id: "settings", label: "設定", icon: "settings" },
+];
+
+let tab = "dashboard";
+let selectedDate = today();
+let weekAnchor = today();
+
+function renderNav() {
+  const html = TABS.map((t) => `
+    <button class="nav-btn" type="button" data-tab="${t.id}"
+            ${tab === t.id ? 'aria-current="page"' : ""}>
+      ${icon(t.icon, 18)}<span>${t.label}</span>
+    </button>`).join("");
+  $("#nav-main").innerHTML = html;
+  $("#tabbar").innerHTML = html;
+
+  const mode = S.settings.theme;
+  const modeIcon = mode === "light" ? "sun" : mode === "dark" ? "moon" : "auto";
+  const modeLabel = mode === "light" ? "淺色" : mode === "dark" ? "深色" : "跟隨系統";
+  $("#theme-btn").innerHTML = `${icon(modeIcon, 18)}<span>${modeLabel}</span>`;
+}
+
+function applyTheme() {
+  const mode = S.settings.theme;
+  if (mode === "auto") document.documentElement.removeAttribute("data-theme");
+  else document.documentElement.setAttribute("data-theme", mode);
+}
+
+/* ── 對話框 ─────────────────────────────────── */
+
+let activeDialog = null;
+
+function openSheet({ title, body, confirmLabel = "儲存", closeLabel = "取消", onConfirm, extraFoot = "", onMount }) {
+  closeSheet();
+  const scrim = document.createElement("div");
+  scrim.className = "scrim";
+  scrim.innerHTML = `
+    <dialog class="sheet" open aria-label="${esc(title)}">
+      <div class="sheet-head">
+        <span class="sheet-title">${esc(title)}</span>
+        <button class="btn btn-ghost btn-sm" type="button" data-close>關閉</button>
+      </div>
+      <form class="sheet-body" id="sheet-form">${body}</form>
+      <div class="sheet-foot">
+        ${extraFoot}
+        <button class="btn" type="button" data-close>${esc(closeLabel)}</button>
+        ${onConfirm ? `<button class="btn btn-primary" type="button" data-confirm>${esc(confirmLabel)}</button>` : ""}
+      </div>
+    </dialog>`;
+  document.body.appendChild(scrim);
+  activeDialog = scrim;
+
+  scrim.addEventListener("click", (e) => {
+    if (e.target === scrim || e.target.closest("[data-close]")) closeSheet();
+    if (e.target.closest("[data-confirm]")) {
+      const form = $("#sheet-form", scrim);
+      if (onConfirm(form, scrim) !== false) closeSheet();
+    }
+  });
+  $("#sheet-form", scrim).addEventListener("submit", (e) => {
+    e.preventDefault();
+    if (onConfirm && onConfirm($("#sheet-form", scrim), scrim) !== false) closeSheet();
+  });
+  if (onMount) onMount(scrim);
+  const first = scrim.querySelector("input, select, textarea");
+  if (first) first.focus();
+}
+
+function closeSheet() {
+  if (activeDialog) { activeDialog.remove(); activeDialog = null; }
+}
+document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeSheet(); });
+
+function confirmSheet(title, message, onYes, yesLabel = "確定") {
+  openSheet({
+    title,
+    body: `<p style="margin:0;color:var(--ink-2)">${message}</p>`,
+    confirmLabel: yesLabel,
+    onConfirm: () => { onYes(); },
+  });
+}
+
+/* ── 表單片段 ───────────────────────────────── */
+
+function fieldText(name, label, value = "", opts = {}) {
+  const { type = "text", hint = "", placeholder = "", required = false } = opts;
+  return `<div class="field">
+    <label for="f-${name}">${esc(label)}</label>
+    <input id="f-${name}" name="${name}" type="${type}" value="${esc(value)}"
+           placeholder="${esc(placeholder)}" ${required ? "required" : ""}
+           ${type === "number" ? 'inputmode="numeric"' : ""}>
+    ${hint ? `<span class="hint">${hint}</span>` : ""}
+  </div>`;
+}
+
+function fieldSelect(name, label, options, value, hint = "") {
+  return `<div class="field">
+    <label for="f-${name}">${esc(label)}</label>
+    <select id="f-${name}" name="${name}">
+      ${options.map(([v, t]) => `<option value="${esc(v)}" ${String(v) === String(value) ? "selected" : ""}>${esc(t)}</option>`).join("")}
+    </select>
+    ${hint ? `<span class="hint">${hint}</span>` : ""}
+  </div>`;
+}
+
+/**
+ * 課程時長：1 小時／1.5 小時／自訂。
+ * 選自訂才長出分鐘輸入框，選好的預設值不會被自訂欄位蓋掉。
+ */
+function durationPicker(minutes, name = "duration") {
+  const custom = !isPresetDuration(minutes);
+  return `<div class="field">
+    <label for="f-${name}">課程時長</label>
+    <select id="f-${name}" name="${name}" data-duration-select>
+      ${DURATIONS.map((m) => `<option value="${m}" ${!custom && m === minutes ? "selected" : ""}>${durationLabel(m)}</option>`).join("")}
+      <option value="custom" ${custom ? "selected" : ""}>自訂</option>
+    </select>
+    <div data-duration-custom style="${custom ? "" : "display:none"};margin-top:7px">
+      <div class="tier-add">
+        <input type="number" name="${name}Custom" min="${DURATION_MIN}" max="${DURATION_MAX}"
+               step="5" value="${custom ? minutes : 45}" inputmode="numeric" style="width:88px">
+        <span>分鐘</span>
+      </div>
+    </div>
+  </div>`;
+}
+
+function readDuration(form, name = "duration") {
+  const sel = form.elements[name].value;
+  if (sel !== "custom") return +sel;
+  return clampDuration(+form.elements[name + "Custom"].value);
+}
+
+function wireDurationPicker(root) {
+  const sel = $("[data-duration-select]", root);
+  if (!sel) return;
+  sel.addEventListener("change", () => {
+    $("[data-duration-custom]", root).style.display = sel.value === "custom" ? "" : "none";
+  });
+}
+
+function studentOptions(includeBlank = true, blankLabel = "（未選擇）") {
+  const opts = activeStudents().map((s) => [s.id, s.name || "（未命名）"]);
+  return includeBlank ? [["", blankLabel], ...opts] : opts;
+}
+
+/* 單色長條圖：類別靠列標籤辨識，不用顏色編碼，也就不需要圖例 */
+function barChart(rows, { unit = "位", total = null } = {}) {
+  if (!rows.length) return `<p class="empty">還沒有資料</p>`;
+  const max = Math.max(...rows.map((r) => r.count), 1);
+  const sum = total ?? rows.reduce((a, r) => a + r.count, 0);
+  return `<div class="bars">${rows.map((r) => `
+    <div class="bar-row">
+      <span class="bar-label" title="${esc(r.label)}">${esc(r.label)}</span>
+      <span class="bar-track"><span class="bar-fill" style="width:${(r.count / max * 100).toFixed(1)}%"></span></span>
+      <span class="bar-value">${r.count} ${unit}${sum ? `　${(r.count / sum * 100).toFixed(0)}%` : ""}</span>
+    </div>`).join("")}</div>`;
+}
+
+/* ── 使用說明與公告 ─────────────────────────── */
+
+/**
+ * 只認得說明文件用得到的那幾種語法：# ## 標題、**粗體**、- 與 1. 清單、段落。
+ * 目的是讓說明維持 Markdown 原文，之後整段搬到 App 或官網都不用改寫。
+ */
+function renderMarkdown(md) {
+  const inline = (s) => esc(s).replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
+  const out = [];
+  let list = null;
+  const closeList = () => { if (list) { out.push(`</${list}>`); list = null; } };
+
+  for (const raw of md.split("\n")) {
+    const line = raw.trim();
+    if (!line) { closeList(); continue; }
+    let m;
+    // 頁面已經有 h1，說明內的標題往下降一級
+    if ((m = /^#\s+(.*)$/.exec(line))) { closeList(); out.push(`<h2>${inline(m[1])}</h2>`); continue; }
+    if ((m = /^##\s+(.*)$/.exec(line))) { closeList(); out.push(`<h3>${inline(m[1])}</h3>`); continue; }
+    if ((m = /^-\s+(.*)$/.exec(line))) {
+      if (list !== "ul") { closeList(); out.push("<ul>"); list = "ul"; }
+      out.push(`<li>${inline(m[1])}</li>`); continue;
+    }
+    if ((m = /^\d+\.\s+(.*)$/.exec(line))) {
+      if (list !== "ol") { closeList(); out.push("<ol>"); list = "ol"; }
+      out.push(`<li>${inline(m[1])}</li>`); continue;
+    }
+    closeList();
+    out.push(`<p>${inline(line)}</p>`);
+  }
+  closeList();
+  return out.join("");
+}
+
+function guideSheet() {
+  openSheet({
+    title: "使用說明",
+    closeLabel: "看完了",
+    body: `<div class="guide">${renderMarkdown(GUIDE_MD)}</div>`,
+    extraFoot: `<button class="btn btn-sm" type="button" data-action="download-guide">${icon("download", 14)}下載說明</button>`,
+    onMount: (root) => {
+      root.addEventListener("click", (e) => {
+        if (e.target.closest('[data-action="download-guide"]')) saveFile("教練小幫手-使用說明.md", GUIDE_MD);
+      });
+    },
+  });
+}
+
+function dismissedNotice() {
+  try { return localStorage.getItem(NOTICE_KEY) || ""; } catch (e) { return ""; }
+}
+
+/**
+ * 早期打開過的人，手上還留著當時自動塞的示範學生。
+ * 用名字比對就夠判斷，不用另外存旗標（舊資料也沒有旗標可存）。
+ */
+function hasDemoData() {
+  return S.students.some((s) => DEMO_NAMES.includes(s.name));
+}
+
+function noticeBanner() {
+  if (!ANNOUNCEMENT || dismissedNotice() === ANNOUNCEMENT.id) return "";
+  return `
+    <div class="notice">
+      <div class="notice-body">
+        <div class="notice-title">${esc(ANNOUNCEMENT.title)}</div>
+        <p class="notice-text">${esc(ANNOUNCEMENT.body)}</p>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
+          ${hasDemoData()
+            ? `<button class="btn btn-sm btn-primary" type="button" data-action="wipe">清除示範資料</button>
+               <button class="btn btn-sm" type="button" data-action="open-guide">看使用說明</button>`
+            : `<button class="btn btn-sm btn-primary" type="button" data-action="open-guide">看使用說明</button>`}
+          <button class="btn btn-sm" type="button" data-action="dismiss-notice">知道了</button>
+        </div>
+      </div>
+    </div>`;
+}
+
+/**
+ * 存檔。有官方的存檔功能就優先用，沒有才退回瀏覽器自己的下載。
+ * iPhone 上的下載不一定會成功，所以另外還提供「複製備份文字」那條路。
+ */
+async function saveFile(filename, text) {
+  const dl = window.claude && window.claude.downloads;
+  if (dl) {
+    try {
+      await dl.save({ filename, data: text });
+      toast("已存好檔案");
+      return;
+    } catch (err) {
+      const code = err && err.code;
+      if (code === "declined") { toast("已取消"); return; }
+      if (code === "too_large") { toast("資料太大存不下來，請先清掉一些舊資料"); return; }
+      if (code === "rate_limited") { toast("剛剛才存過，等幾秒再試一次"); return; }
+      // 其他情況（這個環境不支援之類的）就走下面的備援
+    }
+  }
+  try {
+    const blob = new Blob([text], { type: "application/octet-stream" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    toast("已下載檔案");
+  } catch (e) {
+    toast("這個瀏覽器擋住了下載，請換 Safari 或 Chrome 再試");
+  }
+}
+
+function tile({ value, unit = "", label, note = "", iconName = "clock", color = "var(--gold)", action = "" }) {
+  const tag = action ? "button" : "div";
+  return `<${tag} class="tile" style="--tile-color:${color}" ${action ? `type="button" data-action="${action}"` : ""}>
+    <span class="tile-icon">${icon(iconName, 19)}</span>
+    <span class="tile-value">${esc(value)}${unit ? `<span class="tile-unit">${esc(unit)}</span>` : ""}</span>
+    <span class="tile-label">${esc(label)}</span>
+    <span class="tile-note">${esc(note)}</span>
+  </${tag}>`;
+}
+
+/* ════════════════════════════════════════════════
+   5. 各頁面
+   ════════════════════════════════════════════════ */
+
+function render() {
+  applyTheme();
+  renderNav();
+  const view = $("#view");
+  view.innerHTML = noticeBanner() + ({
+    dashboard: viewDashboard,
+    students: viewStudents,
+    calendar: viewCalendar,
+    payments: viewPayments,
+    analysis: viewAnalysis,
+    settings: viewSettings,
+  })[tab]();
+  view.scrollTop = 0;
+}
+
+/* ── 總覽 ───────────────────────────────────── */
+
+function viewDashboard() {
+  // 完全空白的第一次：與其給四個 0，不如講清楚這是什麼、資料在哪、從哪開始
+  if (!S.students.length && !S.lessons.length && !S.leads.length) return welcomeView();
+
+  const weekStart = startOfWeek(new Date());
+  const weekDays = [...Array(7)].map((_, i) => dayStr(addDays(weekStart, i)));
+  const weekLessons = S.lessons.filter((l) => weekDays.includes(l.date) && l.status !== "cancelled");
+  const upcoming = S.lessons.filter((l) => l.status === "scheduled" && l.date >= today());
+  const students = activeStudents();
+  const ym = thisMonth();
+  const revenue = monthRevenue(ym);
+  const collected = allPayments().filter((p) => (p.date || "").startsWith(ym));
+  const isCompany = S.settings.employment === "company";
+  const sal = isCompany ? salaryFor(ym) : null;
+
+  const todays = S.lessons.filter((l) => l.date === today())
+    .sort((a, b) => minutesOf(a.start) - minutesOf(b.start));
+
+  const expiring = students.filter((s) => s.remaining > 0 && s.remaining <= 3)
+    .sort((a, b) => a.remaining - b.remaining);
+
+  const conv = conversionStats(ym);
+
+  return `
+    <div class="page-head">
+      <div>
+        <h1 class="page-title">總覽</h1>
+        <p class="page-sub">${esc(new Date().toLocaleDateString("zh-TW", { month: "long", day: "numeric", weekday: "long" }))}</p>
+      </div>
+      <div class="head-actions">
+        <button class="btn" type="button" data-action="refresh-all">${icon("refresh", 15)}刷新</button>
+        <button class="btn btn-primary" type="button" data-action="new-lesson">${icon("plus", 15)}排課</button>
+      </div>
+    </div>
+
+    <div class="stack">
+      <div class="tiles">
+        ${tile({ value: weekLessons.length, unit: "堂", label: "本週課堂", iconName: "clock", color: "var(--info)",
+                 note: `已上 ${weekLessons.filter((l) => CONSUMING.includes(l.status)).length} 堂` })}
+        ${tile({ value: money(isCompany ? sal.total : revenue), label: isCompany ? "本月實拿" : "本月收入",
+                 iconName: "money", color: "var(--good)",
+                 note: isCompany ? `鐘點 ${sal.pct}%・${sal.sessions} 堂` : `${collected.length} 筆收費` })}
+        ${tile({ value: students.length, unit: "位", label: "學生總數", iconName: "people", color: "var(--gold)",
+                 note: `${students.filter((s) => s.remaining > 0).length} 位還有堂數` })}
+        ${tile({ value: upcoming.length, unit: "堂", label: "待上課程", iconName: "upcoming", color: "var(--warn)",
+                 note: upcoming.length ? `最近 ${esc(upcoming.map((l) => l.date).sort()[0])}` : "目前沒有排課" })}
+      </div>
+
+      <section class="card">
+        <div class="sec-head">
+          <h2 class="sec-title">今天的課</h2>
+          <span class="sec-sub">${todays.length ? `${todays.length} 堂` : "空堂"}</span>
+        </div>
+        ${todays.length ? todays.map(lessonRow).join("") :
+          `<p class="empty">今天沒有排課，休息一下。</p>`}
+      </section>
+
+      <div class="grid-2">
+        <section class="card">
+          <div class="sec-head">
+            <h2 class="sec-title">堂數快用完</h2>
+            <span class="sec-sub">剩 3 堂以內</span>
+          </div>
+          ${expiring.length ? expiring.map((s) => `
+            <div class="row">
+              <span class="dot" style="background:${esc(s.color)}"></span>
+              <div class="row-main">
+                <div class="row-title">${esc(s.name)}</div>
+                <div class="row-sub">已上 ${attendedCount(s.id)} 堂${s.expiry ? `・${esc(s.expiry)} 到期` : ""}</div>
+              </div>
+              <div class="row-end">
+                <span class="pill ${s.remaining <= 1 ? "pill-crit" : "pill-warn"}">剩 ${s.remaining} 堂</span>
+              </div>
+            </div>`).join("") : `<p class="empty">沒有人快用完堂數。</p>`}
+        </section>
+
+        <section class="card">
+          <div class="sec-head">
+            <h2 class="sec-title">成交率</h2>
+            <span class="sec-sub">${conv.total ? `${conv.converted} / ${conv.total} 筆名單` : "還沒有名單"}</span>
+          </div>
+          ${conv.total ? `
+            <div class="tiles" style="grid-template-columns:1fr 1fr">
+              ${tile({ value: conv.rate === null ? "—" : conv.rate.toFixed(0) + "%", label: "累計成交率",
+                       iconName: "target", color: "var(--gold)", note: `${conv.converted} / ${conv.total} 筆` })}
+              ${tile({ value: conv.monthRate === null ? "—" : conv.monthRate.toFixed(0) + "%", label: "本月成交率",
+                       iconName: "target", color: "var(--good)",
+                       note: conv.addedThisMonth ? `${conv.convertedThisMonth} / ${conv.addedThisMonth} 筆` : "本月沒有新名單" })}
+            </div>
+            <p class="row-sub" style="margin-top:10px">還有 ${conv.open} 位待追蹤，明細在「分析」頁。</p>
+          ` : `<p class="empty">到「分析」頁新增潛在客群，成交率就會自動算出來。</p>`}
+        </section>
+      </div>
+    </div>`;
+}
+
+function welcomeView() {
+  return `
+    <div class="page-head">
+      <div>
+        <h1 class="page-title">教練小幫手</h1>
+        <p class="page-sub">學生、課表、收費、客群分析，一個地方管完</p>
+      </div>
+    </div>
+
+    <div class="stack">
+      <section class="card">
+        <div class="note-box" style="margin-bottom:16px">
+          這份資料<strong>只存在你自己的瀏覽器裡</strong>，其他教練看不到，你也看不到別人的。
+          從新增第一位學生開始就可以了。
+        </div>
+
+        <div class="sec-head"><h2 class="sec-title">先做這三件事</h2></div>
+        <div class="row">
+          <span class="mono" style="width:22px;height:22px;border-radius:50%;display:grid;place-items:center;
+            font-size:11px;font-weight:700;background:var(--gold);color:var(--on-gold);flex:none">1</span>
+          <div class="row-main">
+            <div class="row-title">新增你的學生</div>
+            <div class="row-sub">姓名、每堂費用、購買與剩餘堂數。自訂欄位（性別、職業、生日…）填了才會進客群分析</div>
+          </div>
+          <div class="row-end"><button class="btn btn-sm btn-primary" type="button" data-action="new-student">新增學生</button></div>
+        </div>
+        <div class="row">
+          <span class="mono" style="width:22px;height:22px;border-radius:50%;display:grid;place-items:center;
+            font-size:11px;font-weight:700;background:var(--surface-2);color:var(--muted);flex:none">2</span>
+          <div class="row-main">
+            <div class="row-title">排課</div>
+            <div class="row-sub">1 小時／1.5 小時／自訂時長，可以固定每週重複。課上完標「已出席」就自動扣一堂</div>
+          </div>
+          <div class="row-end"><button class="btn btn-sm" type="button" data-action="goto" data-value="calendar">去課表</button></div>
+        </div>
+        <div class="row">
+          <span class="mono" style="width:22px;height:22px;border-radius:50%;display:grid;place-items:center;
+            font-size:11px;font-weight:700;background:var(--surface-2);color:var(--muted);flex:none">3</span>
+          <div class="row-main">
+            <div class="row-title">設定你的計薪方式</div>
+            <div class="row-sub">自己接案就收多少算多少；公司教練可以設抽成級距與業績獎金，收費頁會幫你試算實拿</div>
+          </div>
+          <div class="row-end"><button class="btn btn-sm" type="button" data-action="goto" data-value="settings">去設定</button></div>
+        </div>
+      </section>
+
+      <div class="grid-2">
+        <section class="card">
+          <div class="sec-head"><h2 class="sec-title">想先看看長什麼樣子？</h2></div>
+          <p class="row-sub" style="margin:0 0 12px">
+            載入一份示範資料（8 位學生、約 60 堂課、7 筆名單），把各頁面逛過一輪。
+            隨時可以在設定頁清掉，換成你自己的。
+          </p>
+          <button class="btn" type="button" data-action="seed">${icon("refresh", 15)}載入示範資料</button>
+        </section>
+
+        <section class="card">
+          <div class="sec-head"><h2 class="sec-title">資料會留著嗎？</h2></div>
+          <p class="row-sub" style="margin:0 0 12px">
+            會。關掉再打開、隔天再來都還在，因為它存在這台裝置的這個瀏覽器裡。
+            但清除瀏覽器資料、換手機、用無痕模式就會不見，
+            iPhone 的 Safari 還會在你很久沒打開時自動清掉。
+            說明裡寫了兩個防止資料消失的做法，花兩分鐘設定好就沒事了。
+          </p>
+          <button class="btn btn-primary" type="button" data-action="open-guide">看使用說明</button>
+        </section>
+      </div>
+    </div>`;
+}
+
+function lessonRow(l) {
+  const st = studentById(l.studentId);
+  const partner = studentById(l.partnerId);
+  const meta = LESSON_STATUS[l.status] || LESSON_STATUS.scheduled;
+  const names = [st?.name, partner?.name].filter(Boolean).join("＋") || "（未指定學生）";
+  return `
+    <div class="row">
+      <span class="dot" style="background:${esc(st?.color || "var(--muted)")}"></span>
+      <div class="row-main">
+        <div class="row-title">${esc(names)} <span class="pill ${meta.pill}">${meta.label}</span></div>
+        <div class="row-sub mono">${esc(l.start)}–${esc(l.end)}　${durationLabel(durationOf(l))}${l.location ? "　" + esc(l.location) : ""}</div>
+      </div>
+      <div class="row-end">
+        <button class="btn btn-sm" type="button" data-action="edit-lesson" data-id="${l.id}">編輯</button>
+      </div>
+    </div>`;
+}
+
+/* ── 學生 ───────────────────────────────────── */
+
+let studentFilter = "active";
+
+function viewStudents() {
+  const all = S.students;
+  const list = all.filter((s) => {
+    if (studentFilter === "active") return s.status === "active";
+    if (studentFilter === "archived") return s.status === "archived";
+    return true;
+  }).sort((a, b) => (a.name || "").localeCompare(b.name || "", "zh-Hant"));
+
+  return `
+    <div class="page-head">
+      <div>
+        <h1 class="page-title">學生</h1>
+        <p class="page-sub">在檔 ${all.filter(onRoster).length} 位・封存 ${all.filter((s) => s.status === "archived").length} 位</p>
+      </div>
+      <div class="head-actions">
+        <button class="btn btn-primary" type="button" data-action="new-student">${icon("plus", 15)}新增學生</button>
+      </div>
+    </div>
+
+    <div class="stack">
+      <div class="seg" style="max-width:320px">
+        ${[["active", "在檔"], ["archived", "封存"], ["all", "全部"]].map(([v, t]) =>
+          `<button type="button" data-action="student-filter" data-value="${v}" aria-pressed="${studentFilter === v}">${t}</button>`).join("")}
+      </div>
+
+      <section class="card">
+        ${list.length ? list.map((s) => {
+          const att = attendedCount(s.id);
+          const paid = s.payments.reduce((a, p) => a + p.amount, 0);
+          return `
+          <div class="row">
+            <span class="dot" style="background:${esc(s.color)}"></span>
+            <div class="row-main">
+              <div class="row-title">
+                ${esc(s.name || "（未命名）")}
+                ${s.status === "archived" ? '<span class="pill pill-mute">封存</span>' : ""}
+                ${s.mayNotRenew ? '<span class="pill pill-warn">可能不續約</span>' : ""}
+              </div>
+              <div class="row-sub">已上 ${att} 堂・累計收費 ${money(paid)}${s.phone ? "・" + esc(s.phone) : ""}</div>
+            </div>
+            <div class="row-end">
+              <div class="mono" style="font-weight:600">${s.remaining}<span class="muted" style="font-size:12px"> / ${s.totalPurchased} 堂</span></div>
+              <div style="display:flex;gap:6px;justify-content:flex-end;margin-top:5px">
+                <button class="btn btn-sm" type="button" data-action="renew" data-id="${s.id}">續約</button>
+                <button class="btn btn-sm" type="button" data-action="edit-student" data-id="${s.id}">編輯</button>
+              </div>
+            </div>
+          </div>`;
+        }).join("") : `<p class="empty">還沒有學生。點右上角「新增學生」開始。</p>`}
+      </section>
+    </div>`;
+}
+
+function studentSheet(existing) {
+  const s = existing || newStudent();
+  const fields = S.settings.customFields;
+  openSheet({
+    title: existing ? "編輯學生" : "新增學生",
+    body: `
+      ${fieldText("name", "姓名", s.name, { required: true, placeholder: "王小明" })}
+      <div class="field-row">
+        ${fieldText("phone", "電話", s.phone, { type: "tel" })}
+        ${fieldText("rate", "每堂費用", s.rate || "", { type: "number", hint: "算收入與抽成用" })}
+      </div>
+      <div class="field-row">
+        ${fieldText("totalPurchased", "購買堂數", s.totalPurchased || 0, { type: "number" })}
+        ${fieldText("remaining", "剩餘堂數", s.remaining || 0, { type: "number" })}
+      </div>
+      <div class="field-row">
+        ${fieldText("expiry", "方案到期日", s.expiry, { type: "date" })}
+        ${fieldSelect("acquisition", "客戶來源", Object.entries(ACQUISITION), s.acquisition)}
+      </div>
+      ${fieldSelect("status", "狀態", [["active", "在檔"], ["paused", "暫停"], ["archived", "封存"]], s.status)}
+      <div class="switch">
+        <label for="f-mayNotRenew">標記為可能不續約</label>
+        <input id="f-mayNotRenew" name="mayNotRenew" type="checkbox" ${s.mayNotRenew ? "checked" : ""}>
+      </div>
+      <div class="divider"></div>
+      <p class="hint" style="margin:0 0 10px">自訂欄位（填了才會出現在客群分析）</p>
+      ${fields.map((f) => fieldText("cf_" + f, f, s.custom?.[f] || "",
+          { type: f === "生日" ? "date" : "text" })).join("")}
+      ${fields.length ? "" : `<p class="hint">還沒有自訂欄位，可以到「設定」新增。</p>`}
+      <div class="field">
+        <label for="f-notes">備註</label>
+        <textarea id="f-notes" name="notes">${esc(s.notes)}</textarea>
+      </div>`,
+    extraFoot: existing ? `<button class="btn btn-danger btn-sm" type="button" data-action="delete-student" data-id="${s.id}">刪除</button>` : "",
+    onConfirm: (form) => {
+      const name = form.elements.name.value.trim();
+      if (!name) { toast("請填學生姓名"); return false; }
+      s.name = name;
+      s.phone = form.elements.phone.value.trim();
+      s.rate = +form.elements.rate.value || 0;
+      s.totalPurchased = Math.max(0, +form.elements.totalPurchased.value || 0);
+      s.remaining = Math.max(0, +form.elements.remaining.value || 0);
+      s.expiry = form.elements.expiry.value;
+      s.acquisition = form.elements.acquisition.value;
+      s.status = form.elements.status.value;
+      s.mayNotRenew = form.elements.mayNotRenew.checked;
+      s.notes = form.elements.notes.value;
+      s.custom = { ...s.custom };
+      for (const f of fields) {
+        const v = form.elements["cf_" + f].value.trim();
+        if (v) s.custom[f] = v; else delete s.custom[f];
+      }
+      s.updatedAt = new Date().toISOString();
+      if (!existing) S.students.push(s);
+      save(); render();
+      toast(existing ? "已更新學生資料" : `已新增 ${s.name}`);
+    },
+    onMount: (root) => {
+      root.addEventListener("click", (e) => {
+        const del = e.target.closest('[data-action="delete-student"]');
+        if (!del) return;
+        closeSheet();
+        confirmSheet("刪除學生", `會一併刪掉 ${esc(s.name)} 的課程與收費紀錄，無法復原。`, () => {
+          S.lessons = S.lessons.filter((l) => l.studentId !== s.id && l.partnerId !== s.id);
+          S.students = S.students.filter((x) => x.id !== s.id);
+          save(); render(); toast("已刪除");
+        }, "刪除");
+      });
+    },
+  });
+}
+
+function renewSheet(student) {
+  const packages = S.settings.packages;
+  openSheet({
+    title: `續約 · ${student.name}`,
+    body: `
+      <div class="note-box" style="margin-bottom:14px">
+        目前剩 <strong class="mono">${student.remaining}</strong> 堂，累計購買 <strong class="mono">${student.totalPurchased}</strong> 堂。
+      </div>
+      ${packages.length ? fieldSelect("pkg", "選擇方案",
+        [["", "自己填"], ...packages.map((p) => [p.id, `${p.name}・${p.sessions} 堂・${money(p.price)}`])], "") : ""}
+      <div class="field-row">
+        ${fieldText("sessions", "加購堂數", 10, { type: "number", required: true })}
+        ${fieldText("amount", "金額", "", { type: "number" })}
+      </div>
+      <div class="field-row">
+        ${fieldText("date", "日期", today(), { type: "date" })}
+        ${fieldSelect("method", "付款方式", [["cash", "現金"], ["transfer", "轉帳"], ["other", "其他"]], "cash")}
+      </div>
+      ${fieldText("expiry", "新的到期日", student.expiry, { type: "date", hint: "留白就不改" })}
+      ${fieldText("notes", "備註", "")}`,
+    confirmLabel: "確認續約",
+    onConfirm: (form) => {
+      const sessions = +form.elements.sessions.value || 0;
+      const amount = +form.elements.amount.value || 0;
+      if (sessions <= 0) { toast("加購堂數要大於 0"); return false; }
+      const date = form.elements.date.value || today();
+      student.totalPurchased += sessions;
+      student.remaining += sessions;
+      student.renewalCount += 1;
+      if (form.elements.expiry.value) student.expiry = form.elements.expiry.value;
+      student.renewals.push({ id: uid(), date, sessions, amount, notes: form.elements.notes.value, createdAt: new Date().toISOString() });
+      if (amount > 0) {
+        student.payments.push({
+          id: uid(), amount, date, method: form.elements.method.value,
+          notes: form.elements.notes.value || `續約 ${sessions} 堂`, createdAt: new Date().toISOString(),
+        });
+      }
+      student.updatedAt = new Date().toISOString();
+      save(); render();
+      toast(`${student.name} 續約 ${sessions} 堂`);
+    },
+    onMount: (root) => {
+      const pkg = root.querySelector('[name="pkg"]');
+      if (!pkg) return;
+      pkg.addEventListener("change", () => {
+        const p = packages.find((x) => x.id === pkg.value);
+        if (!p) return;
+        root.querySelector('[name="sessions"]').value = p.sessions;
+        root.querySelector('[name="amount"]').value = p.price;
+      });
+    },
+  });
+}
+
+/* ── 課表 ───────────────────────────────────── */
+
+function viewCalendar() {
+  const anchor = parseDay(weekAnchor) || new Date();
+  const start = startOfWeek(anchor);
+  const days = [...Array(7)].map((_, i) => addDays(start, i));
+  const dayLessons = S.lessons.filter((l) => l.date === selectedDate)
+    .sort((a, b) => minutesOf(a.start) - minutesOf(b.start));
+  const sel = parseDay(selectedDate);
+
+  return `
+    <div class="page-head">
+      <div>
+        <h1 class="page-title">課表</h1>
+        <p class="page-sub">${esc(dayStr(days[0]))} ～ ${esc(dayStr(days[6]))}</p>
+      </div>
+      <div class="head-actions">
+        <button class="btn" type="button" data-action="cal-refresh">${icon("refresh", 15)}刷新</button>
+        <button class="btn btn-primary" type="button" data-action="new-lesson">${icon("plus", 15)}排課</button>
+      </div>
+    </div>
+
+    <div class="stack">
+      <section class="card">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px">
+          <button class="btn btn-sm btn-ghost" type="button" data-action="week" data-value="-1">← 上一週</button>
+          <button class="btn btn-sm" type="button" data-action="week" data-value="0">今天</button>
+          <button class="btn btn-sm btn-ghost" type="button" data-action="week" data-value="1">下一週 →</button>
+        </div>
+        <div class="week">
+          ${days.map((d) => {
+            const ds = dayStr(d);
+            const count = S.lessons.filter((l) => l.date === ds && l.status !== "cancelled").length;
+            return `<button class="day ${ds === today() ? "today" : ""}" type="button"
+                      data-action="pick-day" data-value="${ds}" aria-pressed="${ds === selectedDate}">
+              <span class="day-name">${weekdayName(d)}</span>
+              <span class="day-num">${d.getDate()}</span>
+              <span class="day-dot ${count ? "" : "hidden"}"></span>
+            </button>`;
+          }).join("")}
+        </div>
+      </section>
+
+      <section class="card">
+        <div class="sec-head">
+          <h2 class="sec-title">${esc(selectedDate)}　週${sel ? weekdayName(sel) : ""}</h2>
+          <span class="sec-sub">${dayLessons.length ? `${dayLessons.length} 堂` : "空堂"}</span>
+        </div>
+        ${dayLessons.length ? dayLessons.map((l) => {
+          const st = studentById(l.studentId);
+          const partner = studentById(l.partnerId);
+          const meta = LESSON_STATUS[l.status] || LESSON_STATUS.scheduled;
+          const names = [st?.name, partner?.name].filter(Boolean).join("＋") || "（未指定學生）";
+          return `
+          <div class="row">
+            <span class="dot" style="background:${esc(st?.color || "var(--muted)")}"></span>
+            <div class="row-main">
+              <div class="row-title">${esc(names)} <span class="pill ${meta.pill}">${meta.label}</span></div>
+              <div class="row-sub mono">${esc(l.start)}–${esc(l.end)}　${durationLabel(durationOf(l))}${l.location ? "　" + esc(l.location) : ""}</div>
+              ${l.notes ? `<div class="row-sub">${esc(l.notes)}</div>` : ""}
+            </div>
+            <div class="row-end" style="display:flex;align-items:center;gap:6px">
+              <select data-action="lesson-status" data-id="${l.id}" aria-label="課程狀態"
+                      style="width:auto;padding:4px 8px;font-size:12.5px">
+                ${Object.entries(LESSON_STATUS).map(([k, v]) =>
+                  `<option value="${k}" ${l.status === k ? "selected" : ""}>${v.label}</option>`).join("")}
+              </select>
+              <button class="btn btn-sm" type="button" data-action="edit-lesson" data-id="${l.id}">編輯</button>
+            </div>
+          </div>`;
+        }).join("") : `<p class="empty">這天沒有課。點右上角「排課」新增。</p>`}
+      </section>
+    </div>`;
+}
+
+function lessonSheet(existing) {
+  const l = existing || {
+    id: uid(), date: selectedDate, start: "09:00",
+    end: timeOf(minutesOf("09:00") + S.settings.defaultDuration),
+    status: "scheduled", notes: "", location: "",
+    studentId: activeStudents()[0]?.id || "", partnerId: "",
+    consumed: false, partnerConsumed: false, createdAt: new Date().toISOString(),
+  };
+  const dur = durationOf(l) || S.settings.defaultDuration;
+
+  if (!activeStudents().length) {
+    toast("請先新增至少一位學生");
+    return;
+  }
+
+  openSheet({
+    title: existing ? "課程詳情" : "新增課程",
+    body: `
+      ${fieldSelect("studentId", "學生", studentOptions(false), l.studentId)}
+      ${fieldSelect("partnerId", "共同課第二位", studentOptions(true, "（沒有，一對一）"), l.partnerId)}
+      <div class="field-row">
+        ${fieldText("date", "日期", l.date, { type: "date" })}
+        ${fieldText("start", "開始時間", l.start, { type: "time" })}
+      </div>
+      ${durationPicker(dur)}
+      ${existing ? fieldSelect("status", "狀態", Object.entries(LESSON_STATUS).map(([k, v]) => [k, v.label]), l.status) : ""}
+      ${fieldText("location", "上課地點", l.location, { placeholder: "選填" })}
+      ${fieldText("notes", "備註", l.notes)}
+      ${existing ? "" : `
+        <div class="divider"></div>
+        <div class="field-row">
+          ${fieldSelect("repeat", "重複排課", [["1", "只排這一天"], ["4", "每週同一天，共 4 週"], ["8", "每週同一天，共 8 週"], ["12", "每週同一天，共 12 週"]], "1")}
+        </div>`}`,
+    extraFoot: existing ? `<button class="btn btn-danger btn-sm" type="button" data-action="delete-lesson" data-id="${l.id}">刪除</button>` : "",
+    onConfirm: (form) => {
+      const date = form.elements.date.value || today();
+      const start = form.elements.start.value || "09:00";
+      const minutes = readDuration(form);
+      const end = timeOf(minutesOf(start) + minutes);
+      const studentId = form.elements.studentId.value;
+      const partnerId = form.elements.partnerId.value;
+      if (partnerId && partnerId === studentId) { toast("共同課的兩位不能是同一人"); return false; }
+
+      const repeat = existing ? 1 : +form.elements.repeat.value || 1;
+      const made = [];
+      for (let i = 0; i < repeat; i++) {
+        const d = dayStr(addDays(parseDay(date), i * 7));
+        const clash = S.lessons.find((x) =>
+          x.id !== l.id && x.date === d && x.status !== "cancelled" &&
+          minutesOf(x.start) < minutesOf(end) && minutesOf(start) < minutesOf(x.end) &&
+          [x.studentId, x.partnerId].some((id) => id && [studentId, partnerId].includes(id)));
+        if (clash) {
+          toast(`${d} ${clash.start}-${clash.end} 已經有課，時段重疊`);
+          return false;
+        }
+        made.push(d);
+      }
+
+      if (existing) {
+        Object.assign(l, { date, start, end, location: form.elements.location.value.trim(),
+                           notes: form.elements.notes.value, studentId, partnerId });
+        const newStatus = form.elements.status.value;
+        if (newStatus !== l.status) setLessonStatus(l, newStatus);
+      } else {
+        for (const d of made) {
+          S.lessons.push({ ...l, id: uid(), date: d, start, end,
+                           location: form.elements.location.value.trim(),
+                           notes: form.elements.notes.value, studentId, partnerId });
+        }
+      }
+      save(); render();
+      toast(existing ? "已更新課程" : `已排 ${made.length} 堂課`);
+    },
+    onMount: (root) => {
+      wireDurationPicker(root);
+      root.addEventListener("click", (e) => {
+        if (!e.target.closest('[data-action="delete-lesson"]')) return;
+        closeSheet();
+        confirmSheet("刪除課程", "已扣掉的堂數會還給學生。", () => {
+          releaseLesson(l);
+          S.lessons = S.lessons.filter((x) => x.id !== l.id);
+          save(); render(); toast("已刪除課程");
+        }, "刪除");
+      });
+    },
+  });
+}
+
+/* ── 收費 ───────────────────────────────────── */
+
+function viewPayments() {
+  const ym = thisMonth();
+  const rows = allPayments().sort((a, b) => (b.date || "").localeCompare(a.date || ""));
+  const monthRows = rows.filter((p) => (p.date || "").startsWith(ym));
+  const isCompany = S.settings.employment === "company";
+  const sal = isCompany ? salaryFor(ym) : null;
+
+  return `
+    <div class="page-head">
+      <div>
+        <h1 class="page-title">收費</h1>
+        <p class="page-sub">${ym}　本月 ${monthRows.length} 筆</p>
+      </div>
+      <div class="head-actions">
+        <button class="btn btn-primary" type="button" data-action="new-payment">${icon("plus", 15)}新增收費</button>
+      </div>
+    </div>
+
+    <div class="stack">
+      <div class="tiles">
+        ${tile({ value: money(monthRevenue(ym)), label: "本月收到", iconName: "money", color: "var(--good)",
+                 note: `${monthRows.length} 筆` })}
+        ${tile({ value: money(rows.reduce((a, p) => a + p.amount, 0)), label: "累計收入", iconName: "money",
+                 color: "var(--gold)", note: `${rows.length} 筆` })}
+        ${isCompany
+          ? tile({ value: money(sal.total), label: "本月實拿", iconName: "target", color: "var(--info)",
+                   note: `底薪 ${money(sal.baseSalary || S.settings.salary.baseSalary)}` })
+          : tile({ value: money(S.students.reduce((a, s) => a + s.remaining * (s.rate || 0), 0)),
+                   label: "未上課的預收", iconName: "clock", color: "var(--info)", note: "剩餘堂數 × 鐘點" })}
+      </div>
+
+      ${isCompany ? `
+      <section class="card">
+        <div class="sec-head">
+          <h2 class="sec-title">本月薪資試算</h2>
+          <span class="sec-sub">依「設定 → 薪資規則」計算</span>
+        </div>
+        <div class="row"><div class="row-main">上課堂數</div><div class="row-end mono">${sal.sessions} 堂</div></div>
+        <div class="row"><div class="row-main">課程收入</div><div class="row-end mono">${money(sal.lessonRevenue)}</div></div>
+        <div class="row"><div class="row-main">適用抽成</div><div class="row-end mono">${sal.pct}%</div></div>
+        <div class="row"><div class="row-main">鐘點抽成</div><div class="row-end mono">${money(sal.lessonPay)}</div></div>
+        ${sal.salesBonus ? `<div class="row"><div class="row-main">業績獎金</div><div class="row-end mono">${money(sal.salesBonus)}</div></div>` : ""}
+        <div class="row"><div class="row-main">底薪</div><div class="row-end mono">${money(S.settings.salary.baseSalary)}</div></div>
+        <div class="row"><div class="row-main" style="font-weight:650">實拿合計</div>
+          <div class="row-end mono" style="font-weight:700;color:var(--gold)">${money(sal.total)}</div></div>
+      </section>` : ""}
+
+      <section class="card">
+        <div class="sec-head">
+          <h2 class="sec-title">收費紀錄</h2>
+          <span class="sec-sub">${rows.length} 筆</span>
+        </div>
+        ${rows.length ? rows.map((p) => {
+          const st = studentById(p.studentId);
+          const method = { cash: "現金", transfer: "轉帳", other: "其他" }[p.method] || "其他";
+          return `
+          <div class="row">
+            <span class="dot" style="background:${esc(st?.color || "var(--muted)")}"></span>
+            <div class="row-main">
+              <div class="row-title">${esc(st?.name || "（已刪除的學生）")}</div>
+              <div class="row-sub mono">${esc(p.date)}　${method}${p.notes ? "　" + esc(p.notes) : ""}</div>
+            </div>
+            <div class="row-end">
+              <span class="mono" style="font-weight:600">${money(p.amount)}</span>
+              <div style="margin-top:5px">
+                <button class="btn btn-sm btn-ghost" type="button" data-action="delete-payment"
+                        data-id="${p.id}" data-student="${p.studentId}">刪除</button>
+              </div>
+            </div>
+          </div>`;
+        }).join("") : `<p class="empty">還沒有收費紀錄。</p>`}
+      </section>
+    </div>`;
+}
+
+function paymentSheet() {
+  if (!activeStudents().length) { toast("請先新增至少一位學生"); return; }
+  openSheet({
+    title: "新增收費",
+    body: `
+      ${fieldSelect("studentId", "學生", studentOptions(false), activeStudents()[0].id)}
+      <div class="field-row">
+        ${fieldText("amount", "金額", "", { type: "number", required: true })}
+        ${fieldText("date", "日期", today(), { type: "date" })}
+      </div>
+      ${fieldSelect("method", "付款方式", [["cash", "現金"], ["transfer", "轉帳"], ["other", "其他"]], "cash")}
+      ${fieldText("notes", "備註", "")}`,
+    onConfirm: (form) => {
+      const amount = +form.elements.amount.value || 0;
+      if (amount <= 0) { toast("金額要大於 0"); return false; }
+      const st = studentById(form.elements.studentId.value);
+      if (!st) return false;
+      st.payments.push({
+        id: uid(), amount, date: form.elements.date.value || today(),
+        method: form.elements.method.value, notes: form.elements.notes.value,
+        createdAt: new Date().toISOString(),
+      });
+      save(); render(); toast(`已記錄 ${money(amount)}`);
+    },
+  });
+}
+
+/* ── 分析 ───────────────────────────────────── */
+
+function viewAnalysis() {
+  const students = activeStudents();
+  const conv = conversionStats();
+  const dists = customFieldDistributions();
+
+  const ageRows = AGE_GROUPS.map(([label, lo, hi]) => ({
+    label,
+    count: students.filter((s) => { const a = ageOf(s); return a !== null && a >= lo && a <= hi; }).length,
+  })).filter((r) => r.count > 0);
+
+  const topAttend = students.map((s) => ({ s, v: attendedCount(s.id) }))
+    .filter((r) => r.v > 0).sort((a, b) => b.v - a.v).slice(0, 5);
+  const topSpend = students.map((s) => ({ s, v: s.payments.reduce((a, p) => a + p.amount, 0) }))
+    .filter((r) => r.v > 0).sort((a, b) => b.v - a.v).slice(0, 5);
+
+  const openLeads = S.leads.filter((l) => l.status !== "converted");
+  const totalRevenue = allPayments().reduce((a, p) => a + p.amount, 0);
+  const avgSessions = students.length
+    ? students.reduce((a, s) => a + s.totalPurchased, 0) / students.length : 0;
+
+  return `
+    <div class="page-head">
+      <div>
+        <h1 class="page-title">分析</h1>
+        <p class="page-sub">在檔 ${students.length} 位學生・${S.leads.length} 筆名單</p>
+      </div>
+      <div class="head-actions">
+        <button class="btn btn-primary" type="button" data-action="new-lead">${icon("plus", 15)}新增名單</button>
+      </div>
+    </div>
+
+    <div class="stack">
+      <section class="card">
+        <div class="sec-head">
+          <h2 class="sec-title">成交率</h2>
+          <span class="sec-sub">${conv.total ? `累計 ${conv.total} 筆名單・成交 ${conv.converted} 位` : "還沒有名單可以算"}</span>
+        </div>
+        ${conv.total ? `
+          <div class="tiles">
+            ${tile({ value: conv.rate === null ? "—" : conv.rate.toFixed(0) + "%", label: "累計成交率",
+                     iconName: "target", color: "var(--gold)", note: `${conv.converted} / ${conv.total} 筆` })}
+            ${tile({ value: conv.monthRate === null ? "—" : conv.monthRate.toFixed(0) + "%", label: "本月成交率",
+                     iconName: "target", color: "var(--good)",
+                     note: conv.addedThisMonth ? `${conv.convertedThisMonth} / ${conv.addedThisMonth} 筆` : "本月沒有新名單" })}
+            ${tile({ value: conv.open, unit: "位", label: "還在追", iconName: "people", color: "var(--warn)",
+                     note: "尚未轉正式" })}
+          </div>
+          ${conv.bySource.length > 1 ? `
+            <div style="margin-top:14px">
+              <p class="sec-sub" style="margin:0 0 9px">各來源成交率</p>
+              <div class="bars">
+                ${conv.bySource.map((r) => `
+                  <div class="bar-row">
+                    <span class="bar-label">${esc(r.label)}</span>
+                    <span class="bar-track"><span class="bar-fill" style="width:${(r.converted / r.total * 100).toFixed(1)}%"></span></span>
+                    <span class="bar-value">${(r.converted / r.total * 100).toFixed(0)}%　${r.converted}/${r.total}</span>
+                  </div>`).join("")}
+              </div>
+            </div>` : ""}
+        ` : `<p class="empty">新增潛在客群後，成交率會自動算出來。</p>`}
+      </section>
+
+      <section class="card">
+        <div class="sec-head">
+          <h2 class="sec-title">潛在客群</h2>
+          <span class="sec-sub">${openLeads.length ? `${openLeads.length} 位待追蹤` : "沒有待追蹤的名單"}</span>
+        </div>
+        ${S.leads.length ? S.leads.map((l) => {
+          // 狀態同時用顏色點與下拉的文字表示，不只靠顏色
+          const statusColor = l.status === "converted" ? "good" : l.status === "contacted" ? "info" : "warn";
+          return `
+          <div class="row">
+            <span class="dot" style="background:var(--${statusColor})"></span>
+            <div class="row-main">
+              <div class="row-title">${esc(l.name)} <span class="pill pill-mute">${esc(LEAD_SOURCE[l.source] || "其他")}</span></div>
+              <div class="row-sub">${esc(l.phone || "")}${l.notes ? (l.phone ? "・" : "") + esc(l.notes) : ""}</div>
+            </div>
+            <div class="row-end" style="display:flex;align-items:center;gap:6px">
+              <select data-action="lead-status" data-id="${l.id}" aria-label="${esc(l.name)} 的狀態"
+                      style="width:auto;padding:4px 8px;font-size:12.5px">
+                ${Object.entries(LEAD_STATUS).map(([k, v]) =>
+                  `<option value="${k}" ${l.status === k ? "selected" : ""}>${v.label}</option>`).join("")}
+              </select>
+              <button class="btn btn-sm btn-ghost" type="button" data-action="delete-lead" data-id="${l.id}">刪除</button>
+            </div>
+          </div>`;
+        }).join("") : `<p class="empty">還沒有名單。點右上角新增想追蹤的對象。</p>`}
+      </section>
+
+      <div class="grid-2">
+        ${ageRows.length ? `
+        <section class="card">
+          <div class="sec-head"><h2 class="sec-title">年齡分佈</h2>
+            <span class="sec-sub">依生日或年齡欄位</span></div>
+          ${barChart(ageRows)}
+        </section>` : ""}
+
+        ${dists.map((d) => `
+        <section class="card">
+          <div class="sec-head"><h2 class="sec-title">${esc(d.field)}分佈</h2>
+            <span class="sec-sub">自訂欄位</span></div>
+          ${barChart(d.data)}
+        </section>`).join("")}
+
+        ${dists.length ? "" : `
+        <section class="card">
+          <div class="sec-head"><h2 class="sec-title">自訂欄位</h2></div>
+          <p class="empty">${S.settings.customFields.length
+            ? `已有欄位「${esc(S.settings.customFields.join("、"))}」，<br>填進任何一位學生的資料後，這裡就會多一張分佈圖。`
+            : "到「設定」新增自訂欄位，填了學生資料後這裡會自動多一欄。"}</p>
+        </section>`}
+
+        ${topAttend.length ? `
+        <section class="card">
+          <div class="sec-head"><h2 class="sec-title">上課最多</h2><span class="sec-sub">累計已出席</span></div>
+          ${topAttend.map((r, i) => rankRow(i, r.s, `${r.v} 堂`)).join("")}
+        </section>` : ""}
+
+        ${topSpend.length ? `
+        <section class="card">
+          <div class="sec-head"><h2 class="sec-title">消費最多</h2><span class="sec-sub">累計收費</span></div>
+          ${topSpend.map((r, i) => rankRow(i, r.s, money(r.v))).join("")}
+        </section>` : ""}
+      </div>
+
+      <section class="card">
+        <div class="sec-head"><h2 class="sec-title">關鍵指標</h2></div>
+        <div class="row"><div class="row-main">總學生數</div><div class="row-end mono">${students.length} 位</div></div>
+        <div class="row"><div class="row-main">總營收</div><div class="row-end mono">${money(totalRevenue)}</div></div>
+        <div class="row"><div class="row-main">平均購買堂數</div><div class="row-end mono">${avgSessions.toFixed(1)} 堂</div></div>
+        <div class="row"><div class="row-main">還有堂數的學生</div><div class="row-end mono">${students.filter((s) => s.remaining > 0).length} 位</div></div>
+      </section>
+    </div>`;
+}
+
+function rankRow(i, s, value) {
+  return `<div class="row">
+    <span class="mono" style="width:20px;height:20px;border-radius:50%;display:grid;place-items:center;font-size:11px;font-weight:700;
+      background:${i === 0 ? "var(--gold)" : "var(--surface-2)"};color:${i === 0 ? "var(--on-gold)" : "var(--muted)"}">${i + 1}</span>
+    <span class="dot" style="background:${esc(s.color)}"></span>
+    <div class="row-main"><div class="row-title">${esc(s.name)}</div></div>
+    <div class="row-end mono" style="font-weight:600">${esc(value)}</div>
+  </div>`;
+}
+
+function leadSheet() {
+  openSheet({
+    title: "新增潛在客群",
+    body: `
+      ${fieldText("name", "姓名", "", { required: true })}
+      <div class="field-row">
+        ${fieldText("phone", "電話", "", { type: "tel" })}
+        ${fieldSelect("source", "來源", Object.entries(LEAD_SOURCE), "referral")}
+      </div>
+      ${fieldSelect("status", "狀態", Object.entries(LEAD_STATUS).map(([k, v]) => [k, v.label]), "pending")}
+      ${fieldText("notes", "備註", "", { placeholder: "聊到哪、什麼時候再聯絡" })}`,
+    onConfirm: (form) => {
+      const name = form.elements.name.value.trim();
+      if (!name) { toast("請填姓名"); return false; }
+      S.leads.push({
+        id: uid(), name, phone: form.elements.phone.value.trim(), email: "",
+        source: form.elements.source.value, status: form.elements.status.value,
+        notes: form.elements.notes.value,
+        createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+      });
+      save(); render(); toast(`已加入 ${name}`);
+    },
+  });
+}
+
+/** 名單轉正式：直接開學生表單，資料先帶過去 */
+function convertLead(lead) {
+  const acquisition = lead.source === "company" ? "companyLead"
+    : lead.source === "referral" ? "referral" : "selfDeveloped";
+  const s = newStudent({ name: lead.name, phone: lead.phone, acquisition, notes: lead.notes });
+  studentSheet(null);
+  const form = $("#sheet-form");
+  if (form) {
+    form.elements.name.value = s.name;
+    form.elements.phone.value = s.phone;
+    form.elements.acquisition.value = acquisition;
+  }
+}
+
+/* ── 設定 ───────────────────────────────────── */
+
+function viewSettings() {
+  const st = S.settings;
+  const rule = st.salary;
+  const basis = rule.payoutBasisRaw;
+  const countsLessons = basis !== "onSale";
+  const countsSales = basis !== "perLesson";
+  const tiers = [...rule.tiers].sort((a, b) => a.minSessions - b.minSessions);
+
+  return `
+    <div class="page-head">
+      <div>
+        <h1 class="page-title">設定</h1>
+        <p class="page-sub">資料存在這台裝置的瀏覽器裡</p>
+      </div>
+    </div>
+
+    <div class="stack">
+      <section class="card">
+        <div class="sec-head"><h2 class="sec-title">工作型態</h2></div>
+        <div class="seg" style="max-width:340px">
+          ${[["independent", "自己接案"], ["company", "公司教練"]].map(([v, t]) =>
+            `<button type="button" data-action="set-employment" data-value="${v}" aria-pressed="${st.employment === v}">${t}</button>`).join("")}
+        </div>
+        <p class="row-sub" style="margin-top:9px">${st.employment === "company"
+          ? "收入先進公司，畫面會顯示抽成後的「實拿」。"
+          : "學生繳的錢直接進自己口袋，不做抽成計算。"}</p>
+      </section>
+
+      <section class="card">
+        <div class="sec-head"><h2 class="sec-title">一般</h2></div>
+        <div class="row">
+          <div class="row-main">
+            <div class="row-title">預設課程時長</div>
+            <div class="row-sub">排課時預先帶入的長度</div>
+          </div>
+          <div class="row-end">
+            <button class="btn btn-sm" type="button" data-action="edit-duration">
+              ${durationLabel(st.defaultDuration)}
+            </button>
+          </div>
+        </div>
+        <div class="row">
+          <div class="row-main">
+            <div class="row-title">外觀</div>
+            <div class="row-sub">淺色／深色／跟隨系統</div>
+          </div>
+          <div class="row-end">
+            <div class="seg" style="width:210px">
+              ${[["auto", "系統"], ["light", "淺色"], ["dark", "深色"]].map(([v, t]) =>
+                `<button type="button" data-action="set-theme" data-value="${v}" aria-pressed="${st.theme === v}">${t}</button>`).join("")}
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="card">
+        <div class="sec-head">
+          <h2 class="sec-title">自訂欄位</h2>
+          <span class="sec-sub">填進學生資料後，分析頁才會多一欄</span>
+        </div>
+        <div class="chips" style="margin-bottom:11px">
+          ${st.customFields.length ? st.customFields.map((f) => `
+            <span class="chip">${esc(f)}
+              <button type="button" data-action="del-field" data-value="${esc(f)}" aria-label="刪除欄位 ${esc(f)}">✕</button>
+            </span>`).join("") : `<span class="muted" style="font-size:13px">還沒有自訂欄位</span>`}
+        </div>
+        <form class="tier-add" data-form="add-field">
+          <input type="text" name="field" placeholder="例如：職業" style="width:150px">
+          <button class="btn btn-sm" type="submit">新增欄位</button>
+        </form>
+      </section>
+
+      <section class="card">
+        <div class="sec-head">
+          <h2 class="sec-title">課程方案</h2>
+          <span class="sec-sub">續約時可以直接套用</span>
+        </div>
+        ${st.packages.length ? st.packages.map((p) => `
+          <div class="row">
+            <div class="row-main">
+              <div class="row-title">${esc(p.name)}</div>
+              <div class="row-sub mono">${p.sessions} 堂・${money(p.price)}・每堂 ${money(p.sessions ? p.price / p.sessions : 0)}</div>
+            </div>
+            <div class="row-end">
+              <button class="btn btn-sm btn-ghost" type="button" data-action="del-package" data-id="${p.id}">刪除</button>
+            </div>
+          </div>`).join("") : `<p class="empty">還沒有方案。</p>`}
+        <form class="tier-add" data-form="add-package" style="margin-top:11px">
+          <input type="text" name="name" placeholder="名稱" style="width:104px">
+          <input type="number" name="sessions" placeholder="堂數" inputmode="numeric">
+          <input type="number" name="price" placeholder="金額" inputmode="numeric" style="width:88px">
+          <button class="btn btn-sm" type="submit">加入</button>
+        </form>
+      </section>
+
+      ${st.employment === "company" ? `
+      <section class="card">
+        <div class="sec-head">
+          <h2 class="sec-title">薪資規則</h2>
+          <span class="sec-sub">決定「實拿」怎麼算</span>
+        </div>
+
+        <div class="field">
+          <label>公司怎麼給錢</label>
+          <div class="seg">
+            ${[["perLesson", "依上課"], ["onSale", "依簽約"], ["both", "兩者都算"]].map(([v, t]) =>
+              `<button type="button" data-action="set-basis" data-value="${v}" aria-pressed="${basis === v}">${t}</button>`).join("")}
+          </div>
+          <span class="hint">${{
+            perLesson: "上一堂才有那一堂的錢，簽約當下不計薪。",
+            onSale: "學生簽幾堂就先結算那幾堂的錢，之後上課不再計薪。",
+            both: "鐘點照上課算，另外再依簽約金額抽一筆業績獎金。",
+          }[basis]}</span>
+        </div>
+
+        ${countsLessons ? `
+          <div class="switch">
+            <label for="s-onlyAttended">只算實際上到的課</label>
+            <input id="s-onlyAttended" type="checkbox" data-action="toggle-salary" data-key="onlyAttended" ${rule.onlyAttended ? "checked" : ""}>
+          </div>
+          <div class="switch">
+            <label for="s-useStudentRate">用每位學生的鐘點費</label>
+            <input id="s-useStudentRate" type="checkbox" data-action="toggle-salary" data-key="useStudentRate" ${rule.useStudentRate ? "checked" : ""}>
+          </div>
+          ${rule.useStudentRate ? "" : `
+            <div class="row">
+              <div class="row-main">固定鐘點</div>
+              <div class="row-end"><input type="number" data-action="salary-num" data-key="perLessonRate"
+                   value="${rule.perLessonRate}" style="width:110px" inputmode="numeric"></div>
+            </div>`}
+
+          <div class="divider" style="margin:12px 0"></div>
+          <p class="sec-sub" style="margin:0 0 9px">抽成級距</p>
+          <div class="row">
+            <div class="row-main">未達門檻</div>
+            <div class="row-end"><input type="number" data-action="salary-num" data-key="basePercent"
+                 value="${rule.basePercent}" style="width:82px" inputmode="decimal"> %</div>
+          </div>
+          ${tiers.map((t) => `
+            <div class="row">
+              <div class="row-main">滿 <span class="mono">${t.minSessions}</span> 堂</div>
+              <div class="row-end">
+                <span class="mono" style="color:var(--gold);font-weight:650">${t.percent}%</span>
+                <button class="btn btn-sm btn-ghost" type="button" data-action="del-tier" data-value="${t.minSessions}">刪除</button>
+              </div>
+            </div>`).join("")}
+          <form class="tier-add" data-form="add-tier" style="margin-top:11px">
+            <span>滿</span>
+            <input type="number" name="sessions" placeholder="40" inputmode="numeric">
+            <span>堂抽</span>
+            <input type="number" name="percent" placeholder="55" inputmode="decimal" step="0.5">
+            <span>%</span>
+            <button class="btn btn-sm" type="submit">加入</button>
+          </form>
+          <p class="hint" style="margin-top:7px">例如「滿 40 堂抽 55%、滿 60 堂抽 60%」。當月堂數會對應到最高符合的那一級。加入後欄位會清空，可以直接接著填下一級。</p>
+        ` : ""}
+
+        ${countsSales ? `
+          <div class="divider" style="margin:12px 0"></div>
+          <p class="sec-sub" style="margin:0 0 9px">業績獎金</p>
+          <div class="row">
+            <div class="row-main">簽約抽成</div>
+            <div class="row-end"><input type="number" data-action="salary-num" data-key="salesPercent"
+                 value="${rule.salesPercent}" style="width:82px" inputmode="decimal"> %</div>
+          </div>
+          <div class="switch">
+            <label for="s-sepRate">公司名單另算一組</label>
+            <input id="s-sepRate" type="checkbox" data-action="toggle-salary" data-key="separateCompanyLeadRate" ${rule.separateCompanyLeadRate ? "checked" : ""}>
+          </div>
+          ${rule.separateCompanyLeadRate ? `
+            <div class="row">
+              <div class="row-main">公司名單抽成</div>
+              <div class="row-end"><input type="number" data-action="salary-num" data-key="companyLeadSalesPercent"
+                   value="${rule.companyLeadSalesPercent}" style="width:82px" inputmode="decimal"> %</div>
+            </div>` : ""}
+        ` : ""}
+
+        <div class="divider" style="margin:12px 0"></div>
+        <div class="row">
+          <div class="row-main">底薪</div>
+          <div class="row-end"><input type="number" data-action="salary-num" data-key="baseSalary"
+               value="${rule.baseSalary}" style="width:120px" inputmode="numeric"></div>
+        </div>
+        <p class="hint">沒有底薪就填 0，抽成金額直接當作薪資。</p>
+      </section>` : ""}
+
+      <section class="card">
+        <div class="sec-head">
+          <h2 class="sec-title">資料</h2>
+          <span class="sec-sub">${S.students.length} 位學生・${S.lessons.length} 堂課・${S.leads.length} 筆名單</span>
+        </div>
+        <p class="row-sub" style="margin:0 0 12px">
+          資料只存在<strong>這台裝置的這個瀏覽器</strong>裡，沒有上傳到任何地方，也不會跟其他人的混在一起。
+          關掉再打開都還在，但這幾種情況會不見：清除瀏覽器資料、換裝置或換瀏覽器、用無痕模式、
+          以及 Safari 在你很久沒打開這個網站時自動清掉。<strong>養成偶爾匯出一份備份的習慣。</strong>
+          匯出的檔案和 iOS 版「教練小幫手」互通，可以互相搬。
+        </p>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <button class="btn btn-primary" type="button" data-action="export">${icon("download", 15)}匯出檔案</button>
+          <button class="btn" type="button" data-action="import">${icon("upload", 15)}匯入檔案</button>
+        </div>
+        <p class="hint" style="margin:10px 0 8px">
+          手機下載檔案有時候會沒反應，那就改用複製文字這條路，一樣能備份與還原。
+        </p>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <button class="btn btn-sm" type="button" data-action="copy-backup">複製備份文字</button>
+          <button class="btn btn-sm" type="button" data-action="paste-backup">貼上備份文字</button>
+        </div>
+        <div class="divider" style="margin:14px 0"></div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <button class="btn" type="button" data-action="seed">${icon("refresh", 15)}載入示範資料</button>
+          <button class="btn btn-danger" type="button" data-action="wipe">${icon("trash", 15)}清除所有資料</button>
+        </div>
+        <input type="file" id="import-file" accept="application/json,.json" hidden>
+      </section>
+
+      <section class="card">
+        <div class="sec-head">
+          <h2 class="sec-title">使用說明</h2>
+          <span class="sec-sub">資料會不會不見、怎麼備份</span>
+        </div>
+        <p class="row-sub" style="margin:0 0 12px">
+          兩分鐘看完，之後就不用擔心資料突然消失。也可以下載下來慢慢看。
+        </p>
+        <button class="btn" type="button" data-action="open-guide">打開使用說明</button>
+      </section>
+
+      ${ANNOUNCEMENT ? `
+      <section class="card">
+        <div class="sec-head">
+          <h2 class="sec-title">公告</h2>
+          <span class="sec-sub">${dismissedNotice() === ANNOUNCEMENT.id ? "已讀" : "未讀"}</span>
+        </div>
+        <div class="note-box">
+          <div style="font-weight:650;margin-bottom:5px">${esc(ANNOUNCEMENT.title)}</div>
+          <div style="line-height:1.7">${esc(ANNOUNCEMENT.body)}</div>
+        </div>
+        <p class="hint" style="margin-top:10px">
+          首頁那則公告按過「知道了」之後就不再跳出來，但隨時可以回到這裡重看。
+        </p>
+      </section>` : ""}
+
+      <section class="card">
+        <div class="sec-head"><h2 class="sec-title">關於</h2></div>
+        <div class="row">
+          <div class="row-main">開發者</div>
+          <div class="row-end">${esc(DEVELOPER)}</div>
+        </div>
+        <div class="row">
+          <div class="row-main">版本</div>
+          <div class="row-end mono">${esc(BUILD)}</div>
+        </div>
+        <div class="row">
+          <div class="row-main">資料存放位置</div>
+          <div class="row-end">這台裝置的瀏覽器</div>
+        </div>
+      </section>
+    </div>`;
+}
+
+/* ════════════════════════════════════════════════
+   6. 匯出／匯入
+   檔案格式與 iOS 版的備份檔一致，兩邊可以互搬。
+   ════════════════════════════════════════════════ */
+
+function buildBackup() {
+  const indexOf = new Map(S.students.map((s, i) => [s.id, i]));
+  const iso = (v) => (v ? new Date(v).toISOString() : new Date().toISOString());
+
+  return {
+    version: 1,
+    appVersion: "web-1.0",
+    exportedAt: new Date().toISOString(),
+    students: S.students.map((s) => ({
+      name: s.name, phone: s.phone, email: s.email || "", rate: s.rate,
+      totalPurchasedSessions: s.totalPurchased, remainingSessions: s.remaining,
+      notes: s.notes, color: s.color,
+      packageExpiryDate: s.expiry ? new Date(s.expiry + "T00:00:00").toISOString() : null,
+      customFieldsJSON: JSON.stringify(s.custom || {}),
+      renewalCount: s.renewalCount || 0, mayNotRenew: !!s.mayNotRenew,
+      acquisitionRaw: s.acquisition, statusRaw: s.status,
+      pausedUntil: null, archivedAt: s.status === "archived" ? iso(s.updatedAt) : null,
+      createdAt: iso(s.createdAt), updatedAt: iso(s.updatedAt),
+      payments: s.payments.map((p) => ({
+        amount: p.amount, date: p.date, methodRaw: p.method, notes: p.notes || "",
+        createdAt: iso(p.createdAt),
+      })),
+      renewals: s.renewals.map((r) => ({
+        date: r.date, sessionsPurchased: r.sessions, amount: r.amount,
+        notes: r.notes || "", createdAt: iso(r.createdAt),
+      })),
+      inbody: [],
+      exercises: [],
+    })),
+    lessons: S.lessons.map((l) => ({
+      title: "", date: l.date, startTime: l.start, endTime: l.end,
+      statusRaw: l.status, notes: l.notes || "", locationName: l.location || "",
+      consumedSession: !!l.consumed, consumedPartnerSession: !!l.partnerConsumed,
+      owedSession: false, owedPartnerSession: false,
+      createdAt: iso(l.createdAt), updatedAt: iso(l.createdAt),
+      studentIndex: indexOf.has(l.studentId) ? indexOf.get(l.studentId) : null,
+      partnerIndex: indexOf.has(l.partnerId) ? indexOf.get(l.partnerId) : null,
+    })),
+    leads: S.leads.map((l) => ({
+      name: l.name, phone: l.phone, email: l.email || "",
+      sourceRaw: l.source === "walkIn" ? "walk-in" : l.source,
+      statusRaw: l.status, notes: l.notes || "",
+      createdAt: iso(l.createdAt), updatedAt: iso(l.updatedAt),
+    })),
+    locations: [],
+    settings: {
+      employmentType: S.settings.employment,
+      defaultLessonDurationMinutes: String(S.settings.defaultDuration),
+      customFieldDefinitions: JSON.stringify(S.settings.customFields),
+      coachPackages: JSON.stringify(S.settings.packages.map((p) => ({
+        id: p.id, name: p.name, sessions: p.sessions, price: p.price,
+      }))),
+      salaryRule: JSON.stringify(S.settings.salary),
+      colorTheme: "amber",
+    },
+  };
+}
+
+function exportData() {
+  saveFile(`coach-mate-backup-${today()}.json`, JSON.stringify(buildBackup(), null, 2));
+}
+
+/**
+ * 手機下載檔案常常卡住，所以留一條不靠下載的備份路徑：
+ * 把備份整段複製走，貼到記事本、LINE 給自己或 Email，要還原時再貼回來。
+ */
+function copyBackupSheet() {
+  const json = JSON.stringify(buildBackup());
+  openSheet({
+    title: "複製備份文字",
+    closeLabel: "關閉",
+    body: `
+      <p class="row-sub" style="margin:0 0 12px">
+        按下「全部複製」，再貼到記事本、傳給自己的 LINE 或 Email 存起來。
+        要還原時用「貼上備份文字」貼回來就好。
+      </p>
+      <textarea id="backup-text" readonly style="min-height:150px;font-size:11px;font-family:var(--mono)">${esc(json)}</textarea>
+      <p class="hint" style="margin-top:8px">共 ${json.length.toLocaleString("en-US")} 個字，包含 ${S.students.length} 位學生、${S.lessons.length} 堂課。</p>`,
+    extraFoot: `<button class="btn btn-sm btn-primary" type="button" data-action="do-copy">全部複製</button>`,
+    onMount: (root) => {
+      root.addEventListener("click", async (e) => {
+        if (!e.target.closest('[data-action="do-copy"]')) return;
+        const box = $("#backup-text", root);
+        try {
+          await navigator.clipboard.writeText(json);
+          toast("已複製，貼到記事本或傳給自己存起來");
+        } catch (err) {
+          // 舊版 Safari 沒有 clipboard API，退回選取整段讓使用者自己按複製
+          box.focus();
+          box.setSelectionRange(0, box.value.length);
+          toast("已全選，請長按畫面選「複製」");
+        }
+      });
+    },
+  });
+}
+
+function pasteBackupSheet() {
+  openSheet({
+    title: "貼上備份文字",
+    body: `
+      <p class="row-sub" style="margin:0 0 12px">
+        把之前複製的備份文字貼進來，或是用文字編輯器打開備份檔、整段複製貼過來。
+      </p>
+      <textarea id="paste-text" placeholder='{"version":1,...' style="min-height:150px;font-size:11px;font-family:var(--mono)"></textarea>`,
+    confirmLabel: "讀取",
+    onConfirm: (form) => {
+      const text = $("#paste-text", form).value.trim();
+      if (!text) { toast("請先貼上備份文字"); return false; }
+      let parsed;
+      try {
+        parsed = parseBackup(JSON.parse(text));
+      } catch (err) {
+        toast(err && err.message ? err.message : "這段文字看起來不是備份資料");
+        return false;
+      }
+      closeSheet();
+      askImportMode(parsed);
+      return false;   // 已經自己關掉並開下一個對話框
+    },
+  });
+}
+
+/** 把備份檔（iOS 或網頁版產生的）讀成網頁版的資料結構 */
+function parseBackup(raw) {
+  if (!raw || typeof raw !== "object" || !Array.isArray(raw.students)) {
+    throw new Error("這不是教練小幫手的備份檔");
+  }
+  if (raw.version > 1) throw new Error(`這個備份是較新版本（v${raw.version}）建立的`);
+
+  const dayOf = (isoStr) => {
+    if (!isoStr) return "";
+    const d = new Date(isoStr);
+    return isNaN(d) ? "" : dayStr(d);
+  };
+  const parseJSON = (s, fallback) => {
+    try { return JSON.parse(s); } catch { return fallback; }
+  };
+
+  const students = raw.students.map((d, i) => ({
+    id: uid(), _i: i,
+    name: d.name || "", phone: d.phone || "", email: d.email || "",
+    rate: d.rate || 0,
+    totalPurchased: d.totalPurchasedSessions || 0,
+    remaining: d.remainingSessions || 0,
+    notes: d.notes || "",
+    color: d.color || STUDENT_COLORS[i % STUDENT_COLORS.length],
+    expiry: dayOf(d.packageExpiryDate),
+    custom: parseJSON(d.customFieldsJSON, {}) || {},
+    renewalCount: d.renewalCount || 0,
+    mayNotRenew: !!d.mayNotRenew,
+    acquisition: ACQUISITION[d.acquisitionRaw] ? d.acquisitionRaw : "selfDeveloped",
+    status: ["active", "paused", "archived"].includes(d.statusRaw) ? d.statusRaw : "active",
+    payments: (d.payments || []).map((p) => ({
+      id: uid(), amount: p.amount || 0, date: p.date || "",
+      method: p.methodRaw || "cash", notes: p.notes || "", createdAt: p.createdAt,
+    })),
+    renewals: (d.renewals || []).map((r) => ({
+      id: uid(), date: r.date || "", sessions: r.sessionsPurchased || 0,
+      amount: r.amount || 0, notes: r.notes || "", createdAt: r.createdAt,
+    })),
+    createdAt: d.createdAt || new Date().toISOString(),
+    updatedAt: d.updatedAt || new Date().toISOString(),
+  }));
+
+  const lessons = (raw.lessons || []).map((d) => ({
+    id: uid(),
+    date: d.date || "", start: d.startTime || "09:00", end: d.endTime || "10:00",
+    status: LESSON_STATUS[d.statusRaw] ? d.statusRaw : "scheduled",
+    notes: d.notes || "", location: d.locationName || "",
+    studentId: students[d.studentIndex]?.id || "",
+    partnerId: students[d.partnerIndex]?.id || "",
+    consumed: !!d.consumedSession, partnerConsumed: !!d.consumedPartnerSession,
+    createdAt: d.createdAt || new Date().toISOString(),
+  }));
+
+  const leads = (raw.leads || []).map((d) => ({
+    id: uid(), name: d.name || "", phone: d.phone || "", email: d.email || "",
+    source: d.sourceRaw === "walk-in" ? "walkIn" : (LEAD_SOURCE[d.sourceRaw] ? d.sourceRaw : "other"),
+    status: LEAD_STATUS[d.statusRaw] ? d.statusRaw : "pending",
+    notes: d.notes || "",
+    createdAt: d.createdAt || new Date().toISOString(),
+    updatedAt: d.updatedAt || new Date().toISOString(),
+  }));
+
+  const rawSettings = raw.settings || {};
+  const settings = clone(DEFAULT_SETTINGS);
+  if (rawSettings.employmentType) settings.employment = rawSettings.employmentType;
+  if (rawSettings.defaultLessonDurationMinutes) {
+    settings.defaultDuration = clampDuration(+rawSettings.defaultLessonDurationMinutes);
+  }
+  const fields = parseJSON(rawSettings.customFieldDefinitions, null);
+  if (Array.isArray(fields)) settings.customFields = fields.filter((f) => typeof f === "string");
+  const pkgs = parseJSON(rawSettings.coachPackages, null);
+  if (Array.isArray(pkgs)) {
+    settings.packages = pkgs.map((p) => ({
+      id: p.id || uid(), name: p.name || "方案",
+      sessions: p.sessions || 0, price: p.price || 0,
+    }));
+  }
+  const salary = parseJSON(rawSettings.salaryRule, null);
+  if (salary && typeof salary === "object") {
+    settings.salary = {
+      ...DEFAULT_SALARY, ...salary,
+      tiers: Array.isArray(salary.tiers)
+        ? salary.tiers.map((t) => ({ minSessions: t.minSessions || 0, percent: t.percent || 0 }))
+        : DEFAULT_SALARY.tiers,
+    };
+  }
+  settings.theme = S.settings.theme;   // 外觀是這台裝置的偏好，不跟著備份走
+
+  students.forEach((s) => delete s._i);
+  return { students, lessons, leads, settings };
+}
+
+function importFile(file) {
+  const reader = new FileReader();
+  reader.onerror = () => toast("讀不到這個檔案");
+  reader.onload = () => {
+    let parsed;
+    try {
+      parsed = parseBackup(JSON.parse(reader.result));
+    } catch (e) {
+      openSheet({
+        title: "匯入失敗",
+        body: `<p style="margin:0;color:var(--ink-2)">${esc(e.message || "檔案格式不對")}<br>
+               請選擇從教練小幫手匯出的 JSON 備份檔。</p>`,
+      });
+      return;
+    }
+    askImportMode(parsed);
+  };
+  reader.readAsText(file);
+}
+
+/** 讀進來之後、真的寫進去之前，問一下要合併還是取代 */
+function askImportMode(parsed) {
+  const summary = `${parsed.students.length} 位學生・${parsed.lessons.length} 堂課・${parsed.leads.length} 筆名單`;
+  openSheet({
+    title: "要怎麼匯入？",
+    body: `
+      <div class="note-box" style="margin-bottom:14px">備份內容：${summary}</div>
+      <p style="margin:0 0 6px;color:var(--ink-2)"><strong>合併</strong>：保留現在的資料，把備份加進來。同名同電話的學生視為同一人，不會重複建立。</p>
+      <p style="margin:0;color:var(--ink-2)"><strong>取代</strong>：先清空現在的資料，整份換成備份的內容。</p>`,
+    extraFoot: `<button class="btn btn-sm" type="button" data-action="do-merge">合併</button>`,
+    confirmLabel: "取代全部",
+    onConfirm: () => applyImport(parsed, "replace"),
+    onMount: (root) => {
+      root.addEventListener("click", (e) => {
+        if (!e.target.closest('[data-action="do-merge"]')) return;
+        applyImport(parsed, "merge");
+        closeSheet();
+      });
+    },
+  });
+}
+
+function applyImport(parsed, mode) {
+  if (mode === "replace") {
+    S = { students: parsed.students, lessons: parsed.lessons, leads: parsed.leads, settings: parsed.settings };
+  } else {
+    const keyOf = (s) => `${(s.name || "").trim()}|${(s.phone || "").trim()}`;
+    const existing = new Map(S.students.map((s) => [keyOf(s), s]));
+    const remap = new Map();
+    for (const s of parsed.students) {
+      const hit = existing.get(keyOf(s));
+      if (hit && (s.name || s.phone)) {
+        remap.set(s.id, hit.id);
+      } else {
+        S.students.push(s);
+        existing.set(keyOf(s), s);
+        remap.set(s.id, s.id);
+      }
+    }
+    for (const l of parsed.lessons) {
+      l.studentId = remap.get(l.studentId) || "";
+      l.partnerId = remap.get(l.partnerId) || "";
+      S.lessons.push(l);
+    }
+    S.leads.push(...parsed.leads);
+    // 合併時只補上目前沒有的自訂欄位，其他設定維持這台裝置的
+    for (const f of parsed.settings.customFields) {
+      if (!S.settings.customFields.includes(f)) S.settings.customFields.push(f);
+    }
+  }
+  save(); render();
+  toast(mode === "replace" ? "已用備份取代原本的資料" : "已合併備份資料");
+}
+
+/* ── 示範資料 ───────────────────────────────── */
+
+function seedDemo() {
+  const names = DEMO_NAMES;
+  const jobs = ["工程師", "護理師", "老師", "業務", "設計師", "工程師", "自由業", "護理師"];
+  const genders = ["女", "男", "女", "男", "男", "女", "男", "女"];
+  const births = ["1994-03-12", "1988-11-02", "1999-06-25", "1985-01-30", "1996-09-08", "1992-12-19", "1979-04-14", "2001-07-07"];
+
+  const students = names.map((name, i) => {
+    const total = [10, 20, 10, 30, 20, 10, 20, 10][i];
+    const used = [7, 4, 9, 12, 18, 1, 6, 10][i];
+    const rate = [1100, 1000, 1200, 950, 1000, 1300, 1000, 1150][i];
+    const s = newStudent({
+      name, phone: "09" + String(10000000 + i * 1111111).slice(0, 8),
+      rate, totalPurchased: total, remaining: Math.max(0, total - used),
+      color: STUDENT_COLORS[i % STUDENT_COLORS.length],
+      acquisition: ["selfDeveloped", "referral", "companyLead"][i % 3],
+      custom: { "性別": genders[i], "職業": jobs[i], "生日": births[i] },
+      renewalCount: i % 3,
+    });
+    s.payments = [{ id: uid(), amount: rate * total, date: dayStr(addDays(new Date(), -20 - i * 9)),
+                    method: i % 2 ? "transfer" : "cash", notes: `${total} 堂方案`, createdAt: new Date().toISOString() }];
+    s.renewals = [{ id: uid(), date: dayStr(addDays(new Date(), -20 - i * 9)), sessions: total,
+                    amount: rate * total, notes: "", createdAt: new Date().toISOString() }];
+    return s;
+  });
+
+  const lessons = [];
+  const slots = [["09:00", 90], ["11:00", 60], ["14:00", 90], ["19:00", 60], ["20:30", 90]];
+  for (let d = -21; d <= 14; d++) {
+    const date = dayStr(addDays(new Date(), d));
+    const wd = (parseDay(date).getDay() + 6) % 7;
+    if (wd >= 5) continue;
+    const n = 2 + (Math.abs(d) % 2);
+    for (let k = 0; k < n; k++) {
+      const [start, mins] = slots[(Math.abs(d) + k) % slots.length];
+      const st = students[(Math.abs(d) * 3 + k) % students.length];
+      lessons.push({
+        id: uid(), date, start, end: timeOf(minutesOf(start) + mins),
+        status: d < 0 ? (Math.abs(d) % 11 === 0 ? "absent" : "attended") : "scheduled",
+        notes: "", location: "", studentId: st.id, partnerId: "",
+        consumed: d < 0 && Math.abs(d) % 11 !== 0, partnerConsumed: false,
+        createdAt: new Date().toISOString(),
+      });
+    }
+  }
+
+  const leadNames = [["周子瑜", "referral", "converted"], ["何柏叡", "online", "contacted"],
+                     ["蔡沐恩", "company", "pending"], ["鄭雅文", "walkIn", "converted"],
+                     ["謝定澄", "online", "pending"], ["曾苡宸", "referral", "contacted"],
+                     ["高子萱", "company", "converted"]];
+  const leads = leadNames.map(([name, source, status], i) => ({
+    id: uid(), name, phone: "", email: "", source, status,
+    notes: status === "pending" ? "等對方回訊息" : "",
+    createdAt: addDays(new Date(), -40 + i * 5).toISOString(),
+    updatedAt: addDays(new Date(), -6 + i).toISOString(),
+  }));
+
+  S = {
+    students, lessons, leads,
+    settings: { ...clone(DEFAULT_SETTINGS), theme: S.settings.theme, employment: "company" },
+  };
+  save(); render();
+  toast(`已載入示範資料：${students.length} 位學生・${lessons.length} 堂課`);
+}
+
+/* ════════════════════════════════════════════════
+   7. 事件
+   ════════════════════════════════════════════════ */
+
+document.addEventListener("click", (e) => {
+  const navBtn = e.target.closest("[data-tab]");
+  if (navBtn) { tab = navBtn.dataset.tab; render(); return; }
+
+  if (e.target.closest("#theme-btn")) {
+    const order = ["auto", "light", "dark"];
+    S.settings.theme = order[(order.indexOf(S.settings.theme) + 1) % 3];
+    save(); render(); return;
+  }
+
+  const el = e.target.closest("[data-action]");
+  if (!el || el.closest(".scrim")) return;
+  const { action, value, id } = el.dataset;
+
+  switch (action) {
+    case "goto": tab = value; render(); break;
+    case "open-guide": guideSheet(); break;
+    case "dismiss-notice":
+      try { localStorage.setItem(NOTICE_KEY, ANNOUNCEMENT.id); } catch (err) {}
+      render();
+      break;
+    case "new-student": studentSheet(null); break;
+    case "edit-student": studentSheet(studentById(id)); break;
+    case "renew": renewSheet(studentById(id)); break;
+    case "student-filter": studentFilter = value; render(); break;
+
+    case "new-lesson": lessonSheet(null); break;
+    case "edit-lesson": lessonSheet(S.lessons.find((l) => l.id === id)); break;
+    case "pick-day": selectedDate = value; render(); break;
+    case "week": {
+      if (value === "0") { weekAnchor = today(); selectedDate = today(); }
+      else weekAnchor = dayStr(addDays(parseDay(weekAnchor), +value * 7));
+      render(); break;
+    }
+    case "cal-refresh":
+    case "refresh-all": {
+      const n = autoMarkPastLessons();
+      save(); render();
+      toast(n ? `已更新 ${n} 堂課的狀態` : "已是最新狀態");
+      break;
+    }
+
+    case "new-payment": paymentSheet(); break;
+    case "delete-payment": {
+      const st = studentById(el.dataset.student);
+      if (!st) break;
+      confirmSheet("刪除收費紀錄", "這筆收費會從紀錄中移除。", () => {
+        st.payments = st.payments.filter((p) => p.id !== id);
+        save(); render(); toast("已刪除");
+      }, "刪除");
+      break;
+    }
+
+    case "new-lead": leadSheet(); break;
+    case "delete-lead":
+      S.leads = S.leads.filter((l) => l.id !== id);
+      save(); render(); toast("已刪除名單");
+      break;
+
+    case "set-employment": S.settings.employment = value; save(); render(); break;
+    case "set-theme": S.settings.theme = value; save(); render(); break;
+    case "set-basis": S.settings.salary.payoutBasisRaw = value; save(); render(); break;
+    case "edit-duration": durationSheet(); break;
+    case "del-field":
+      S.settings.customFields = S.settings.customFields.filter((f) => f !== value);
+      save(); render(); toast(`已刪除欄位「${value}」`);
+      break;
+    case "del-package":
+      S.settings.packages = S.settings.packages.filter((p) => p.id !== id);
+      save(); render();
+      break;
+    case "del-tier":
+      S.settings.salary.tiers = S.settings.salary.tiers.filter((t) => String(t.minSessions) !== value);
+      save(); render();
+      break;
+
+    case "export": exportData(); break;
+    case "import": $("#import-file").click(); break;
+    case "copy-backup": copyBackupSheet(); break;
+    case "paste-backup": pasteBackupSheet(); break;
+    case "seed":
+      confirmSheet("載入示範資料", "會先清空目前的資料，再放入 8 位示範學生、約 60 堂課與 7 筆名單。",
+        () => seedDemo(), "載入");
+      break;
+    case "wipe":
+      confirmSheet("清除所有資料", "所有學生、課程、收費與名單都會被刪除，無法復原。建議先匯出備份。",
+        () => { S = blankState(); save(); render(); toast("已清除所有資料"); }, "清除");
+      break;
+  }
+});
+
+/* 下拉選單改狀態 */
+document.addEventListener("change", (e) => {
+  const el = e.target.closest("[data-action]");
+  if (el) {
+    const { action, id, key } = el.dataset;
+    if (action === "lesson-status") {
+      const l = S.lessons.find((x) => x.id === id);
+      if (l) { setLessonStatus(l, el.value); save(); render(); toast(`已改為「${LESSON_STATUS[el.value].label}」`); }
+      return;
+    }
+    if (action === "lead-status") {
+      const lead = S.leads.find((x) => x.id === id);
+      if (!lead) return;
+      const wasConverted = lead.status === "converted";
+      lead.status = el.value;
+      lead.updatedAt = new Date().toISOString();
+      save();
+      if (!wasConverted && el.value === "converted") {
+        render();
+        convertLead(lead);
+        toast(`${lead.name} 轉成正式學生，確認一下資料`);
+      } else { render(); }
+      return;
+    }
+    if (action === "toggle-salary") {
+      S.settings.salary[key] = el.checked;
+      save(); render();
+      return;
+    }
+    if (action === "salary-num") {
+      const v = +el.value;
+      S.settings.salary[key] = Number.isFinite(v) ? v : 0;
+      save();
+      return;
+    }
+  }
+
+  if (e.target.id === "import-file" && e.target.files?.[0]) {
+    importFile(e.target.files[0]);
+    e.target.value = "";
+  }
+});
+
+/* 設定頁的小表單：加入後清空，讓使用者直接填下一筆 */
+document.addEventListener("submit", (e) => {
+  const form = e.target.closest("[data-form]");
+  if (!form) return;
+  e.preventDefault();
+
+  if (form.dataset.form === "add-field") {
+    const name = form.elements.field.value.trim();
+    if (!name) return;
+    if (S.settings.customFields.includes(name)) { toast("已經有同名欄位了"); return; }
+    S.settings.customFields.push(name);
+    save(); render(); toast(`已新增欄位「${name}」`);
+    return;
+  }
+
+  if (form.dataset.form === "add-package") {
+    const name = form.elements.name.value.trim();
+    const sessions = +form.elements.sessions.value || 0;
+    const price = +form.elements.price.value || 0;
+    if (!name || sessions <= 0) { toast("方案要有名稱與堂數"); return; }
+    S.settings.packages.push({ id: uid(), name, sessions, price });
+    save(); render(); toast(`已加入方案「${name}」`);
+    return;
+  }
+
+  if (form.dataset.form === "add-tier") {
+    const sessions = +form.elements.sessions.value || 0;
+    const percent = +form.elements.percent.value || 0;
+    if (sessions <= 0 || percent <= 0 || percent > 100) {
+      toast("請填有效的堂數與百分比");
+      return;
+    }
+    S.settings.salary.tiers = S.settings.salary.tiers.filter((t) => t.minSessions !== sessions);
+    S.settings.salary.tiers.push({ minSessions: sessions, percent });
+    save();
+    render();
+    // 重畫之後把焦點放回堂數欄，接著填下一級
+    const next = $('[data-form="add-tier"] [name="sessions"]');
+    if (next) next.focus();
+    toast(`已加入：滿 ${sessions} 堂抽 ${percent}%`);
+  }
+});
+
+function durationSheet() {
+  openSheet({
+    title: "預設課程時長",
+    body: durationPicker(S.settings.defaultDuration) +
+      `<p class="hint">排課時會先帶入這個長度，個別課程還是可以改。</p>`,
+    onConfirm: (form) => {
+      S.settings.defaultDuration = readDuration(form);
+      save(); render();
+      toast(`預設改成 ${durationLabel(S.settings.defaultDuration)}`);
+    },
+    onMount: wireDurationPicker,
+  });
+}
+
+/* ════════════════════════════════════════════════
+   8. 啟動
+   ════════════════════════════════════════════════ */
+
+// 每個人打開都是自己的空白帳本，不預先塞示範資料——
+// 這是要給不同教練各自試用的，別人的假學生混在裡面只會擋路。
+// 想先看看長什麼樣子，總覽頁與設定頁都有「載入示範資料」。
+const loaded = load();
+if (loaded) {
+  S = loaded;
+  autoMarkPastLessons();
+  save();
+} else {
+  S = blankState();
+}
+
+render();
+</script>
