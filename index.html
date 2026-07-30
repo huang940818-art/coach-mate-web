@@ -638,7 +638,7 @@ const NOTICE_KEY = "coach-mate-web-notice-dismissed";
  * 版本標記。顯示在設定頁最下面，教練唸得出來就知道他手上是哪一版，
  * 不用再猜是不是拿到舊的快取。每次改版就把這個字串往上加。
  */
-const BUILD = "2026-07-30 · v8";
+const BUILD = "2026-07-30 · v9";
 
 /** 開發者署名，顯示在設定頁的「關於」 */
 const DEVELOPER = "杯子蛋糕好好吃";
@@ -922,32 +922,61 @@ function newStudent(over = {}) {
   };
 }
 
-/** 換課程狀態時同步扣還堂數。consumed 旗標讓狀態改來改去也不會多扣。 */
+/** 共同課兩位學生各記各的：[學生欄位, 已扣旗標, 欠課旗標] */
+const SESSION_SLOTS = [
+  ["studentId", "consumed", "owed"],
+  ["partnerId", "partnerConsumed", "partnerOwed"],
+];
+
+/**
+ * 換課程狀態時同步扣還堂數。
+ * consumed 旗標讓狀態改來改去也不會重複扣；
+ * 沒堂數卻上了課則記成「欠一堂」，不能只是靜靜不扣——
+ * 否則之後續約補了堂數，狀態改一改就會在莫名其妙的時間點被扣掉一堂。
+ */
 function setLessonStatus(lesson, status) {
   const shouldConsume = CONSUMING.includes(status);
-  for (const [idKey, flag] of [["studentId", "consumed"], ["partnerId", "partnerConsumed"]]) {
+  for (const [idKey, consumedKey, owedKey] of SESSION_SLOTS) {
     const st = studentById(lesson[idKey]);
     if (!st) continue;
-    if (shouldConsume && !lesson[flag]) {
-      st.remaining = Math.max(0, st.remaining - 1);
-      lesson[flag] = true;
-    } else if (!shouldConsume && lesson[flag]) {
-      st.remaining += 1;
-      lesson[flag] = false;
+    if (shouldConsume && !lesson[consumedKey]) {
+      if (st.remaining > 0) {
+        st.remaining -= 1;
+        lesson[consumedKey] = true;
+        lesson[owedKey] = false;
+      } else {
+        lesson[owedKey] = true;
+      }
+    } else if (!shouldConsume) {
+      if (lesson[consumedKey]) {
+        st.remaining += 1;
+        lesson[consumedKey] = false;
+      }
+      lesson[owedKey] = false;
     }
     st.updatedAt = new Date().toISOString();
   }
   lesson.status = status;
 }
 
-/** 刪課要把已扣的堂數還回去 */
+/** 刪課要把已扣的堂數還回去；課都不存在了，欠課紀錄也跟著取消 */
 function releaseLesson(lesson) {
-  for (const [idKey, flag] of [["studentId", "consumed"], ["partnerId", "partnerConsumed"]]) {
-    if (!lesson[flag]) continue;
-    const st = studentById(lesson[idKey]);
-    if (st) st.remaining += 1;
-    lesson[flag] = false;
+  for (const [idKey, consumedKey, owedKey] of SESSION_SLOTS) {
+    if (lesson[consumedKey]) {
+      const st = studentById(lesson[idKey]);
+      if (st) st.remaining += 1;
+    }
+    lesson[consumedKey] = false;
+    lesson[owedKey] = false;
   }
+}
+
+/** 這位學生有幾堂「上了但沒堂數可扣」的課 */
+function owedCount(studentId) {
+  return S.lessons.filter((l) =>
+    (l.studentId === studentId && l.owed) ||
+    (l.partnerId === studentId && l.partnerOwed)
+  ).length;
 }
 
 /** 結束時間已過卻還停在「已排定」的課，補標成已出席 */
@@ -1636,7 +1665,7 @@ function lessonRow(l) {
     <div class="row">
       <span class="dot" style="background:${esc(st?.color || "var(--muted)")}"></span>
       <div class="row-main">
-        <div class="row-title">${esc(names)} <span class="pill ${meta.pill}">${meta.label}</span></div>
+        <div class="row-title">${esc(names)} <span class="pill ${meta.pill}">${meta.label}</span>${(l.owed || l.partnerOwed) ? '<span class="pill pill-crit">欠一堂</span>' : ""}</div>
         <div class="row-sub mono">${esc(l.start)}–${esc(l.end)}　${durationLabel(durationOf(l))}${l.location ? "　" + esc(l.location) : ""}</div>
       </div>
       <div class="row-end">
@@ -1686,6 +1715,7 @@ function viewStudents() {
                 ${esc(s.name || "（未命名）")}
                 ${s.status === "archived" ? '<span class="pill pill-mute">封存</span>' : ""}
                 ${s.mayNotRenew ? '<span class="pill pill-warn">可能不續約</span>' : ""}
+                ${owedCount(s.id) > 0 ? `<span class="pill pill-crit">欠 ${owedCount(s.id)} 堂</span>` : ""}
               </div>
               <div class="row-sub">已上 ${att} 堂・累計收費 ${money(paid)}${s.phone ? "・" + esc(s.phone) : ""}</div>
             </div>
@@ -1885,7 +1915,7 @@ function viewCalendar() {
           <div class="row">
             <span class="dot" style="background:${esc(st?.color || "var(--muted)")}"></span>
             <div class="row-main">
-              <div class="row-title">${esc(names)} <span class="pill ${meta.pill}">${meta.label}</span></div>
+              <div class="row-title">${esc(names)} <span class="pill ${meta.pill}">${meta.label}</span>${(l.owed || l.partnerOwed) ? '<span class="pill pill-crit">欠一堂</span>' : ""}</div>
               <div class="row-sub mono">${esc(l.start)}–${esc(l.end)}　${durationLabel(durationOf(l))}${l.location ? "　" + esc(l.location) : ""}</div>
               ${l.notes ? `<div class="row-sub">${esc(l.notes)}</div>` : ""}
             </div>
@@ -1909,7 +1939,8 @@ function lessonSheet(existing) {
     end: timeOf(minutesOf("09:00") + S.settings.defaultDuration),
     status: "scheduled", notes: "", location: "",
     studentId: activeStudents()[0]?.id || "", partnerId: "",
-    consumed: false, partnerConsumed: false, createdAt: new Date().toISOString(),
+    consumed: false, partnerConsumed: false, owed: false, partnerOwed: false,
+    createdAt: new Date().toISOString(),
   };
   const dur = durationOf(l) || S.settings.defaultDuration;
 
@@ -2581,7 +2612,7 @@ function buildBackup() {
       title: "", date: l.date, startTime: l.start, endTime: l.end,
       statusRaw: l.status, notes: l.notes || "", locationName: l.location || "",
       consumedSession: !!l.consumed, consumedPartnerSession: !!l.partnerConsumed,
-      owedSession: false, owedPartnerSession: false,
+      owedSession: !!l.owed, owedPartnerSession: !!l.partnerOwed,
       createdAt: iso(l.createdAt), updatedAt: iso(l.createdAt),
       studentIndex: indexOf.has(l.studentId) ? indexOf.get(l.studentId) : null,
       partnerIndex: indexOf.has(l.partnerId) ? indexOf.get(l.partnerId) : null,
@@ -2721,6 +2752,7 @@ function parseBackup(raw) {
     studentId: students[d.studentIndex]?.id || "",
     partnerId: students[d.partnerIndex]?.id || "",
     consumed: !!d.consumedSession, partnerConsumed: !!d.consumedPartnerSession,
+    owed: !!d.owedSession, partnerOwed: !!d.owedPartnerSession,
     createdAt: d.createdAt || new Date().toISOString(),
   }));
 
@@ -2878,7 +2910,7 @@ function seedDemo() {
         id: uid(), date, start, end: timeOf(minutesOf(start) + mins),
         status: d < 0 ? (Math.abs(d) % 11 === 0 ? "absent" : "attended") : "scheduled",
         notes: "", location: "", studentId: st.id, partnerId: "",
-        consumed: d < 0 && Math.abs(d) % 11 !== 0, partnerConsumed: false,
+        consumed: d < 0 && Math.abs(d) % 11 !== 0, partnerConsumed: false, owed: false, partnerOwed: false,
         createdAt: new Date().toISOString(),
       });
     }
