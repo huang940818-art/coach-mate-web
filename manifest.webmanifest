@@ -1,0 +1,12 @@
+{
+  "name": "教練小幫手",
+  "short_name": "教練小幫手",
+  "start_url": ".",
+  "display": "standalone",
+  "background_color": "#FBF9F6",
+  "theme_color": "#A8721B",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png" }
+  ]
+}
