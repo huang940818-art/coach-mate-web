@@ -405,25 +405,38 @@ textarea { min-height: 66px; resize: vertical; }
 .switch input:checked::after { transform: translateX(18px); }
 
 /* 對話框 */
+/* 對話框預設置中。只有「手指操作的小螢幕」才貼在底部當抽屜用——
+   那是手機才順手的形式，滑鼠環境貼在邊緣只會讓人找不到。
+   用 pointer 判斷而不是只看寬度，視窗拉窄的桌機才不會被誤判成手機。 */
 .scrim {
   position: fixed; inset: 0; z-index: 50;
   background: rgba(20, 17, 13, .45);
-  display: grid; place-items: end center;
-  padding: 0;
+  display: grid; place-items: center;
+  padding: 24px;
 }
-@media (min-width: 700px) { .scrim { place-items: center; padding: 24px; } }
+@media (max-width: 699px) and (pointer: coarse) {
+  .scrim { place-items: end center; padding: 0; }
+}
 dialog.sheet {
+  /* 瀏覽器給 dialog[open] 的預設是 position:absolute + margin:auto。
+     我們把 margin 歸零自己排版，所以要把它放回版面流程裡，
+     否則會脫離外層的置中，整個貼到左邊緣。 */
+  position: relative;
   border: 0; padding: 0; margin: 0;
   width: 100%; max-width: 560px;
   max-height: 92vh;
   background: var(--surface);
   color: var(--ink);
-  border-radius: 18px 18px 0 0;
+  border-radius: 18px;
   box-shadow: 0 -8px 40px rgba(0,0,0,.3);
   display: flex; flex-direction: column;
   overflow: hidden;
 }
-@media (min-width: 700px) { dialog.sheet { border-radius: 18px; max-height: 86vh; } }
+/* 貼底的抽屜形式只留給手機：下緣切齊螢幕，圓角只留上面兩個 */
+@media (max-width: 699px) and (pointer: coarse) {
+  dialog.sheet { border-radius: 18px 18px 0 0; max-height: 92vh; }
+}
+@media (min-width: 700px), (pointer: fine) { dialog.sheet { max-height: 86vh; } }
 .sheet-head {
   display: flex; align-items: center; justify-content: space-between; gap: 12px;
   padding: 14px 16px;
@@ -625,7 +638,7 @@ const NOTICE_KEY = "coach-mate-web-notice-dismissed";
  * 版本標記。顯示在設定頁最下面，教練唸得出來就知道他手上是哪一版，
  * 不用再猜是不是拿到舊的快取。每次改版就把這個字串往上加。
  */
-const BUILD = "2026-07-30 · v7";
+const BUILD = "2026-07-30 · v8";
 
 /** 開發者署名，顯示在設定頁的「關於」 */
 const DEVELOPER = "杯子蛋糕好好吃";
