@@ -505,6 +505,62 @@ dialog.sheet {
 .tier-add { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; font-size: 13px; color: var(--muted); }
 .tier-add input { width: 62px; }
 
+/* ── 顏色標籤 ─────────────────────────────────
+   --tag 由 inline style 帶進來，這樣一個類別就能吃各種顏色。 */
+.tag-filter { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.tag-row { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+.tag-chip {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 4px 10px; border-radius: var(--r-pill);
+  background: var(--surface-2); border: 1.5px solid transparent;
+  color: var(--ink-2); font-size: 12.5px; cursor: pointer;
+}
+.tag-chip .tag-dot {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: var(--tag, var(--gold)); flex: none;
+}
+.tag-chip.on {
+  border-color: var(--tag, var(--gold));
+  background: color-mix(in srgb, var(--tag, var(--gold)) 16%, transparent);
+  color: var(--tag, var(--gold)); font-weight: 600;
+}
+.tag-chip-sm { padding: 2px 7px; font-size: 11px; cursor: default;
+  background: color-mix(in srgb, var(--tag, var(--gold)) 15%, transparent);
+  color: var(--tag, var(--gold)); }
+
+.tag-editor { padding: 10px 0; border-bottom: 1px solid var(--line); }
+.tag-editor:last-child { border-bottom: 0; }
+.tag-editor-head { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.tag-editor-head input { flex: 1; min-width: 0; }
+.tag-editor-head .tag-dot {
+  width: 12px; height: 12px; border-radius: 50%;
+  background: var(--tag, var(--gold)); flex: none;
+}
+
+/* ── 顏色挑選 ───────────────────────────────── */
+.swatches { display: flex; flex-wrap: wrap; gap: 8px; margin: 6px 0 4px; }
+.swatch {
+  width: 28px; height: 28px; border-radius: 50%;
+  border: 2px solid transparent; cursor: pointer; padding: 0;
+}
+.swatch.on { border-color: var(--ink); box-shadow: 0 0 0 2px var(--surface) inset; }
+.swatch-sm { width: 20px; height: 20px; }
+.swatch-auto {
+  background: var(--surface-2); border: 1.5px dashed var(--line);
+  font-size: 10px; color: var(--muted); width: auto; padding: 0 9px;
+  height: 28px; border-radius: var(--r-pill);
+}
+.swatch-auto.on { border-style: solid; border-color: var(--ink); color: var(--ink); }
+
+.field-label { display: block; font-size: 12.5px; color: var(--ink-2); margin-bottom: 2px; }
+.quick-steps { display: flex; gap: 8px; margin: -4px 0 12px; }
+.quick-steps .btn { flex: 1; }
+.btn-plain { border: 0; background: none; padding: 0; cursor: pointer; color: inherit; font: inherit; }
+.seg-wrap { flex-wrap: wrap; }
+.seg-wrap button { flex: 1 1 auto; min-width: 64px; }
+/* 銷售的逐月長條多一欄金額 */
+.bar-row:has(.bar-value + .bar-value) { grid-template-columns: 48px 1fr auto auto; }
+
 .note-box {
   background: var(--gold-soft);
   border: 1px solid var(--gold-line);
@@ -625,11 +681,13 @@ function showFatal(message, file, line) {
  * 換新公告時「一定要改 id」，否則之前按過「知道了」的人不會再看到。
  */
 const ANNOUNCEMENT = {
-  id: "2026-07-30-c",
-  title: "請先清一次資料再開始",
-  body: "如果你看到「王柏翰」「吳孟儒」這些不是你的學生，那是示範資料。" +
-        "到「設定 → 清除所有資料」清掉，之後就都是你自己的了，不會跟其他教練混在一起。" +
-        "接著看一下使用說明，花兩分鐘把手機設定好，資料就不會不見。",
+  id: "2026-08-06-b",
+  title: "加到主畫面會看不到資料？先看這則",
+  body: "iPhone 的桌面圖示跟 Safari 是分開存資料的，所以在 Safari 建好的學生，" +
+        "打開桌面圖示會是空的——資料沒有不見，還在 Safari 那邊。" +
+        "到「設定 → 加到主畫面 → 怎麼加？」可以把資料一起帶過去。" +
+        "另外這次新增了：檢測（對還沒買課的人做的試教，不扣堂數不算錢，上完會問你成交了沒）、" +
+        "顏色標籤、銷售統計、底薪給法設定。有問題到設定最下面「回報問題」告訴我。",
 };
 
 const NOTICE_KEY = "coach-mate-web-notice-dismissed";
@@ -638,10 +696,13 @@ const NOTICE_KEY = "coach-mate-web-notice-dismissed";
  * 版本標記。顯示在設定頁最下面，教練唸得出來就知道他手上是哪一版，
  * 不用再猜是不是拿到舊的快取。每次改版就把這個字串往上加。
  */
-const BUILD = "2026-07-30 · v9";
+const BUILD = "2026-08-06 · v10";
 
 /** 開發者署名，顯示在設定頁的「關於」 */
 const DEVELOPER = "杯子蛋糕好好吃";
+
+/** 「回報問題」寄到哪裡 */
+const DEVELOPER_EMAIL = "huang940818@gmail.com";
 
 /** 示範學生的名字。公告用它判斷這台裝置上還留著示範資料。 */
 const DEMO_NAMES = ["林佳蓉", "陳彥廷", "黃郁婷", "張家豪", "吳孟儒", "李思穎", "王柏翰", "劉宜靜"];
@@ -688,12 +749,23 @@ const GUIDE_MD = `
 
 ## 三、請做這兩件事
 
-**1. 加到主畫面**
+**1. 加到主畫面（越早做越好）**
 
 - iPhone（Safari）：點下方的分享圖示，選「加入主畫面」
 - Android（Chrome）：右上角選單，選「加到主畫面」
 
 加完桌面會多一個像 App 的圖示，開起來沒有網址列，系統也比較不會把資料清掉。
+
+> ⚠️ **iPhone 很重要的一件事：桌面圖示跟 Safari 的資料是分開的。**
+>
+> 這是 iPhone 的規則，不是這個網站的問題。你在 Safari 裡輸入的學生，
+> 打開桌面圖示會看不到——但**資料沒有不見**，還好好地留在 Safari 那邊。
+>
+> 所以最省事的做法是：**一開始就先加到主畫面，之後都從桌面圖示開來用。**
+>
+> 已經在 Safari 裡輸入一堆了才發現？到「設定 → 加到主畫面 → 怎麼加？」，
+> 它會把你的資料一起帶過去，加完打開桌面圖示就在裡面了。
+> 資料量太大帶不動的話，改用「複製備份文字」→ 打開桌面圖示 → 「貼上備份文字」。
 
 **2. 定期做一份備份**
 
@@ -757,6 +829,9 @@ const KEY = "coach-mate-web-v1";
 
 const DEFAULT_SALARY = {
   baseSalary: 0,
+  // 底薪怎麼給：always（底薪＋抽成）／belowThreshold（達標後取消）／higherOf（取高者）
+  baseSalaryMode: "always",
+  baseSalaryThreshold: 40,
   perLessonRate: 0,
   useStudentRate: true,
   onlyAttended: true,
@@ -779,6 +854,13 @@ const DEFAULT_SETTINGS = {
   ],
   salary: { ...DEFAULT_SALARY },
   theme: "auto",
+  // 顏色標籤。第一次使用給幾個範例，不要的直接刪。
+  tags: [
+    { id: "tag-fatloss", name: "減脂", color: "#E05B7B" },
+    { id: "tag-rehab", name: "康復", color: "#3BA99E" },
+    { id: "tag-vip", name: "VIP", color: "#A8721B" },
+    { id: "tag-competition", name: "備賽", color: "#9B6FD4" },
+  ],
 };
 
 // 舊一點的 iOS Safari（15.4 以前）沒有 structuredClone，直接用會整頁白掉。
@@ -797,15 +879,31 @@ function load() {
     if (!raw) return null;
     const parsed = JSON.parse(raw);
     if (!parsed || typeof parsed !== "object") return null;
+    const settings = {
+      ...clone(DEFAULT_SETTINGS),
+      ...(parsed.settings || {}),
+      salary: { ...DEFAULT_SALARY, ...((parsed.settings || {}).salary || {}) },
+    };
+    // 標籤是後來才加的。舊資料沒有這個鍵時給預設值，
+    // 但「使用者把標籤全刪光」存下來的是空陣列，那要尊重，不能又塞回範例標籤。
+    if (!Array.isArray((parsed.settings || {}).tags)) {
+      settings.tags = clone(DEFAULT_SETTINGS.tags);
+    }
     return {
-      students: Array.isArray(parsed.students) ? parsed.students : [],
-      lessons: Array.isArray(parsed.lessons) ? parsed.lessons : [],
+      students: (Array.isArray(parsed.students) ? parsed.students : []).map((s) => ({
+        ...s,
+        tags: Array.isArray(s.tags) ? s.tags : [],
+      })),
+      // 課程種類、檢測結果、單堂顏色也是後來才加的，舊課一律當正課
+      lessons: (Array.isArray(parsed.lessons) ? parsed.lessons : []).map((l) => ({
+        ...l,
+        kind: l.kind === "assessment" ? "assessment" : "lesson",
+        outcome: OUTCOME[l.outcome] ? l.outcome : "pending",
+        color: typeof l.color === "string" ? l.color : "",
+        leadId: l.leadId || "",
+      })),
       leads: Array.isArray(parsed.leads) ? parsed.leads : [],
-      settings: {
-        ...clone(DEFAULT_SETTINGS),
-        ...(parsed.settings || {}),
-        salary: { ...DEFAULT_SALARY, ...((parsed.settings || {}).salary || {}) },
-      },
+      settings,
     };
   } catch (e) {
     console.warn("讀取本機資料失敗，改用空白資料", e);
@@ -891,6 +989,41 @@ const LESSON_STATUS = {
 };
 const CONSUMING = ["attended", "late"];   // 有上到課就要扣堂數
 
+/**
+ * 課程種類。「檢測」是對還不是學生的人做的第一次試教／推銷：
+ * 佔課表的時段，但對方還沒買課，所以不扣堂數、不算課程收入、也不進抽成。
+ * 成交之後他才會變成學生，那筆錢走續約（業績獎金）那條路。
+ */
+const LESSON_KIND = {
+  lesson:     { label: "正課", consumes: true,  paid: true,  color: "" },
+  assessment: { label: "檢測", consumes: false, paid: false, color: "#8B5CF6" },
+};
+
+const kindOf = (l) => (l && l.kind === "assessment") ? "assessment" : "lesson";
+const isAssessment = (l) => kindOf(l) === "assessment";
+
+/** 檢測結果。成交率的分母只算有結論的（成交＋沒成交）。 */
+const OUTCOME = {
+  pending:   { label: "待回報", pill: "pill-warn", settled: false },
+  closed:    { label: "成交",   pill: "pill-good", settled: true },
+  notClosed: { label: "沒成交", pill: "pill-mute", settled: true },
+  followUp:  { label: "再約",   pill: "pill-info", settled: false },
+};
+
+const outcomeOf = (l) => (l && OUTCOME[l.outcome]) ? l.outcome : "pending";
+
+/** 課表上這一堂該用什麼顏色：自訂色 > 檢測紫 > 學生代表色 */
+function lessonColor(l) {
+  if (l.status === "cancelled") return "var(--muted)";
+  if (l.color) return l.color;
+  if (isAssessment(l)) return LESSON_KIND.assessment.color;
+  return studentById(l.studentId)?.color || "var(--muted)";
+}
+
+/** 單堂課可以挑的顏色 */
+const LESSON_COLORS = ["#3B82F6", "#10B981", "#F59E0B", "#EF4444", "#8B5CF6",
+                       "#EC4899", "#14B8A6", "#F97316", "#6366F1", "#64748B"];
+
 const LEAD_SOURCE = {
   referral: "介紹", online: "網路", walkIn: "路過", company: "公司名單", other: "其他",
 };
@@ -916,6 +1049,7 @@ function newStudent(over = {}) {
     color: STUDENT_COLORS[S.students.length % STUDENT_COLORS.length],
     expiry: "", custom: {}, renewalCount: 0, mayNotRenew: false,
     acquisition: "selfDeveloped", status: "active",
+    tags: [],
     payments: [], renewals: [],
     createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
     ...over,
@@ -935,6 +1069,11 @@ const SESSION_SLOTS = [
  * 否則之後續約補了堂數，狀態改一改就會在莫名其妙的時間點被扣掉一堂。
  */
 function setLessonStatus(lesson, status) {
+  // 檢測的對象還沒買課，沒有堂數可扣，也不該記成欠課
+  if (!LESSON_KIND[kindOf(lesson)].consumes) {
+    lesson.status = status;
+    return;
+  }
   const shouldConsume = CONSUMING.includes(status);
   for (const [idKey, consumedKey, owedKey] of SESSION_SLOTS) {
     const st = studentById(lesson[idKey]);
@@ -1033,6 +1172,8 @@ function salaryFor(ym) {
   if (countsLessons) {
     for (const l of S.lessons) {
       if (!l.date.startsWith(ym)) continue;
+      // 檢測佔時段但不算課程收入也不進抽成堂數
+      if (!LESSON_KIND[kindOf(l)].paid) continue;
       const ok = rule.onlyAttended ? CONSUMING.includes(l.status) : l.status !== "cancelled";
       if (!ok) continue;
       for (const id of [l.studentId, l.partnerId]) {
@@ -1059,8 +1200,205 @@ function salaryFor(ym) {
     }
   }
 
-  const total = (rule.baseSalary || 0) + lessonPay + salesBonus;
-  return { sessions, lessonRevenue, pct, lessonPay, salesAmount, companySalesAmount, salesBonus, total };
+  // ── 底薪 ────────────────────────────────────────────────
+  // 「底薪」在不同公司是三種完全不同的東西，用同一種算法會差好幾萬：
+  //   always         底薪照給，抽成另外加
+  //   belowThreshold 堂數到了門檻，底薪就沒了（低堂數時的保護）
+  //   higherOf       底薪與抽成取高者，不相加
+  // 算出來的是「實際要加上去的金額」，這樣 total 一律是 抽成 ＋ 這個數字。
+  const configuredBase = rule.baseSalary || 0;
+  const mode = rule.baseSalaryMode || "always";
+  const threshold = rule.baseSalaryThreshold || 40;
+  const earned = lessonPay + salesBonus;
+
+  let baseSalary;
+  if (mode === "belowThreshold") baseSalary = sessions >= threshold ? 0 : configuredBase;
+  else if (mode === "higherOf")  baseSalary = Math.max(0, configuredBase - earned);
+  else                           baseSalary = configuredBase;
+
+  // 這個月為什麼是這個底薪。不解釋的話，達標當月薪水突然少一截
+  // 會看起來像算錯。
+  let baseNote = null;
+  if (configuredBase > 0 && mode === "belowThreshold") {
+    baseNote = baseSalary > 0
+      ? `還沒滿 ${threshold} 堂（目前 ${sessions} 堂），底薪照給`
+      : `已達 ${threshold} 堂，依規則不再給底薪，只算抽成`;
+  } else if (configuredBase > 0 && mode === "higherOf") {
+    baseNote = baseSalary > 0
+      ? `抽成 ${money(earned)} 沒做到底薪 ${money(configuredBase)}，補到底薪`
+      : `抽成 ${money(earned)} 已超過底薪 ${money(configuredBase)}，領抽成`;
+  }
+
+  const total = baseSalary + earned;
+  return { sessions, lessonRevenue, pct, lessonPay, salesAmount, companySalesAmount,
+           salesBonus, baseSalary, configuredBase, mode, threshold, earned, baseNote, total };
+}
+
+/* ── 檢測成交率 ─────────────────────────────── */
+
+/** 區間內（含頭尾兩天）做過的檢測，取消的不算 */
+function assessmentsInRange(from, to) {
+  const [a, b] = from <= to ? [from, to] : [to, from];
+  return S.lessons.filter((l) =>
+    isAssessment(l) && l.status !== "cancelled" && l.date >= a && l.date <= b);
+}
+
+function assessmentStats(from, to) {
+  const rows = assessmentsInRange(from, to);
+  const by = (o) => rows.filter((l) => outcomeOf(l) === o).length;
+  const closed = by("closed"), notClosed = by("notClosed");
+  const settled = closed + notClosed;
+  return {
+    total: rows.length,
+    closed, notClosed,
+    followUp: by("followUp"),
+    // 時段已過但還沒回報的
+    pending: rows.filter((l) => needsOutcome(l)).length,
+    settled,
+    // 一場都還沒有結論就回傳 null，不要顯示 0% 誤導人
+    rate: settled ? closed / settled * 100 : null,
+  };
+}
+
+/** 依名單來源拆開看成交率 */
+function assessmentBySource(from, to) {
+  const rows = assessmentsInRange(from, to);
+  return Object.keys(LEAD_SOURCE).map((key) => {
+    const group = rows.filter((l) => leadById(l.leadId)?.source === key);
+    const closed = group.filter((l) => outcomeOf(l) === "closed").length;
+    return { key, label: LEAD_SOURCE[key], total: group.length, closed,
+             rate: group.length ? closed / group.length * 100 : null };
+  }).filter((r) => r.total > 0).sort((a, b) => b.total - a.total);
+}
+
+/** 已經上完、但還沒回報成交與否的檢測 */
+function needsOutcome(l) {
+  return isAssessment(l) && outcomeOf(l) === "pending"
+      && l.status !== "cancelled" && l.date <= today();
+}
+
+/** 待回報的檢測，舊的排前面 */
+function awaitingOutcome() {
+  return S.lessons.filter(needsOutcome)
+    .sort((a, b) => (a.date + a.start).localeCompare(b.date + b.start));
+}
+
+const leadById = (id) => S.leads.find((l) => l.id === id) || null;
+
+/* ── 銷售統計 ───────────────────────────────── */
+// 「這段期間總共賣了幾堂」。堂數與金額都來自續約紀錄（首購也會寫一筆），
+// 跟收費紀錄是兩回事——收費看錢什麼時候進來，銷售看課什麼時候賣掉。
+
+const SALES_PERIODS = {
+  thisMonth: "本月", lastMonth: "上月", thisYear: "今年", all: "全部", custom: "自訂",
+};
+
+/** 期間對應的起訖日。自訂要另外給日期，這裡回傳 null。 */
+function periodBounds(key, now = new Date()) {
+  const y = now.getFullYear(), m = now.getMonth();
+  const lastDay = (yy, mm) => new Date(yy, mm + 1, 0).getDate();
+  switch (key) {
+    case "thisMonth":
+      return { from: `${y}-${pad(m + 1)}-01`, to: `${y}-${pad(m + 1)}-${pad(lastDay(y, m))}` };
+    case "lastMonth": {
+      const d = new Date(y, m - 1, 1);
+      const py = d.getFullYear(), pm = d.getMonth();
+      return { from: `${py}-${pad(pm + 1)}-01`, to: `${py}-${pad(pm + 1)}-${pad(lastDay(py, pm))}` };
+    }
+    case "thisYear":  return { from: `${y}-01-01`, to: `${y}-12-31` };
+    // 字串比較，這兩個邊界包得住任何實際會出現的日期
+    case "all":       return { from: "0000-01-01", to: "9999-12-31" };
+    default:          return null;
+  }
+}
+
+/** 所有續約紀錄（含首購），帶上是誰買的 */
+function allRenewals() {
+  return S.students.flatMap((s) => s.renewals.map((r) => ({ ...r, studentId: s.id })));
+}
+
+function salesSummary(from, to) {
+  const [a, b] = from <= to ? [from, to] : [to, from];
+  const rows = allRenewals().filter((r) => (r.date || "") >= a && (r.date || "") <= b);
+  const sessions = rows.reduce((n, r) => n + (r.sessions || 0), 0);
+  const amount = rows.reduce((n, r) => n + (r.amount || 0), 0);
+  const people = new Set(rows.map((r) => r.studentId).filter(Boolean));
+  return {
+    sessions, amount, count: rows.length, students: people.size,
+    // 沒賣出東西就回傳 null，不要顯示 0 元均價
+    unitPrice: sessions ? Math.round(amount / sessions) : null,
+    dealSize: rows.length ? Math.round(amount / rows.length) : null,
+    rows,
+  };
+}
+
+/** 依月份拆開，舊的在前 */
+function salesByMonth(from, to) {
+  const { rows } = salesSummary(from, to);
+  const buckets = {};
+  for (const r of rows) {
+    const ym = (r.date || "").slice(0, 7);
+    if (ym.length !== 7) continue;
+    buckets[ym] = buckets[ym] || { sessions: 0, amount: 0 };
+    buckets[ym].sessions += r.sessions || 0;
+    buckets[ym].amount += r.amount || 0;
+  }
+  return Object.entries(buckets)
+    .map(([month, v]) => ({ month, ...v }))
+    .sort((x, y) => x.month.localeCompare(y.month));
+}
+
+/** 這段期間買最多的人 */
+function salesTopStudents(from, to, limit = 5) {
+  const { rows } = salesSummary(from, to);
+  const buckets = {};
+  for (const r of rows) {
+    if (!r.studentId) continue;
+    buckets[r.studentId] = buckets[r.studentId] || { sessions: 0, amount: 0 };
+    buckets[r.studentId].sessions += r.sessions || 0;
+    buckets[r.studentId].amount += r.amount || 0;
+  }
+  return Object.entries(buckets)
+    .map(([id, v]) => ({ student: studentById(id), ...v }))
+    .filter((r) => r.student)
+    .sort((x, y) => y.sessions - x.sessions || x.student.name.localeCompare(y.student.name))
+    .slice(0, limit);
+}
+
+/* ── 顏色標籤 ───────────────────────────────── */
+// 學生代表色一人只能一個顏色，回答不了「哪些人是減脂的」。
+// 標籤是另一層：教練自己定義一組有顏色的名字，一位學生可以貼好幾個。
+
+const TAG_COLORS = ["#A8721B", "#E05B7B", "#3BA99E", "#5B8DEF", "#9B6FD4",
+                    "#E86A5C", "#10B981", "#F59E0B", "#EC4899", "#64748B"];
+
+const allTags = () => S.settings.tags || [];
+const tagById = (id) => allTags().find((t) => t.id === id) || null;
+
+/** 這位學生身上對得上目前設定的標籤（設定裡刪掉的就不算） */
+function tagsOf(student) {
+  return (student.tags || []).map(tagById).filter(Boolean);
+}
+
+/** 每個標籤各貼了幾位在檔學生 */
+function tagCounts() {
+  const counts = {};
+  for (const s of S.students) {
+    if (!onRoster(s)) continue;
+    for (const id of (s.tags || [])) counts[id] = (counts[id] || 0) + 1;
+  }
+  return counts;
+}
+
+/** 刪標籤時要把貼在學生身上的那筆也拔掉 */
+function removeTagEverywhere(tagId) {
+  S.settings.tags = allTags().filter((t) => t.id !== tagId);
+  for (const s of S.students) {
+    if ((s.tags || []).includes(tagId)) {
+      s.tags = s.tags.filter((t) => t !== tagId);
+      s.updatedAt = new Date().toISOString();
+    }
+  }
 }
 
 /* ── 成交率 ─────────────────────────────────── */
@@ -1596,6 +1934,7 @@ function welcomeView() {
     </div>
 
     <div class="stack">
+      ${standaloneEmptyNotice()}
       <section class="card">
         <div class="note-box" style="margin-bottom:16px">
           這份資料<strong>只存在你自己的瀏覽器裡</strong>，其他教練看不到，你也看不到別人的。
@@ -1677,12 +2016,22 @@ function lessonRow(l) {
 /* ── 學生 ───────────────────────────────────── */
 
 let studentFilter = "active";
+/** 學生名單上選了哪些標籤要篩選（空的＝不篩） */
+let activeTagFilter = new Set();
+/** 銷售統計目前選的期間 */
+let salesPeriod = "thisMonth";
+let salesFrom = "";
+let salesTo = "";
 
 function viewStudents() {
   const all = S.students;
+  const tags = allTags();
+  const counts = tagCounts();
   const list = all.filter((s) => {
-    if (studentFilter === "active") return s.status === "active";
-    if (studentFilter === "archived") return s.status === "archived";
+    if (studentFilter === "active" && s.status !== "active") return false;
+    if (studentFilter === "archived" && s.status !== "archived") return false;
+    // 選了多個標籤是「任一符合」——想找的通常是「減脂或備賽的人」
+    if (activeTagFilter.size && !(s.tags || []).some((t) => activeTagFilter.has(t))) return false;
     return true;
   }).sort((a, b) => (a.name || "").localeCompare(b.name || "", "zh-Hant"));
 
@@ -1703,6 +2052,18 @@ function viewStudents() {
           `<button type="button" data-action="student-filter" data-value="${v}" aria-pressed="${studentFilter === v}">${t}</button>`).join("")}
       </div>
 
+      ${tags.length ? `
+        <div class="tag-filter">
+          ${tags.map((t) => `
+            <button type="button" class="tag-chip ${activeTagFilter.has(t.id) ? "on" : ""}"
+                    data-action="toggle-tag-filter" data-id="${t.id}"
+                    style="--tag:${esc(t.color)}">
+              <span class="tag-dot"></span>${esc(t.name)}
+              <span class="muted" style="font-size:11px">${counts[t.id] || 0}</span>
+            </button>`).join("")}
+          ${activeTagFilter.size ? `<button type="button" class="btn btn-sm btn-ghost" data-action="clear-tag-filter">清除篩選</button>` : ""}
+        </div>` : ""}
+
       <section class="card">
         ${list.length ? list.map((s) => {
           const att = attendedCount(s.id);
@@ -1718,9 +2079,14 @@ function viewStudents() {
                 ${owedCount(s.id) > 0 ? `<span class="pill pill-crit">欠 ${owedCount(s.id)} 堂</span>` : ""}
               </div>
               <div class="row-sub">已上 ${att} 堂・累計收費 ${money(paid)}${s.phone ? "・" + esc(s.phone) : ""}</div>
+              ${tagsOf(s).length ? `<div class="tag-row">${tagsOf(s).map((t) =>
+                `<span class="tag-chip tag-chip-sm" style="--tag:${esc(t.color)}"><span class="tag-dot"></span>${esc(t.name)}</span>`).join("")}</div>` : ""}
             </div>
             <div class="row-end">
-              <div class="mono" style="font-weight:600">${s.remaining}<span class="muted" style="font-size:12px"> / ${s.totalPurchased} 堂</span></div>
+              <button class="mono btn-plain" type="button" data-action="adjust-sessions" data-id="${s.id}"
+                      title="調整剩餘堂數" style="font-weight:600">
+                ${s.remaining}<span class="muted" style="font-size:12px"> / ${s.totalPurchased} 堂</span>
+              </button>
               <div style="display:flex;gap:6px;justify-content:flex-end;margin-top:5px">
                 <button class="btn btn-sm" type="button" data-action="renew" data-id="${s.id}">續約</button>
                 <button class="btn btn-sm" type="button" data-action="edit-student" data-id="${s.id}">編輯</button>
@@ -1757,6 +2123,27 @@ function studentSheet(existing) {
         <input id="f-mayNotRenew" name="mayNotRenew" type="checkbox" ${s.mayNotRenew ? "checked" : ""}>
       </div>
       <div class="divider"></div>
+      <label class="field-label">代表色</label>
+      <div class="swatches" data-color-picker>
+        ${STUDENT_COLORS.map((c) => `
+          <button type="button" class="swatch ${s.color === c ? "on" : ""}"
+                  data-color="${c}" style="background:${c}" aria-label="${c}"></button>`).join("")}
+      </div>
+      <input type="hidden" name="color" value="${esc(s.color || STUDENT_COLORS[0])}">
+
+      ${allTags().length ? `
+        <label class="field-label" style="margin-top:12px">標籤</label>
+        <div class="tag-filter" data-tag-picker>
+          ${allTags().map((t) => `
+            <button type="button" class="tag-chip ${(s.tags || []).includes(t.id) ? "on" : ""}"
+                    data-tag="${t.id}" style="--tag:${esc(t.color)}">
+              <span class="tag-dot"></span>${esc(t.name)}
+            </button>`).join("")}
+        </div>
+        <input type="hidden" name="tags" value="${esc((s.tags || []).join(","))}">
+        <p class="hint">到「設定 → 顏色標籤」可以新增、改名或換顏色。</p>` : ""}
+
+      <div class="divider"></div>
       <p class="hint" style="margin:0 0 10px">自訂欄位（填了才會出現在客群分析）</p>
       ${fields.map((f) => fieldText("cf_" + f, f, s.custom?.[f] || "",
           { type: f === "生日" ? "date" : "text" })).join("")}
@@ -1779,6 +2166,11 @@ function studentSheet(existing) {
       s.status = form.elements.status.value;
       s.mayNotRenew = form.elements.mayNotRenew.checked;
       s.notes = form.elements.notes.value;
+      s.color = form.elements.color.value || s.color;
+      // 設定裡已經刪掉的標籤不要再寫回去
+      s.tags = form.elements.tags
+        ? form.elements.tags.value.split(",").filter((id) => id && tagById(id))
+        : (s.tags || []);
       s.custom = { ...s.custom };
       for (const f of fields) {
         const v = form.elements["cf_" + f].value.trim();
@@ -1790,6 +2182,34 @@ function studentSheet(existing) {
       toast(existing ? "已更新學生資料" : `已新增 ${s.name}`);
     },
     onMount: (root) => {
+      // 代表色
+      const picker = root.querySelector("[data-color-picker]");
+      const colorInput = root.querySelector('[name="color"]');
+      if (picker && colorInput) {
+        picker.addEventListener("click", (e) => {
+          const btn = e.target.closest(".swatch");
+          if (!btn) return;
+          e.preventDefault();
+          colorInput.value = btn.dataset.color;
+          picker.querySelectorAll(".swatch").forEach((x) => x.classList.remove("on"));
+          btn.classList.add("on");
+        });
+      }
+
+      // 標籤（可複選）
+      const tagPicker = root.querySelector("[data-tag-picker]");
+      const tagInput = root.querySelector('[name="tags"]');
+      if (tagPicker && tagInput) {
+        tagPicker.addEventListener("click", (e) => {
+          const btn = e.target.closest("[data-tag]");
+          if (!btn) return;
+          e.preventDefault();
+          btn.classList.toggle("on");
+          tagInput.value = [...tagPicker.querySelectorAll(".tag-chip.on")]
+            .map((x) => x.dataset.tag).join(",");
+        });
+      }
+
       root.addEventListener("click", (e) => {
         const del = e.target.closest('[data-action="delete-student"]');
         if (!del) return;
@@ -1802,6 +2222,233 @@ function studentSheet(existing) {
       });
     },
   });
+}
+
+/**
+ * 手動調整剩餘堂數。
+ * 系統算錯、線下補課、送一堂，這些都得手動調。
+ * 刻意「不」動已購堂數：已購是賣出去的量，銷售統計要用，
+ * 不能因為送人一堂就讓業績跟著變多。
+ */
+function adjustSessionsSheet(student) {
+  const before = student.remaining || 0;
+  openSheet({
+    title: "調整剩餘堂數",
+    confirmLabel: "儲存",
+    body: `
+      <p style="font-weight:650;margin-bottom:2px">${esc(student.name)}</p>
+      <p class="hint" style="margin-bottom:12px">目前剩 ${before} 堂．已購 ${student.totalPurchased || 0} 堂</p>
+      ${fieldText("remaining", "改成", before, { type: "number" })}
+      <div class="quick-steps">
+        ${[-1, 1, 5, 10].map((n) => `
+          <button type="button" class="btn btn-sm" data-step="${n}">${n > 0 ? "+" + n : n}</button>`).join("")}
+      </div>
+      ${fieldText("reason", "原因（選填）", "", { placeholder: "例如：線下補一堂、系統算錯" })}
+      ${owedCount(student.id) > 0
+        ? `<p class="hint" style="color:var(--warn)">目前欠 ${owedCount(student.id)} 堂（上了課但當時沒堂數可扣）。</p>`
+        : ""}
+      <p class="hint">只改剩餘堂數，已購 ${student.totalPurchased || 0} 堂不變，銷售統計不受影響。要記錄新買的堂數請用「續約」。</p>`,
+    onConfirm: (form) => {
+      const target = Math.max(0, +form.elements.remaining.value || 0);
+      if (target === before) { toast("沒有變動"); return false; }
+      student.remaining = target;
+
+      const reason = form.elements.reason.value.trim();
+      const stamp = `［${today()}］剩餘堂數 ${before} → ${target}` + (reason ? `：${reason}` : "");
+      student.notes = student.notes ? `${student.notes}\n${stamp}` : stamp;
+      student.updatedAt = new Date().toISOString();
+
+      save(); render();
+      toast(`已改為剩 ${target} 堂`);
+    },
+    onMount: (root) => {
+      const input = root.querySelector('[name="remaining"]');
+      root.addEventListener("click", (e) => {
+        const btn = e.target.closest("[data-step]");
+        if (!btn || !input) return;
+        e.preventDefault();
+        input.value = Math.max(0, (+input.value || 0) + (+btn.dataset.step));
+      });
+    },
+  });
+}
+
+/**
+ * 回報問題。
+ * 教練能講的通常只有「它壞了」，真正要查的是版本、瀏覽器、資料量，
+ * 所以那些自動附上。送出方式是開啟郵件草稿，不需要後端也不用藏金鑰
+ * （這份原始碼是公開的）。
+ */
+const ISSUE_KINDS = {
+  bug: "怪怪的／算錯",
+  broken: "打不開或卡住",
+  feature: "希望多一個功能",
+  other: "其他",
+};
+
+function reportIssueSheet() {
+  const info = [
+    `版本：${BUILD}`,
+    `瀏覽器：${navigator.userAgent}`,
+    `畫面：${window.innerWidth}×${window.innerHeight}`,
+    `資料量：學生 ${S.students.length}．課程 ${S.lessons.length}．名單 ${S.leads.length}`,
+  ].join("\n");
+
+  openSheet({
+    title: "回報問題",
+    confirmLabel: "寫成郵件",
+    body: `
+      ${fieldSelect("kind", "這是哪一種問題", Object.entries(ISSUE_KINDS), "bug")}
+      <div class="field">
+        <label for="f-detail">發生了什麼事</label>
+        <textarea id="f-detail" name="detail" rows="5"
+          placeholder="哪一頁、你按了什麼、預期看到什麼、實際看到什麼。&#10;例如：某位學生續約 10 堂之後，剩餘堂數只加了 8 堂。"></textarea>
+      </div>
+      ${fieldText("contact", "怎麼聯絡你（選填）", "", { placeholder: "LINE 或電話" })}
+      <details style="margin-top:10px">
+        <summary class="hint" style="cursor:pointer">會一起附上的資訊</summary>
+        <pre class="mono" style="font-size:11px;white-space:pre-wrap;color:var(--muted);margin-top:6px">${esc(info)}</pre>
+      </details>
+      <p class="hint">沒有學生姓名、電話或任何個人資料，只有版本與瀏覽器，還有總筆數。會開啟郵件草稿，<strong>記得按下寄出</strong>才會送出去。</p>`,
+    onConfirm: (form) => {
+      const detail = form.elements.detail.value.trim();
+      if (!detail) { toast("請描述一下發生了什麼事"); return false; }
+      const contact = form.elements.contact.value.trim();
+      const kind = ISSUE_KINDS[form.elements.kind.value] || "其他";
+
+      const subject = `教練小幫手回報：${kind}`;
+      const body = [detail, contact ? `聯絡方式：${contact}` : "", "――――――――――\n" + info]
+        .filter(Boolean).join("\n\n");
+      const url = `mailto:${DEVELOPER_EMAIL}?subject=${encodeURIComponent(subject)}`
+                + `&body=${encodeURIComponent(body)}`;
+
+      // 有些瀏覽器沒有預設郵件程式，開不起來就退成複製到剪貼簿
+      try {
+        window.location.href = url;
+        toast("已開啟郵件草稿，記得按寄出");
+      } catch (err) {
+        navigator.clipboard?.writeText(`${DEVELOPER_EMAIL}\n\n${subject}\n\n${body}`);
+        toast(`開不了郵件程式，內容已複製，請傳給 ${DEVELOPER_EMAIL}`);
+      }
+    },
+  });
+}
+
+/** 顏色標籤的設定 */
+function tagSettingsSheet() {
+  const counts = tagCounts();
+  const draft = clone(allTags());
+
+  openSheet({
+    title: "顏色標籤",
+    confirmLabel: "完成",
+    body: `
+      <div data-tag-list>
+        ${draft.length
+          ? draft.map((t) => tagEditorRow(t, counts[t.id] || 0)).join("")
+          : `<p class="hint">還沒有標籤。在下面加一個，之後就能在學生名單上照標籤篩選。</p>`}
+      </div>
+      <div class="divider"></div>
+      <p class="hint" style="margin:0 0 8px">新增標籤</p>
+      ${fieldText("newName", "名稱", "", { placeholder: "減脂、產後、備賽…" })}
+      <div class="swatches" data-new-color-picker>
+        ${TAG_COLORS.map((c, i) => `
+          <button type="button" class="swatch ${i === 0 ? "on" : ""}"
+                  data-color="${c}" style="background:${c}" aria-label="${c}"></button>`).join("")}
+      </div>
+      <input type="hidden" name="newColor" value="${TAG_COLORS[0]}">
+      <button type="button" class="btn btn-sm" data-action="add-tag" style="margin-top:8px">加入</button>
+      <p class="hint">改名字或顏色，所有貼過這個標籤的學生會一起變。</p>`,
+    onConfirm: () => {
+      // 名字被清空的標籤存下去只會變成一個看不見的膠囊，直接濾掉
+      S.settings.tags = draft.filter((t) => (t.name || "").trim());
+      save(); render();
+      toast("已更新標籤");
+    },
+    onMount: (root) => {
+      const list = root.querySelector("[data-tag-list]");
+
+      const redraw = () => {
+        const c = tagCounts();
+        list.innerHTML = draft.length
+          ? draft.map((t) => tagEditorRow(t, c[t.id] || 0)).join("")
+          : `<p class="hint">還沒有標籤。</p>`;
+      };
+
+      // 新標籤的顏色
+      const newPicker = root.querySelector("[data-new-color-picker]");
+      const newColor = root.querySelector('[name="newColor"]');
+      newPicker.addEventListener("click", (e) => {
+        const btn = e.target.closest(".swatch");
+        if (!btn) return;
+        e.preventDefault();
+        newColor.value = btn.dataset.color;
+        newPicker.querySelectorAll(".swatch").forEach((x) => x.classList.remove("on"));
+        btn.classList.add("on");
+      });
+
+      root.addEventListener("click", (e) => {
+        const add = e.target.closest('[data-action="add-tag"]');
+        if (add) {
+          e.preventDefault();
+          const input = root.querySelector('[name="newName"]');
+          const name = input.value.trim();
+          if (!name) { toast("請填標籤名稱"); return; }
+          draft.push({ id: uid(), name, color: newColor.value });
+          input.value = "";
+          redraw();
+          return;
+        }
+
+        const del = e.target.closest("[data-del-tag]");
+        if (del) {
+          e.preventDefault();
+          const id = del.dataset.delTag;
+          const used = (tagCounts()[id] || 0);
+          if (used > 0 && !confirm(`這個標籤目前貼在 ${used} 位學生身上，刪掉之後他們身上的這個標籤也會一起拿掉。學生資料本身不受影響。`)) return;
+          // 立刻從學生身上拔掉，不然按「完成」之前名單上還看得到
+          removeTagEverywhere(id);
+          const i = draft.findIndex((t) => t.id === id);
+          if (i >= 0) draft.splice(i, 1);
+          save();
+          redraw();
+          return;
+        }
+
+        const swatch = e.target.closest("[data-tag-color]");
+        if (swatch) {
+          e.preventDefault();
+          const tag = draft.find((t) => t.id === swatch.dataset.tagColor);
+          if (tag) { tag.color = swatch.dataset.color; redraw(); }
+        }
+      });
+
+      list.addEventListener("input", (e) => {
+        const field = e.target.closest("[data-tag-name]");
+        if (!field) return;
+        const tag = draft.find((t) => t.id === field.dataset.tagName);
+        if (tag) tag.name = field.value;
+      });
+    },
+  });
+}
+
+function tagEditorRow(tag, count) {
+  return `
+    <div class="tag-editor">
+      <div class="tag-editor-head">
+        <span class="tag-dot" style="--tag:${esc(tag.color)}"></span>
+        <input type="text" value="${esc(tag.name)}" data-tag-name="${tag.id}" aria-label="標籤名稱">
+        <span class="muted" style="font-size:12px;white-space:nowrap">${count} 位</span>
+        <button type="button" class="btn btn-sm btn-danger" data-del-tag="${tag.id}">刪除</button>
+      </div>
+      <div class="swatches">
+        ${TAG_COLORS.map((c) => `
+          <button type="button" class="swatch swatch-sm ${tag.color === c ? "on" : ""}"
+                  data-tag-color="${tag.id}" data-color="${c}" style="background:${c}"
+                  aria-label="${c}"></button>`).join("")}
+      </div>
+    </div>`;
 }
 
 function renewSheet(student) {
@@ -1860,6 +2507,33 @@ function renewSheet(student) {
 
 /* ── 課表 ───────────────────────────────────── */
 
+/**
+ * 「有 N 場檢測還沒回報結果」。
+ * 不主動問的話成交率永遠算不出來，那個數字就會一直是騙人的。
+ */
+function pendingOutcomeBanner() {
+  const pending = awaitingOutcome();
+  if (!pending.length) return "";
+  const first = pending[0];
+  const name = leadById(first.leadId)?.name || "某位客人";
+  const color = LESSON_KIND.assessment.color;
+  return `
+    <button class="card" type="button" data-action="report-outcome" data-id="${first.id}"
+            style="display:flex;align-items:center;gap:10px;text-align:left;width:100%;
+                   border:1px solid ${color}44;background:${color}14;cursor:pointer">
+      <span style="font-size:20px">❓</span>
+      <span style="flex:1">
+        <span style="display:block;font-weight:650">
+          ${pending.length === 1 ? `${esc(name)} 的檢測成交了嗎？` : `有 ${pending.length} 場檢測還沒回報結果`}
+        </span>
+        <span class="muted" style="font-size:12px">
+          ${pending.length === 1 ? esc(first.date + " " + first.start) : `最舊的是 ${esc(name)}．${esc(first.date)}`}
+        </span>
+      </span>
+      <span class="muted">›</span>
+    </button>`;
+}
+
 function viewCalendar() {
   const anchor = parseDay(weekAnchor) || new Date();
   const start = startOfWeek(anchor);
@@ -1881,6 +2555,7 @@ function viewCalendar() {
     </div>
 
     <div class="stack">
+      ${pendingOutcomeBanner()}
       <section class="card">
         <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px">
           <button class="btn btn-sm btn-ghost" type="button" data-action="week" data-value="-1">← 上一週</button>
@@ -1910,13 +2585,22 @@ function viewCalendar() {
           const st = studentById(l.studentId);
           const partner = studentById(l.partnerId);
           const meta = LESSON_STATUS[l.status] || LESSON_STATUS.scheduled;
-          const names = [st?.name, partner?.name].filter(Boolean).join("＋") || "（未指定學生）";
+          const assess = isAssessment(l);
+          const oc = OUTCOME[outcomeOf(l)];
+          const names = assess
+            ? (leadById(l.leadId)?.name || "檢測")
+            : ([st?.name, partner?.name].filter(Boolean).join("＋") || "（未指定學生）");
           return `
           <div class="row">
-            <span class="dot" style="background:${esc(st?.color || "var(--muted)")}"></span>
+            <span class="dot" style="background:${esc(lessonColor(l))}"></span>
             <div class="row-main">
-              <div class="row-title">${esc(names)} <span class="pill ${meta.pill}">${meta.label}</span>${(l.owed || l.partnerOwed) ? '<span class="pill pill-crit">欠一堂</span>' : ""}</div>
+              <div class="row-title">${esc(names)}
+                ${assess ? `<span class="pill" style="background:${LESSON_KIND.assessment.color}22;color:${LESSON_KIND.assessment.color}">檢測</span>` : ""}
+                <span class="pill ${meta.pill}">${meta.label}</span>
+                ${assess && outcomeOf(l) !== "pending" ? `<span class="pill ${oc.pill}">${oc.label}</span>` : ""}
+                ${(l.owed || l.partnerOwed) ? '<span class="pill pill-crit">欠一堂</span>' : ""}</div>
               <div class="row-sub mono">${esc(l.start)}–${esc(l.end)}　${durationLabel(durationOf(l))}${l.location ? "　" + esc(l.location) : ""}</div>
+              ${assess && needsOutcome(l) ? `<div class="row-sub" style="color:var(--warn)">還沒回報成交與否</div>` : ""}
               ${l.notes ? `<div class="row-sub">${esc(l.notes)}</div>` : ""}
             </div>
             <div class="row-end" style="display:flex;align-items:center;gap:6px">
@@ -1925,6 +2609,7 @@ function viewCalendar() {
                 ${Object.entries(LESSON_STATUS).map(([k, v]) =>
                   `<option value="${k}" ${l.status === k ? "selected" : ""}>${v.label}</option>`).join("")}
               </select>
+              ${assess ? `<button class="btn btn-sm" type="button" data-action="report-outcome" data-id="${l.id}">${outcomeOf(l) === "pending" ? "回報" : "改結果"}</button>` : ""}
               <button class="btn btn-sm" type="button" data-action="edit-lesson" data-id="${l.id}">編輯</button>
             </div>
           </div>`;
@@ -1939,32 +2624,82 @@ function lessonSheet(existing) {
     end: timeOf(minutesOf("09:00") + S.settings.defaultDuration),
     status: "scheduled", notes: "", location: "",
     studentId: activeStudents()[0]?.id || "", partnerId: "",
+    kind: "lesson", outcome: "pending", color: "", leadId: "",
     consumed: false, partnerConsumed: false, owed: false, partnerOwed: false,
     createdAt: new Date().toISOString(),
   };
   const dur = durationOf(l) || S.settings.defaultDuration;
+  const assessing = isAssessment(l);
 
-  if (!activeStudents().length) {
-    toast("請先新增至少一位學生");
-    return;
+  // 正課一定要有學生；檢測的對象還不是學生，沒有學生也能排
+  if (!assessing && !activeStudents().length && !existing) {
+    toast("請先新增至少一位學生，或改排檢測");
   }
 
+  // 還沒成交、可以約檢測的名單（已轉正式的人不用再檢測一次）
+  const openLeads = S.leads.filter((x) =>
+    x.status !== "converted" && x.status !== "lost");
+
   openSheet({
-    title: existing ? "課程詳情" : "新增課程",
+    title: existing ? (assessing ? "檢測詳情" : "課程詳情") : "新增課程",
     body: `
-      ${fieldSelect("studentId", "學生", studentOptions(false), l.studentId)}
-      ${fieldSelect("partnerId", "共同課第二位", studentOptions(true, "（沒有，一對一）"), l.partnerId)}
+      ${existing ? "" : `
+        ${fieldSelect("kind", "種類", [["lesson", "正課"], ["assessment", "檢測（對還沒買課的人）"]], l.kind)}
+        <p class="hint" data-kind-hint style="margin:-6px 0 10px">
+          檢測是對還沒買課的人做的試教。佔課表時段，但不扣堂數、不算課程收入與抽成。上完之後會問你成交了沒。
+        </p>`}
+
+      <div data-kind-block="lesson" ${assessing ? 'hidden' : ''}>
+        ${fieldSelect("studentId", "學生", studentOptions(false), l.studentId)}
+        ${fieldSelect("partnerId", "共同課第二位", studentOptions(true, "（沒有，一對一）"), l.partnerId)}
+      </div>
+
+      <div data-kind-block="assessment" ${assessing ? '' : 'hidden'}>
+        ${openLeads.length
+          ? fieldSelect("leadId", "從潛在客群挑",
+              [["", "（不從名單挑，直接打名字）"]].concat(
+                openLeads.map((x) => [x.id, `${x.name}．${LEAD_SOURCE[x.source] || "其他"}`])),
+              l.leadId)
+          : `<p class="hint">名單裡還沒有人，直接在下面打名字就好。</p>`}
+        <div data-lead-new ${l.leadId ? 'hidden' : ''}>
+          ${fieldText("leadName", "姓名", leadById(l.leadId)?.name || "", { placeholder: "王小明" })}
+          <div class="field-row">
+            ${fieldText("leadPhone", "電話（選填）", "", { type: "tel" })}
+            ${fieldSelect("leadSource", "怎麼認識的", Object.entries(LEAD_SOURCE), "referral")}
+          </div>
+          <p class="hint">存檔時會自動把這個人加進潛在客群，之後追蹤與成交率都會算到他頭上。</p>
+        </div>
+      </div>
+
       <div class="field-row">
         ${fieldText("date", "日期", l.date, { type: "date" })}
         ${fieldText("start", "開始時間", l.start, { type: "time" })}
       </div>
       ${durationPicker(dur)}
       ${existing ? fieldSelect("status", "狀態", Object.entries(LESSON_STATUS).map(([k, v]) => [k, v.label]), l.status) : ""}
+      ${existing && assessing
+        ? fieldSelect("outcome", "成交結果",
+            Object.entries(OUTCOME).map(([k, v]) => [k, v.label]), outcomeOf(l))
+        : ""}
       ${fieldText("location", "上課地點", l.location, { placeholder: "選填" })}
       ${fieldText("notes", "備註", l.notes)}
-      ${existing ? "" : `
+
+      ${existing ? `
         <div class="divider"></div>
-        <div class="field-row">
+        <label class="field-label">這堂課的顏色</label>
+        <div class="swatches" data-color-picker>
+          <button type="button" class="swatch swatch-auto ${l.color ? "" : "on"}" data-color=""
+                  title="跟著狀態／種類">自動</button>
+          ${LESSON_COLORS.map((c) => `
+            <button type="button" class="swatch ${l.color === c ? "on" : ""}"
+                    data-color="${c}" style="background:${c}" aria-label="${c}"></button>`).join("")}
+        </div>
+        <input type="hidden" name="color" value="${esc(l.color || "")}">
+        <p class="hint">留在「自動」就跟著課程狀態（或檢測）的顏色走。</p>` : ""}
+
+      ${existing ? "" : `
+        <div class="divider" data-kind-block="lesson" ${assessing ? 'hidden' : ''}></div>
+        <div class="field-row" data-kind-block="lesson" ${assessing ? 'hidden' : ''}>
           ${fieldSelect("repeat", "重複排課", [["1", "只排這一天"], ["4", "每週同一天，共 4 週"], ["8", "每週同一天，共 8 週"], ["12", "每週同一天，共 12 週"]], "1")}
         </div>`}`,
     extraFoot: existing ? `<button class="btn btn-danger btn-sm" type="button" data-action="delete-lesson" data-id="${l.id}">刪除</button>` : "",
@@ -1973,8 +2708,59 @@ function lessonSheet(existing) {
       const start = form.elements.start.value || "09:00";
       const minutes = readDuration(form);
       const end = timeOf(minutesOf(start) + minutes);
+      const kind = existing ? kindOf(l) : (form.elements.kind?.value || "lesson");
+      const location = form.elements.location.value.trim();
+      const notes = form.elements.notes.value;
+      const color = form.elements.color ? form.elements.color.value : (l.color || "");
+
+      // ── 檢測 ──────────────────────────────────────────
+      if (kind === "assessment") {
+        let leadId = form.elements.leadId ? form.elements.leadId.value : "";
+        if (!leadId) {
+          const name = (form.elements.leadName?.value || "").trim();
+          if (!name) { toast("請選一位名單上的人，或直接打上對方的名字"); return false; }
+          const phone = (form.elements.leadPhone?.value || "").trim();
+          // 同名同電話的人已經在名單裡就沿用，不要每排一次檢測就多一筆
+          const dup = S.leads.find((x) => x.name === name && (x.phone || "") === phone);
+          if (dup) {
+            leadId = dup.id;
+          } else {
+            const lead = {
+              id: uid(), name, phone, email: "",
+              source: form.elements.leadSource?.value || "referral",
+              status: "contacted", notes: "",
+              createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+            };
+            S.leads.push(lead);
+            leadId = lead.id;
+          }
+        }
+
+        const clash = S.lessons.find((x) =>
+          x.id !== l.id && x.date === date && x.status !== "cancelled" &&
+          minutesOf(x.start) < minutesOf(end) && minutesOf(start) < minutesOf(x.end));
+        if (clash) { toast(`${date} ${clash.start}-${clash.end} 已經有課，時段重疊`); return false; }
+
+        if (existing) {
+          Object.assign(l, { date, start, end, location, notes, leadId, color });
+          const newStatus = form.elements.status.value;
+          if (newStatus !== l.status) setLessonStatus(l, newStatus);
+          const newOutcome = form.elements.outcome?.value;
+          if (newOutcome && newOutcome !== outcomeOf(l)) applyOutcome(l, newOutcome);
+        } else {
+          S.lessons.push({ ...l, id: uid(), kind: "assessment", outcome: "pending",
+                           date, start, end, location, notes, leadId, color,
+                           studentId: "", partnerId: "" });
+        }
+        save(); render();
+        toast(existing ? "已更新檢測" : `已排檢測．${leadById(leadId)?.name || ""}`);
+        return;
+      }
+
+      // ── 正課 ──────────────────────────────────────────
       const studentId = form.elements.studentId.value;
       const partnerId = form.elements.partnerId.value;
+      if (!studentId) { toast("請選一位學生"); return false; }
       if (partnerId && partnerId === studentId) { toast("共同課的兩位不能是同一人"); return false; }
 
       const repeat = existing ? 1 : +form.elements.repeat.value || 1;
@@ -1993,15 +2779,13 @@ function lessonSheet(existing) {
       }
 
       if (existing) {
-        Object.assign(l, { date, start, end, location: form.elements.location.value.trim(),
-                           notes: form.elements.notes.value, studentId, partnerId });
+        Object.assign(l, { date, start, end, location, notes, studentId, partnerId, color });
         const newStatus = form.elements.status.value;
         if (newStatus !== l.status) setLessonStatus(l, newStatus);
       } else {
         for (const d of made) {
-          S.lessons.push({ ...l, id: uid(), date: d, start, end,
-                           location: form.elements.location.value.trim(),
-                           notes: form.elements.notes.value, studentId, partnerId });
+          S.lessons.push({ ...l, id: uid(), kind: "lesson", date: d, start, end,
+                           location, notes, studentId, partnerId, color });
         }
       }
       save(); render();
@@ -2009,6 +2793,40 @@ function lessonSheet(existing) {
     },
     onMount: (root) => {
       wireDurationPicker(root);
+
+      // 切換正課／檢測時換掉對應的欄位
+      const kindSelect = root.querySelector('[name="kind"]');
+      const syncKind = () => {
+        const k = kindSelect.value;
+        root.querySelectorAll("[data-kind-block]").forEach((el) => {
+          el.hidden = el.dataset.kindBlock !== k;
+        });
+        const hint = root.querySelector("[data-kind-hint]");
+        if (hint) hint.hidden = k !== "assessment";
+      };
+      if (kindSelect) { kindSelect.addEventListener("change", syncKind); syncKind(); }
+
+      // 從名單挑了人就不用再打名字
+      const leadSelect = root.querySelector('[name="leadId"]');
+      const leadNew = root.querySelector("[data-lead-new]");
+      if (leadSelect && leadNew) {
+        leadSelect.addEventListener("change", () => { leadNew.hidden = !!leadSelect.value; });
+      }
+
+      // 顏色
+      const picker = root.querySelector("[data-color-picker]");
+      const colorInput = root.querySelector('[name="color"]');
+      if (picker && colorInput) {
+        picker.addEventListener("click", (e) => {
+          const btn = e.target.closest(".swatch");
+          if (!btn) return;
+          e.preventDefault();
+          colorInput.value = btn.dataset.color;
+          picker.querySelectorAll(".swatch").forEach((s) => s.classList.remove("on"));
+          btn.classList.add("on");
+        });
+      }
+
       root.addEventListener("click", (e) => {
         if (!e.target.closest('[data-action="delete-lesson"]')) return;
         closeSheet();
@@ -2018,6 +2836,83 @@ function lessonSheet(existing) {
           save(); render(); toast("已刪除課程");
         }, "刪除");
       });
+    },
+  });
+}
+
+/**
+ * 套用檢測結果。成交就把名單轉成正式學生，沒成交留在待追蹤名單。
+ * iOS 版是同一套邏輯，兩邊要一致。
+ */
+function applyOutcome(lesson, outcome) {
+  lesson.outcome = outcome;
+  // 時段已經過了就當作有做，這樣它才會從待回報清單消失
+  if (lesson.status === "scheduled" && lesson.date <= today()) lesson.status = "attended";
+
+  const lead = leadById(lesson.leadId);
+  if (!lead) return null;
+  lead.updatedAt = new Date().toISOString();
+
+  if (outcome === "closed") {
+    lead.status = "converted";
+    // 同名同電話已經有學生就沿用，不要又開一筆重複的
+    const existing = S.students.find((s) =>
+      s.name === lead.name && (s.phone || "") === (lead.phone || ""));
+    if (existing) {
+      if (existing.status === "archived") existing.status = "active";
+      return existing;
+    }
+    const acquisition = lead.source === "company" ? "companyLead"
+      : lead.source === "referral" ? "referral" : "selfDeveloped";
+    const s = newStudent({ name: lead.name, phone: lead.phone, acquisition, notes: lead.notes });
+    S.students.push(s);
+    return s;
+  }
+
+  if (outcome === "notClosed" || outcome === "followUp") {
+    // 檢測過但還沒買，跟「還沒聯繫過」是不同的階段
+    lead.status = "assessed";
+  }
+  return null;
+}
+
+/** 檢測結果回報：問「成交了嗎」，成交就順手開續約 */
+function outcomeSheet(lesson) {
+  const lead = leadById(lesson.leadId);
+  const name = lead?.name || "這位客人";
+  openSheet({
+    title: "檢測結果",
+    confirmLabel: "儲存",
+    body: `
+      <p style="font-weight:650;font-size:16px;margin-bottom:2px">${esc(name)}</p>
+      <p class="hint" style="margin-bottom:12px">
+        ${esc(lesson.date)}　${esc(lesson.start)}–${esc(lesson.end)}
+        ${lead ? "．來源：" + esc(LEAD_SOURCE[lead.source] || "其他") : ""}
+      </p>
+      ${fieldSelect("outcome", "成交了嗎", [
+        ["closed", "成交了 —— 轉成正式學生"],
+        ["followUp", "還要再約 —— 留在名單裡"],
+        ["notClosed", "沒成交 —— 留在待追蹤名單"],
+      ], "closed")}
+      ${fieldText("note", "備註（選填）", "", { placeholder: "聊到哪、他在猶豫什麼" })}
+      <p class="hint">「再約」不會算進成交率的分母，還在進行中。</p>`,
+    onConfirm: (form) => {
+      const outcome = form.elements.outcome.value;
+      const note = form.elements.note.value.trim();
+      if (note && lead) lead.notes = lead.notes ? `${lead.notes}\n${note}` : note;
+
+      const student = applyOutcome(lesson, outcome);
+      save(); render();
+
+      if (outcome === "closed") {
+        toast(`${name} 已轉成學生`);
+        // 成交了就順手把買了幾堂、多少錢記進去
+        if (student) setTimeout(() => renewSheet(student), 350);
+      } else if (outcome === "notClosed") {
+        toast(`已記錄，${name} 留在待追蹤名單`);
+      } else {
+        toast(`已記錄，記得再約 ${name}`);
+      }
     },
   });
 }
@@ -2128,6 +3023,132 @@ function paymentSheet() {
 
 /* ── 分析 ───────────────────────────────────── */
 
+/**
+ * 銷售統計：「這段期間總共賣了幾堂」。
+ * 跟收費不同——收費看錢什麼時候進來（含預收），銷售看課什麼時候賣掉。
+ */
+function salesSection() {
+  const preset = periodBounds(salesPeriod);
+  const from = preset ? preset.from : (salesFrom || today());
+  const to = preset ? preset.to : (salesTo || today());
+  const sum = salesSummary(from, to);
+  const months = salesByMonth(from, to);
+  const top = salesTopStudents(from, to);
+  const maxSessions = Math.max(1, ...months.map((m) => m.sessions));
+
+  return `
+    <section class="card">
+      <div class="sec-head">
+        <h2 class="sec-title">銷售</h2>
+        <span class="sec-sub">${salesPeriod === "all" ? "所有時間" : `${esc(from)} ～ ${esc(to)}`}</span>
+      </div>
+
+      <div class="seg seg-wrap" style="margin-bottom:12px">
+        ${Object.entries(SALES_PERIODS).map(([k, label]) =>
+          `<button type="button" data-action="sales-period" data-value="${k}"
+                   aria-pressed="${salesPeriod === k}">${label}</button>`).join("")}
+      </div>
+
+      ${salesPeriod === "custom" ? `
+        <div class="field-row" style="margin-bottom:12px">
+          <div class="field">
+            <label for="sales-from">從</label>
+            <input id="sales-from" type="date" value="${esc(from)}" data-sales-from>
+          </div>
+          <div class="field">
+            <label for="sales-to">到</label>
+            <input id="sales-to" type="date" value="${esc(to)}" data-sales-to>
+          </div>
+        </div>` : ""}
+
+      <div class="tiles">
+        ${tile({ value: sum.sessions, unit: "堂", label: "總共賣出", iconName: "clock",
+                 color: "var(--gold)", note: `${sum.count} 筆合約` })}
+        ${tile({ value: money(sum.amount), label: "銷售金額", iconName: "money",
+                 color: "var(--good)", note: `${sum.students} 位客人` })}
+        ${tile({ value: sum.unitPrice === null ? "—" : money(sum.unitPrice), label: "每堂均價",
+                 iconName: "target", color: "var(--info)",
+                 note: sum.dealSize === null ? "" : `每筆均額 ${money(sum.dealSize)}` })}
+      </div>
+
+      ${sum.count === 0 ? `
+        <p class="hint" style="margin-top:12px">
+          這段期間沒有任何銷售紀錄。續約與新學生的首次購買都會算在這裡。
+        </p>` : ""}
+
+      ${months.length > 1 ? `
+        <div style="margin-top:14px">
+          <p class="sec-sub" style="margin:0 0 9px">每個月賣了幾堂</p>
+          <div class="bars">
+            ${months.map((m) => `
+              <div class="bar-row">
+                <span class="bar-label">${esc(m.month.slice(5))}月</span>
+                <span class="bar-track"><span class="bar-fill" style="width:${m.sessions / maxSessions * 100}%"></span></span>
+                <span class="bar-value">${m.sessions} 堂</span>
+                <span class="bar-value muted">${money(m.amount)}</span>
+              </div>`).join("")}
+          </div>
+        </div>` : ""}
+
+      ${top.length ? `
+        <div style="margin-top:14px">
+          <p class="sec-sub" style="margin:0 0 9px">這段期間買最多的</p>
+          ${top.map((r, i) => `
+            <div class="row">
+              <span class="muted mono" style="width:18px">${i + 1}</span>
+              <span class="dot" style="background:${esc(r.student.color)}"></span>
+              <div class="row-main"><div class="row-title">${esc(r.student.name)}</div></div>
+              <div class="row-end mono">${r.sessions} 堂<span class="muted" style="font-size:12px">　${money(r.amount)}</span></div>
+            </div>`).join("")}
+        </div>` : ""}
+    </section>`;
+}
+
+/** 檢測成交率。檢測是花時間不收錢的推銷場，值不值得只能靠成交率說話。 */
+function assessmentSection() {
+  const b = periodBounds("thisMonth");
+  const s = assessmentStats(b.from, b.to);
+  if (!s.total) return "";
+  const bySource = assessmentBySource(b.from, b.to);
+  const color = LESSON_KIND.assessment.color;
+
+  return `
+    <section class="card">
+      <div class="sec-head">
+        <h2 class="sec-title" style="color:${color}">檢測</h2>
+        <span class="sec-sub">${s.rate === null ? "還沒有結論" : `本月成交率 ${s.rate.toFixed(0)}%`}</span>
+      </div>
+
+      <div class="tiles">
+        ${tile({ value: s.total, unit: "場", label: "本月檢測", iconName: "clock", color })}
+        ${tile({ value: s.closed, unit: "位", label: "成交", iconName: "target", color: "var(--good)" })}
+        ${tile({ value: s.notClosed, unit: "位", label: "沒成交", iconName: "people", color: "var(--warn)",
+                 note: s.followUp ? `另有 ${s.followUp} 位再約` : "" })}
+      </div>
+
+      ${s.pending ? `
+        <p class="hint" style="color:var(--warn);margin-top:12px">
+          還有 ${s.pending} 場沒回報成交與否，成交率會少算。到課表點「回報」補上。
+        </p>` : ""}
+      ${s.rate === null ? `
+        <p class="hint" style="margin-top:12px">
+          還沒有任何一場有結論。「再約」不算進成交率的分母。
+        </p>` : ""}
+
+      ${bySource.length > 1 ? `
+        <div style="margin-top:14px">
+          <p class="sec-sub" style="margin:0 0 9px">依來源</p>
+          ${bySource.map((r) => `
+            <div class="row">
+              <div class="row-main"><div class="row-title">${esc(r.label)}</div></div>
+              <div class="row-end mono">${r.closed}/${r.total}
+                <span class="muted" style="font-size:12px">　${r.rate === null ? "—" : r.rate.toFixed(0) + "%"}</span>
+              </div>
+            </div>`).join("")}
+        </div>` : ""}
+    </section>`;
+}
+
 function viewAnalysis() {
   const students = activeStudents();
   const conv = conversionStats();
@@ -2160,6 +3181,8 @@ function viewAnalysis() {
     </div>
 
     <div class="stack">
+      ${salesSection()}
+      ${assessmentSection()}
       <section class="card">
         <div class="sec-head">
           <h2 class="sec-title">成交率</h2>
@@ -2313,6 +3336,20 @@ function convertLead(lead) {
 }
 
 /* ── 設定 ───────────────────────────────────── */
+
+/** 用實際數字解釋底薪的給法，比抽象敘述好懂 */
+function baseModeHint(rule) {
+  const base = rule.baseSalary || 0;
+  const threshold = rule.baseSalaryThreshold || 40;
+  switch (rule.baseSalaryMode || "always") {
+    case "belowThreshold":
+      return `不滿 ${threshold} 堂時領 ${money(base)} 底薪加抽成；滿 ${threshold} 堂之後底薪歸零，只算抽成。`;
+    case "higherOf":
+      return `底薪 ${money(base)} 與抽成比大小，領高的那個，不相加。抽成算出 ${money(base / 2)} 就領 ${money(base)}；算出 ${money(base * 2)} 就領 ${money(base * 2)}。`;
+    default:
+      return `底薪 ${money(base)} 固定給，抽成另外加上去。`;
+  }
+}
 
 function viewSettings() {
   const st = S.settings;
@@ -2498,7 +3535,42 @@ function viewSettings() {
                value="${rule.baseSalary}" style="width:120px" inputmode="numeric"></div>
         </div>
         <p class="hint">沒有底薪就填 0，抽成金額直接當作薪資。</p>
+
+        ${rule.baseSalary > 0 ? `
+          <div class="row" style="align-items:flex-start">
+            <div class="row-main">
+              <div class="row-title">底薪怎麼給</div>
+              <div class="row-sub">${esc(baseModeHint(rule))}</div>
+            </div>
+          </div>
+          <div class="seg seg-wrap">
+            ${[["always", "底薪＋抽成"], ["belowThreshold", "達標後取消"], ["higherOf", "取高者"]].map(([v, t]) =>
+              `<button type="button" data-action="set-base-mode" data-value="${v}"
+                       aria-pressed="${(rule.baseSalaryMode || "always") === v}">${t}</button>`).join("")}
+          </div>
+          ${(rule.baseSalaryMode || "always") === "belowThreshold" ? `
+            <div class="row">
+              <div class="row-main">堂數門檻</div>
+              <div class="row-end"><input type="number" data-action="salary-num" data-key="baseSalaryThreshold"
+                   value="${rule.baseSalaryThreshold || 40}" style="width:82px" inputmode="numeric"> 堂</div>
+            </div>` : ""}
+        ` : ""}
       </section>` : ""}
+
+      <section class="card">
+        <div class="sec-head">
+          <h2 class="sec-title">顏色標籤</h2>
+          <span class="sec-sub">${allTags().length ? allTags().slice(0, 3).map((t) => t.name).join("、") + (allTags().length > 3 ? ` 等 ${allTags().length} 個` : "") : "尚未設定"}</span>
+        </div>
+        <p class="row-sub" style="margin:0 0 11px">
+          自己定義一組有顏色的標籤（減脂、產後、備賽…），貼在學生身上，學生名單就能照標籤篩選。
+        </p>
+        <div class="chips" style="margin-bottom:11px">
+          ${allTags().map((t) => `
+            <span class="tag-chip tag-chip-sm" style="--tag:${esc(t.color)}"><span class="tag-dot"></span>${esc(t.name)}</span>`).join("")}
+        </div>
+        <button class="btn btn-sm" type="button" data-action="edit-tags">管理標籤</button>
+      </section>
 
       <section class="card">
         <div class="sec-head">
@@ -2557,6 +3629,33 @@ function viewSettings() {
       </section>` : ""}
 
       <section class="card">
+        <div class="sec-head">
+          <h2 class="sec-title">加到主畫面</h2>
+          <span class="sec-sub">${isStandalone() ? "已經是主畫面版本" : "開起來像 App，資料也比較不會被清掉"}</span>
+        </div>
+        ${isStandalone() ? `
+          <p class="row-sub" style="margin:0">
+            你現在就是從主畫面圖示打開的。以後都從這個圖示進來，資料才不會分成兩份。
+          </p>` : `
+          <p class="row-sub" style="margin:0 0 11px">
+            <strong>注意順序：</strong>主畫面的圖示跟現在這個瀏覽器，資料是<u>分開</u>存的
+            （iPhone 的規則）。已經有資料的話，這裡會幫你把資料一起帶過去。
+          </p>
+          <button class="btn btn-primary btn-sm" type="button" data-action="add-to-home">怎麼加？</button>`}
+      </section>
+
+      <section class="card">
+        <div class="sec-head">
+          <h2 class="sec-title">意見回饋</h2>
+          <span class="sec-sub">算錯、打不開、想要的功能</span>
+        </div>
+        <p class="row-sub" style="margin:0 0 11px">
+          會自動附上版本與瀏覽器資訊，不會帶走任何學生資料。按下去會開啟郵件草稿，記得按寄出。
+        </p>
+        <button class="btn btn-sm" type="button" data-action="report-issue">回報問題／許願</button>
+      </section>
+
+      <section class="card">
         <div class="sec-head"><h2 class="sec-title">關於</h2></div>
         <div class="row">
           <div class="row-main">開發者</div>
@@ -2581,6 +3680,8 @@ function viewSettings() {
 
 function buildBackup() {
   const indexOf = new Map(S.students.map((s, i) => [s.id, i]));
+  // 檢測掛的是名單而不是學生，另外編一組索引
+  const leadIndexOf = new Map(S.leads.map((l, i) => [l.id, i]));
   const iso = (v) => (v ? new Date(v).toISOString() : new Date().toISOString());
 
   return {
@@ -2597,6 +3698,8 @@ function buildBackup() {
       acquisitionRaw: s.acquisition, statusRaw: s.status,
       pausedUntil: null, archivedAt: s.status === "archived" ? iso(s.updatedAt) : null,
       createdAt: iso(s.createdAt), updatedAt: iso(s.updatedAt),
+      // 顏色標籤，逗號分隔（iOS 的 Student.tagsCSV）
+      tagsCSV: (s.tags || []).join(","),
       payments: s.payments.map((p) => ({
         amount: p.amount, date: p.date, methodRaw: p.method, notes: p.notes || "",
         createdAt: iso(p.createdAt),
@@ -2616,6 +3719,11 @@ function buildBackup() {
       createdAt: iso(l.createdAt), updatedAt: iso(l.createdAt),
       studentIndex: indexOf.has(l.studentId) ? indexOf.get(l.studentId) : null,
       partnerIndex: indexOf.has(l.partnerId) ? indexOf.get(l.partnerId) : null,
+      // 正課／檢測、成交結果、單堂顏色、檢測對象（iOS 也是這幾個鍵）
+      kindRaw: kindOf(l),
+      outcomeRaw: outcomeOf(l),
+      colorTag: l.color || "",
+      leadIndex: leadIndexOf.has(l.leadId) ? leadIndexOf.get(l.leadId) : null,
     })),
     leads: S.leads.map((l) => ({
       name: l.name, phone: l.phone, email: l.email || "",
@@ -2632,6 +3740,10 @@ function buildBackup() {
         id: p.id, name: p.name, sessions: p.sessions, price: p.price,
       }))),
       salaryRule: JSON.stringify(S.settings.salary),
+      // iOS 的 TagStore 用 {id,name,colorHex}，網頁用 {id,name,color}，這裡轉一次
+      studentTags: JSON.stringify(allTags().map((t) => ({
+        id: t.id, name: t.name, colorHex: t.color,
+      }))),
       colorTheme: "amber",
     },
   };
@@ -2740,6 +3852,20 @@ function parseBackup(raw) {
       id: uid(), date: r.date || "", sessions: r.sessionsPurchased || 0,
       amount: r.amount || 0, notes: r.notes || "", createdAt: r.createdAt,
     })),
+    // 顏色標籤：舊備份沒有這一欄
+    tags: typeof d.tagsCSV === "string"
+      ? d.tagsCSV.split(",").map((x) => x.trim()).filter(Boolean)
+      : [],
+    createdAt: d.createdAt || new Date().toISOString(),
+    updatedAt: d.updatedAt || new Date().toISOString(),
+  }));
+
+  // 名單要排在課程前面還原：檢測掛在名單上，順序反了就對不到人
+  const leads = (raw.leads || []).map((d) => ({
+    id: uid(), name: d.name || "", phone: d.phone || "", email: d.email || "",
+    source: d.sourceRaw === "walk-in" ? "walkIn" : (LEAD_SOURCE[d.sourceRaw] ? d.sourceRaw : "other"),
+    status: LEAD_STATUS[d.statusRaw] ? d.statusRaw : "pending",
+    notes: d.notes || "",
     createdAt: d.createdAt || new Date().toISOString(),
     updatedAt: d.updatedAt || new Date().toISOString(),
   }));
@@ -2753,16 +3879,12 @@ function parseBackup(raw) {
     partnerId: students[d.partnerIndex]?.id || "",
     consumed: !!d.consumedSession, partnerConsumed: !!d.consumedPartnerSession,
     owed: !!d.owedSession, partnerOwed: !!d.owedPartnerSession,
+    // 正課／檢測。舊備份沒有這幾欄，一律當正課。
+    kind: d.kindRaw === "assessment" ? "assessment" : "lesson",
+    outcome: OUTCOME[d.outcomeRaw] ? d.outcomeRaw : "pending",
+    color: typeof d.colorTag === "string" ? d.colorTag : "",
+    leadId: leads[d.leadIndex]?.id || "",
     createdAt: d.createdAt || new Date().toISOString(),
-  }));
-
-  const leads = (raw.leads || []).map((d) => ({
-    id: uid(), name: d.name || "", phone: d.phone || "", email: d.email || "",
-    source: d.sourceRaw === "walk-in" ? "walkIn" : (LEAD_SOURCE[d.sourceRaw] ? d.sourceRaw : "other"),
-    status: LEAD_STATUS[d.statusRaw] ? d.statusRaw : "pending",
-    notes: d.notes || "",
-    createdAt: d.createdAt || new Date().toISOString(),
-    updatedAt: d.updatedAt || new Date().toISOString(),
   }));
 
   const rawSettings = raw.settings || {};
@@ -2788,6 +3910,13 @@ function parseBackup(raw) {
         ? salary.tiers.map((t) => ({ minSessions: t.minSessions || 0, percent: t.percent || 0 }))
         : DEFAULT_SALARY.tiers,
     };
+  }
+  // 顏色標籤。iOS 存的是 colorHex，網頁用 color。
+  const tags = parseJSON(rawSettings.studentTags, null);
+  if (Array.isArray(tags)) {
+    settings.tags = tags
+      .filter((t) => t && t.id && t.name)
+      .map((t) => ({ id: t.id, name: t.name, color: t.colorHex || t.color || TAG_COLORS[0] }));
   }
   settings.theme = S.settings.theme;   // 外觀是這台裝置的偏好，不跟著備份走
 
@@ -2964,6 +4093,24 @@ document.addEventListener("click", (e) => {
     case "edit-student": studentSheet(studentById(id)); break;
     case "renew": renewSheet(studentById(id)); break;
     case "student-filter": studentFilter = value; render(); break;
+    case "toggle-tag-filter":
+      if (activeTagFilter.has(id)) activeTagFilter.delete(id); else activeTagFilter.add(id);
+      render(); break;
+    case "clear-tag-filter": activeTagFilter.clear(); render(); break;
+    case "adjust-sessions": adjustSessionsSheet(studentById(id)); break;
+    case "report-outcome": outcomeSheet(S.lessons.find((l) => l.id === id)); break;
+    case "edit-tags": tagSettingsSheet(); break;
+    case "report-issue": reportIssueSheet(); break;
+    case "add-to-home": addToHomeSheet(); break;
+    case "sales-period":
+      salesPeriod = value;
+      if (value === "custom" && !salesFrom) {
+        const b = periodBounds("thisMonth");
+        salesFrom = b.from; salesTo = b.to;
+      }
+      render(); break;
+    case "set-base-mode":
+      S.settings.salary.baseSalaryMode = value; save(); render(); break;
 
     case "new-lesson": lessonSheet(null); break;
     case "edit-lesson": lessonSheet(S.lessons.find((l) => l.id === id)); break;
@@ -3032,6 +4179,10 @@ document.addEventListener("click", (e) => {
 
 /* 下拉選單改狀態 */
 document.addEventListener("change", (e) => {
+  // 銷售統計的自訂起訖日
+  if (e.target.matches("[data-sales-from]")) { salesFrom = e.target.value; render(); return; }
+  if (e.target.matches("[data-sales-to]")) { salesTo = e.target.value; render(); return; }
+
   const el = e.target.closest("[data-action]");
   if (el) {
     const { action, id, key } = el.dataset;
@@ -3131,6 +4282,201 @@ function durationSheet() {
 }
 
 /* ════════════════════════════════════════════════
+   7.5 加到主畫面時把資料帶過去
+
+   iOS 的「加入主畫面」會開一個獨立的儲存空間，跟 Safari 裡的
+   localStorage **完全不互通**。教練在 Safari 建好一堆學生，加到主畫面
+   打開卻是空的，看起來像資料不見了。這不是 bug，是 iOS 的行為，
+   而且沒有任何 API 能直接共用。
+
+   唯一能穿過去的通道是「網址」：加入主畫面時，iOS 會把當下完整的網址
+   （含 # 後面的片段）存進那個圖示。所以做法是先把備份塞進 location.hash，
+   再請使用者加到主畫面；桌面版第一次打開就從 hash 把資料撈回來。
+
+   # 後面的內容不會送到伺服器，GitHub Pages 只會拿到 index.html。
+   ════════════════════════════════════════════════ */
+
+/** 現在是從主畫面圖示打開的嗎 */
+function isStandalone() {
+  // 這個判斷會被畫面用到，任何一個屬性取不到就整頁白掉，所以一路用 ?.
+  return window.navigator?.standalone === true
+      || window.matchMedia?.("(display-mode: standalone)")?.matches === true;
+}
+
+/** 網址太長 iOS 會存不住。超過這個長度就不要走 hash，改請人用複製貼上。 */
+const HANDOFF_MAX = 60000;
+const HANDOFF_KEY = "coach-mate-handoff-done";
+
+const b64encode = (bytes) => {
+  let s = "";
+  for (const b of bytes) s += String.fromCharCode(b);
+  // 網址片段裡 + / = 會被各種東西誤解，換成 URL 安全的字元
+  return btoa(s).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+};
+const b64decode = (str) => {
+  const padded = str.replace(/-/g, "+").replace(/_/g, "/")
+    + "=".repeat((4 - (str.length % 4)) % 4);
+  const bin = atob(padded);
+  return Uint8Array.from(bin, (c) => c.charCodeAt(0));
+};
+
+/** 壓縮過的備份。CompressionStream 在舊瀏覽器沒有，就退回不壓縮。 */
+async function encodeHandoff() {
+  const json = JSON.stringify(buildBackup());
+  const raw = new TextEncoder().encode(json);
+  if (typeof CompressionStream === "undefined") return "r" + b64encode(raw);
+  const stream = new Blob([raw]).stream().pipeThrough(new CompressionStream("gzip"));
+  const packed = new Uint8Array(await new Response(stream).arrayBuffer());
+  return "z" + b64encode(packed);
+}
+
+async function decodeHandoff(payload) {
+  const kind = payload[0];
+  const bytes = b64decode(payload.slice(1));
+  if (kind === "r") return JSON.parse(new TextDecoder().decode(bytes));
+  const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream("gzip"));
+  return JSON.parse(await new Response(stream).text());
+}
+
+/**
+ * 啟動時檢查網址裡有沒有要帶進來的資料。
+ * 圖示裡的網址不會變，所以同一份資料只認一次，否則每次打開都會蓋掉。
+ */
+async function consumeHandoff() {
+  const match = /[#&]import=([^&]+)/.exec(location.hash || "");
+  if (!match) return false;
+  const payload = match[1];
+
+  // 這份 payload 已經帶進來過了就跳過（每次開 App 都重蓋才是災難）
+  const stamp = payload.length + ":" + payload.slice(0, 24);
+  try {
+    if (localStorage.getItem(HANDOFF_KEY) === stamp) return false;
+  } catch (e) {}
+
+  try {
+    const backup = await decodeHandoff(payload);
+    const parsed = parseBackup(backup);
+    const hasData = S.students.length || S.lessons.length;
+    // 這台已經有資料了就不要默默蓋掉，先問過
+    if (hasData && !confirm(
+      `這個連結帶著一份資料（${parsed.students.length} 位學生、${parsed.lessons.length} 堂課）。`
+      + `要用它取代目前這台裝置上的 ${S.students.length} 位學生嗎？`)) {
+      try { localStorage.setItem(HANDOFF_KEY, stamp); } catch (e) {}
+      return false;
+    }
+    S = parsed;
+    save();
+    try { localStorage.setItem(HANDOFF_KEY, stamp); } catch (e) {}
+    toast(`已帶進 ${S.students.length} 位學生`);
+    return true;
+  } catch (e) {
+    console.warn("網址裡的資料讀不出來", e);
+    toast("網址裡的資料讀不出來，請改用「貼上備份文字」");
+    return false;
+  }
+}
+
+/** 「加到主畫面」的引導 */
+async function addToHomeSheet() {
+  const ios = /iPad|iPhone|iPod/.test(navigator.userAgent);
+  const hasData = S.students.length > 0 || S.lessons.length > 0;
+
+  let payload = "";
+  let tooBig = false;
+  if (hasData) {
+    try {
+      payload = await encodeHandoff();
+      tooBig = payload.length > HANDOFF_MAX;
+    } catch (e) {
+      tooBig = true;
+    }
+  }
+
+  const steps = ios
+    ? `<li>點畫面<strong>下方中間的分享圖示</strong>（往上的箭頭）</li>
+       <li>往下捲，選<strong>「加入主畫面」</strong></li>
+       <li>右上角按「新增」</li>`
+    : `<li>點瀏覽器<strong>右上角的選單</strong></li>
+       <li>選<strong>「加到主畫面」</strong>或「安裝應用程式」</li>`;
+
+  openSheet({
+    title: "加到主畫面",
+    closeLabel: "關閉",
+    confirmLabel: hasData && !tooBig ? "好，我要開始加" : "",
+    body: `
+      <p class="row-sub" style="margin:0 0 12px">
+        加到主畫面之後開起來像 App，沒有網址列，系統也比較不會把資料清掉。
+      </p>
+
+      ${hasData ? `
+        <div class="note-box" style="margin-bottom:12px">
+          <strong>重要：主畫面的圖示跟現在這個瀏覽器，資料是分開的。</strong>
+          你現在的 ${S.students.length} 位學生<u>不會</u>自動跑過去。
+          ${tooBig
+            ? `你的資料量比較大，沒辦法用網址帶過去。請改走這條：
+               先按「複製備份文字」把資料複製起來 → 加到主畫面 → 打開桌面圖示 →
+               設定 → 貼上備份文字 → 取代全部。`
+            : `按下面的按鈕，我會把資料放進網址裡，你接著照步驟加到主畫面，
+               第一次打開就會自動帶進去。`}
+        </div>` : `
+        <div class="note-box" style="margin-bottom:12px">
+          你現在還沒有資料，<strong>這是最好的時機</strong>——先加到主畫面，
+          之後都從桌面圖示開來輸入，就不會有資料分兩邊的問題。
+        </div>`}
+
+      <p style="font-weight:650;margin:0 0 6px">加入的步驟</p>
+      <ol style="margin:0;padding-left:20px;line-height:2;font-size:14px">${steps}</ol>
+
+      ${hasData && !tooBig ? `
+        <p class="hint" style="margin-top:12px">
+          按「好，我要開始加」之後，網址會變長（那是你的資料），這是正常的。
+          接著再照上面的步驟操作。加完之後打開桌面圖示，資料就在裡面了。
+        </p>` : ""}
+      ${hasData && tooBig ? `
+        <button class="btn btn-sm" type="button" data-action="copy-backup" style="margin-top:12px">
+          複製備份文字
+        </button>` : ""}`,
+    onConfirm: () => {
+      if (!hasData || tooBig) return;
+      // 只改 hash 不會重新載入頁面，但網址列會更新，
+      // 之後「加入主畫面」存下來的就是這一份帶著資料的網址
+      location.hash = "import=" + payload;
+      // 自己這一份已經有資料了，不用再帶一次
+      try {
+        localStorage.setItem(HANDOFF_KEY, payload.length + ":" + payload.slice(0, 24));
+      } catch (e) {}
+      toast("網址已經帶上你的資料，接著按分享 → 加入主畫面");
+    },
+  });
+}
+
+/**
+ * 從主畫面圖示打開、但裡面是空的——這幾乎一定是
+ * 「在 Safari 裡建了資料，加到主畫面後看不到」那個情況。
+ * 直接把原因跟解法講清楚，不要讓人以為資料不見了。
+ */
+function standaloneEmptyNotice() {
+  if (!isStandalone()) return "";
+  if (S.students.length || S.lessons.length) return "";
+  return `
+    <section class="card" style="border:1px solid var(--warn)">
+      <div class="sec-head"><h2 class="sec-title">這裡是空的？你的資料還在</h2></div>
+      <p class="row-sub" style="margin:0 0 10px">
+        主畫面的圖示跟瀏覽器裡的網頁，<strong>資料是分開存的</strong>（這是 iPhone 的規則，
+        不是資料不見了）。之前在瀏覽器裡輸入的學生，還好好地留在那邊。
+      </p>
+      <p class="row-sub" style="margin:0 0 12px">
+        搬過來的方法：回到<strong>瀏覽器</strong>打開同一個網址 → 設定 →
+        <strong>複製備份文字</strong> → 回到這個圖示 → 下面的<strong>貼上備份文字</strong> → 取代全部。
+      </p>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button class="btn btn-primary btn-sm" type="button" data-action="paste-backup">貼上備份文字</button>
+        <button class="btn btn-sm" type="button" data-action="import">選擇備份檔</button>
+      </div>
+    </section>`;
+}
+
+/* ════════════════════════════════════════════════
    8. 啟動
    ════════════════════════════════════════════════ */
 
@@ -3147,6 +4493,16 @@ if (loaded) {
 }
 
 render();
+
+// 網址裡如果帶著資料（從瀏覽器加到主畫面時放進去的），把它撈出來。
+// 放在 render() 之後：解壓縮是非同步的，不要為了它讓畫面空白著。
+consumeHandoff().then((imported) => {
+  if (imported) {
+    autoMarkPastLessons();
+    save();
+    render();
+  }
+});
 </script>
 
 </body>
