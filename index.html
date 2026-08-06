@@ -696,7 +696,7 @@ const NOTICE_KEY = "coach-mate-web-notice-dismissed";
  * 版本標記。顯示在設定頁最下面，教練唸得出來就知道他手上是哪一版，
  * 不用再猜是不是拿到舊的快取。每次改版就把這個字串往上加。
  */
-const BUILD = "2026-08-06 · v10";
+const BUILD = "2026-08-06 · v11";
 
 /** 開發者署名，顯示在設定頁的「關於」 */
 const DEVELOPER = "杯子蛋糕好好吃";
@@ -4496,13 +4496,20 @@ render();
 
 // 網址裡如果帶著資料（從瀏覽器加到主畫面時放進去的），把它撈出來。
 // 放在 render() 之後：解壓縮是非同步的，不要為了它讓畫面空白著。
-consumeHandoff().then((imported) => {
-  if (imported) {
-    autoMarkPastLessons();
-    save();
-    render();
-  }
-});
+function runHandoff() {
+  consumeHandoff().then((imported) => {
+    if (imported) {
+      autoMarkPastLessons();
+      save();
+      render();
+    }
+  });
+}
+runHandoff();
+
+// 頁面已經開著的時候只換 hash 不會重新載入（例如把帶資料的連結
+// 貼進網址列）。這時候什麼都不做會看起來像連結壞掉，所以也接一下。
+window.addEventListener("hashchange", runHandoff);
 </script>
 
 </body>
