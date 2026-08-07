@@ -1,0 +1,176 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>技術支援 · 教練小幫手</title>
+<meta name="description" content="教練小幫手的使用說明、常見問題與聯絡方式。">
+<meta name="theme-color" content="#A8721B">
+<style>
+  :root {
+    --bg: #FBF9F6; --surface: #FFFFFF; --ink: #1C1917; --ink-2: #44403C;
+    --muted: #78716C; --line: #E7E2DA; --gold: #A8721B; --warn: #C2410C;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #12100E; --surface: #1C1917; --ink: #FAFAF9; --ink-2: #D6D3D1;
+      --muted: #A8A29E; --line: #292524; --gold: #D9A441; --warn: #FB923C;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 0 20px 80px;
+    background: var(--bg); color: var(--ink);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans TC", sans-serif;
+    line-height: 1.8; font-size: 16px;
+    -webkit-text-size-adjust: 100%;
+  }
+  main { max-width: 720px; margin: 0 auto; }
+  header { padding: 48px 0 28px; border-bottom: 1px solid var(--line); margin-bottom: 28px; }
+  h1 { font-size: 27px; margin: 0 0 6px; letter-spacing: -0.02em; }
+  .sub { color: var(--muted); font-size: 14px; margin: 0; }
+  h2 { font-size: 19px; margin: 38px 0 14px; }
+  p { margin: 0 0 14px; color: var(--ink-2); }
+  ul, ol { margin: 0 0 14px; padding-left: 22px; color: var(--ink-2); }
+  li { margin-bottom: 7px; }
+  strong { color: var(--ink); font-weight: 650; }
+  a { color: var(--gold); }
+  .contact {
+    background: var(--surface); border: 1px solid var(--line);
+    border-left: 3px solid var(--gold);
+    border-radius: 12px; padding: 20px; margin: 0 0 8px;
+  }
+  .contact p { margin: 0 0 6px; color: var(--ink); }
+  .contact p:last-child { margin: 0; }
+  .contact a { font-size: 18px; font-weight: 650; }
+  details {
+    background: var(--surface); border: 1px solid var(--line);
+    border-radius: 12px; padding: 14px 18px; margin-bottom: 10px;
+  }
+  summary {
+    cursor: pointer; font-weight: 600; color: var(--ink);
+    list-style: none;
+  }
+  summary::-webkit-details-marker { display: none; }
+  summary::before { content: "▸ "; color: var(--gold); }
+  details[open] summary::before { content: "▾ "; }
+  details > *:not(summary) { margin-top: 12px; }
+  details p:last-child, details ul:last-child { margin-bottom: 0; }
+  .warn { color: var(--warn); }
+  footer {
+    margin-top: 56px; padding-top: 24px; border-top: 1px solid var(--line);
+    color: var(--muted); font-size: 14px;
+  }
+  .en { margin-top: 56px; padding-top: 28px; border-top: 2px solid var(--line); }
+  .en h2 { font-size: 17px; }
+  .en p, .en li { font-size: 15px; }
+</style>
+</head>
+<body>
+<main>
+
+<header>
+  <h1>技術支援</h1>
+  <p class="sub">教練小幫手（Coach Mate）</p>
+</header>
+
+<div class="contact">
+  <p>有問題、有想要的功能、或哪裡算錯了，直接寫信給我：</p>
+  <p><a href="mailto:huang940818@gmail.com">huang940818@gmail.com</a></p>
+  <p class="sub" style="margin-top:8px">App 裡的「設定 → 回報問題」會自動附上版本與機型，比較好查。</p>
+</div>
+
+<h2>常見問題</h2>
+
+<details>
+  <summary>我的資料存在哪裡？會不會不見？</summary>
+  <p>資料只存在你自己的裝置上，沒有雲端、沒有同步，所以別人看不到你的學生——但也代表<strong class="warn">裝置遺失、損壞或重灌時資料會消失</strong>。</p>
+  <p>請養成定期備份的習慣：<strong>設定 → 匯出資料</strong>，會產生一個 JSON 檔，存到「檔案」App 或雲端硬碟。建議時機：輸入完一批學生之後、每個月底、換手機之前。</p>
+</details>
+
+<details>
+  <summary>換手機怎麼把資料搬過去？</summary>
+  <ol>
+    <li>舊手機：設定 → 匯出資料，得到一個 JSON 檔</li>
+    <li>用 AirDrop、LINE 或 Email 把檔案傳到新手機</li>
+    <li>新手機：設定 → 匯入資料 → 選那個檔 → 選「取代全部」</li>
+  </ol>
+  <p>App 與網頁版的備份檔<strong>格式相同，可以互相搬</strong>。</p>
+</details>
+
+<details>
+  <summary>網頁版加到主畫面之後，學生都不見了？</summary>
+  <p>資料沒有不見，還在原本的瀏覽器裡。這是 iPhone 的規則：<strong>加到主畫面的圖示與 Safari 是分開存資料的</strong>，兩邊不互通。</p>
+  <p>解法：回到瀏覽器打開同一個網址 → 設定 →「加到主畫面 → 怎麼加？」，它會把資料一起帶過去。資料量太大帶不動的話，改用「複製備份文字」，再到桌面圖示裡「貼上備份文字」。</p>
+  <p>最省事的做法是<strong>一開始就先加到主畫面，之後都從桌面圖示開來用</strong>。</p>
+</details>
+
+<details>
+  <summary>「檢測」是什麼？跟正課差在哪？</summary>
+  <p>檢測是對<strong>還沒買課的人</strong>做的第一次試教。它會佔用課表的時段，但<strong>不扣堂數、不算課程收入、也不進抽成</strong>，因為對方還沒付錢。</p>
+  <p>時段過了 App 會問你「成交了嗎」。成交就直接把他轉成正式學生並接續約流程；沒成交就留在待追蹤名單。成交率在「回顧」頁看得到，還能依名單來源拆開看。</p>
+</details>
+
+<details>
+  <summary>剩餘堂數不對，可以自己改嗎？</summary>
+  <p>可以。到學生詳情頁，點「剩餘 N 堂」那個數字就能直接調整，有快速加減按鈕，也可以填調整原因（會記進備註，之後對帳查得到）。</p>
+  <p>這個功能<strong>只改剩餘堂數，不會動到已購堂數</strong>，所以銷售統計不受影響。要記錄新買的堂數請用「續約」。</p>
+</details>
+
+<details>
+  <summary>底薪怎麼設定？我們公司的算法不太一樣</summary>
+  <p>設定裡的底薪支援三種常見算法：</p>
+  <ul>
+    <li><strong>底薪＋抽成</strong>：底薪固定給，抽成另外加</li>
+    <li><strong>達標後取消底薪</strong>：堂數沒到門檻時有底薪保護，到了門檻就只領抽成</li>
+    <li><strong>取高者</strong>：底薪與抽成比大小，領高的那個，不相加</li>
+  </ul>
+  <p>薪資頁會用一句話說明這個月的底薪為什麼是這個數字。</p>
+</details>
+
+<details>
+  <summary>同一堂課有兩個學生一起上怎麼記？</summary>
+  <p>排課時選好主要學生，再選「共同上課」的第二位。兩位<strong>各扣一堂</strong>，課程收入與薪資也各算一份。</p>
+</details>
+
+<details>
+  <summary>名單上同一個人出現兩次</summary>
+  <p>到<strong>設定 → 資料管理</strong>，如果偵測到同名同電話的重複，那裡會出現「清掉重複的學生」。它會列出有幾組、以及會連帶刪掉幾堂課與幾筆收費，確認後才動手。每個人只會留下資料最完整的那一筆。</p>
+  <p>建議先匯出一份備份再操作。</p>
+</details>
+
+<details>
+  <summary>App 想改成深色（或淺色）</summary>
+  <p>設定最上面的「深色模式」可以選<strong>跟隨系統／淺色／深色</strong>。選了淺色或深色就會固定，不管手機本身的設定是什麼。</p>
+</details>
+
+<h2>使用說明</h2>
+<p>網頁版內建完整的使用說明，App 的操作邏輯相同，可以直接參考：<a href="./">開啟教練小幫手網頁版</a>，右上角選單裡有「使用說明」。</p>
+
+<h2>隱私</h2>
+<p>這個 App 不收集任何資料，詳見<a href="./privacy.html">隱私權政策</a>。</p>
+
+<section class="en">
+  <h1 style="font-size:22px">Support</h1>
+  <p class="sub">Coach Mate (教練小幫手)</p>
+
+  <h2>Contact</h2>
+  <p>For questions, bug reports, or feature requests, email <a href="mailto:huang940818@gmail.com">huang940818@gmail.com</a>. The app's <em>Settings → Report a problem</em> automatically attaches the version and device model, which makes issues much easier to diagnose.</p>
+
+  <h2>Where is my data?</h2>
+  <p>Entirely on your own device — there is no cloud and no sync. That keeps your students private, but it also means data is lost if the device is lost. Use <em>Settings → Export data</em> regularly to keep your own backup file.</p>
+
+  <h2>Moving to a new phone</h2>
+  <p>Export a backup on the old device, transfer the file (AirDrop, email, cloud drive), then use <em>Settings → Import data → Replace all</em> on the new one. The iOS app and the web version share the same backup format.</p>
+
+  <h2>Privacy</h2>
+  <p>The app collects no data. See the <a href="./privacy.html">privacy policy</a>.</p>
+</section>
+
+<footer>
+  <p><a href="./">← 回到教練小幫手</a> · <a href="./privacy.html">隱私權政策</a></p>
+</footer>
+
+</main>
+</body>
+</html>
