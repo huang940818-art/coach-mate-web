@@ -552,6 +552,29 @@ dialog.sheet {
 }
 .swatch-auto.on { border-style: solid; border-color: var(--ink); color: var(--ink); }
 
+/* ── 有新版本的橫幅 ─────────────────────────────
+   固定在底部，避開分頁列與 iPhone 的 home indicator。
+   render() 會重畫整個 view，所以這條刻意掛在 body 上不受影響。 */
+.update-bar {
+  position: fixed; left: 12px; right: 12px;
+  bottom: calc(env(safe-area-inset-bottom, 0px) + 76px);
+  z-index: 60;
+  display: flex; align-items: center; gap: 10px;
+  padding: 12px 14px;
+  background: var(--surface); border: 1px solid var(--gold);
+  border-radius: var(--r-card, 14px);
+  box-shadow: 0 6px 24px rgba(0,0,0,.18);
+  animation: update-in .25s ease-out;
+}
+@keyframes update-in { from { opacity: 0; transform: translateY(8px); } }
+.update-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.update-text strong { font-size: 14px; }
+.update-sub { font-size: 11.5px; color: var(--muted); font-family: var(--mono); }
+@media (min-width: 900px) {
+  /* 桌機版沒有底部分頁列，貼著底邊就好 */
+  .update-bar { left: auto; right: 20px; bottom: 20px; max-width: 420px; }
+}
+
 .field-label { display: block; font-size: 12.5px; color: var(--ink-2); margin-bottom: 2px; }
 .quick-steps { display: flex; gap: 8px; margin: -4px 0 12px; }
 .quick-steps .btn { flex: 1; }
@@ -696,7 +719,7 @@ const NOTICE_KEY = "coach-mate-web-notice-dismissed";
  * 版本標記。顯示在設定頁最下面，教練唸得出來就知道他手上是哪一版，
  * 不用再猜是不是拿到舊的快取。每次改版就把這個字串往上加。
  */
-const BUILD = "2026-08-06 · v11";
+const BUILD = "2026-08-07 · v12";
 
 /** 開發者署名，顯示在設定頁的「關於」 */
 const DEVELOPER = "杯子蛋糕好好吃";
@@ -4477,6 +4500,99 @@ function standaloneEmptyNotice() {
 }
 
 /* ════════════════════════════════════════════════
+   7.6 有新版本的時候
+
+   加到主畫面的圖示沒有網址列，也就沒有重新整理按鈕、沒有下拉更新。
+   GitHub Pages 的快取是十分鐘，所以教練「完全關掉 App 再打開」時
+   會拿到新版——但只是切出去再切回來並不會，可能一直停在舊版好幾天，
+   而且你完全不知道他們看到的是哪一版。
+
+   做法：讀一個很小的 version.json（明確不用快取），跟自己內建的
+   BUILD 比對，不一樣就跳一條橫幅讓人按一下更新。
+
+   沒有用 service worker。它能做真正的離線快取，但也是「更新卡住」
+   這類 bug 的頭號來源，而這裡要解的是更新通知，不是離線。
+   ════════════════════════════════════════════════ */
+
+/** 最近一次檢查的時間，避免切來切去就狂打 */
+let lastUpdateCheck = 0;
+const UPDATE_CHECK_INTERVAL = 5 * 60 * 1000;   // 5 分鐘
+let updateBannerShown = false;
+
+async function checkForUpdate({ force = false } = {}) {
+  // 本機用檔案打開時沒有 version.json，不用檢查
+  if (location.protocol === "file:") return;
+  if (typeof fetch !== "function") return;
+  if (navigator.onLine === false) return;
+  if (updateBannerShown) return;
+
+  const now = Date.now();
+  if (!force && now - lastUpdateCheck < UPDATE_CHECK_INTERVAL) return;
+  lastUpdateCheck = now;
+
+  try {
+    // cache: no-store 是關鍵：不然連版本檔本身都可能拿到快取的舊值
+    const res = await fetch("version.json", { cache: "no-store" });
+    if (!res.ok) return;
+    const { build } = await res.json();
+    if (build && build !== BUILD) showUpdateBanner(build);
+  } catch (e) {
+    // 沒網路、擋掉了、檔案不在——都靜靜算了，不能影響離線使用
+  }
+}
+
+function showUpdateBanner(newBuild) {
+  if (updateBannerShown) return;
+  updateBannerShown = true;
+
+  const bar = document.createElement("div");
+  bar.className = "update-bar";
+  bar.innerHTML = `
+    <span class="update-text">
+      <strong>有新版本可以用了</strong>
+      <span class="update-sub">目前 ${esc(BUILD)}　→　${esc(newBuild)}</span>
+    </span>
+    <button type="button" class="btn btn-primary btn-sm" data-update-now>立即更新</button>
+    <button type="button" class="btn btn-sm btn-ghost" data-update-later aria-label="稍後再說">✕</button>`;
+  document.body.appendChild(bar);
+
+  bar.querySelector("[data-update-now]").addEventListener("click", applyUpdate);
+  bar.querySelector("[data-update-later]").addEventListener("click", () => {
+    bar.remove();
+    // 關掉之後這次開啟就不再吵，下次重開再說
+  });
+}
+
+async function applyUpdate() {
+  // 資料在 localStorage，重載不會弄丟，但還是先確保寫進去了
+  try { save(); } catch (e) {}
+
+  // 沒有註冊 service worker，但如果哪天有了，這裡先清掉才不會又載到舊的
+  try {
+    if (window.caches) {
+      const keys = await caches.keys();
+      await Promise.all(keys.map((k) => caches.delete(k)));
+    }
+  } catch (e) {}
+
+  // 帶一個一次性參數繞過 HTTP 快取。單靠 location.reload() 不一定
+  // 會重新跟伺服器要檔案。載入後會把這個參數拿掉，網址保持乾淨。
+  const url = new URL(location.href);
+  url.searchParams.set("_v", Date.now().toString(36));
+  location.replace(url.toString());
+}
+
+/** 重載完把繞過快取用的參數清掉，不然它會一直留在網址上 */
+function stripCacheBuster() {
+  // 這是開機路徑上的程式碼，取不到東西就整頁白掉，所以一路防
+  if (!(location.search || "").includes("_v=")) return;
+  if (typeof URL !== "function" || !history?.replaceState) return;
+  const url = new URL(location.href);
+  url.searchParams.delete("_v");
+  history.replaceState(null, "", url.pathname + url.search + url.hash);
+}
+
+/* ════════════════════════════════════════════════
    8. 啟動
    ════════════════════════════════════════════════ */
 
@@ -4510,6 +4626,14 @@ runHandoff();
 // 頁面已經開著的時候只換 hash 不會重新載入（例如把帶資料的連結
 // 貼進網址列）。這時候什麼都不做會看起來像連結壞掉，所以也接一下。
 window.addEventListener("hashchange", runHandoff);
+
+// 有沒有新版本。開啟時查一次，之後每次從背景切回來也查
+//（教練多半是把 App 留在背景，不會真的關掉再開）。
+stripCacheBuster();
+checkForUpdate({ force: true });
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible") checkForUpdate();
+});
 </script>
 
 </body>
