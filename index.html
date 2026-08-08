@@ -719,7 +719,7 @@ const NOTICE_KEY = "coach-mate-web-notice-dismissed";
  * 版本標記。顯示在設定頁最下面，教練唸得出來就知道他手上是哪一版，
  * 不用再猜是不是拿到舊的快取。每次改版就把這個字串往上加。
  */
-const BUILD = "2026-08-08 · v17";
+const BUILD = "2026-08-08 · v18";
 
 /** 開發者署名，顯示在設定頁的「關於」 */
 const DEVELOPER = "杯子蛋糕好好吃";
@@ -2338,36 +2338,100 @@ function studentDetailSheet(student) {
  * 抽成函式是因為刪掉一筆之後要就地重畫這一塊 —— 不能整張表單重開，
  * 那會把使用者其他還沒存的修改一起吃掉。
  */
+/** 目前正在就地編輯的那筆續約紀錄 id（null＝沒有在編輯） */
+let editingRenewalId = null;
+
+/**
+ * 改一筆續約紀錄的內容。
+ *
+ * 已購是所有續約堂數的累計，改了堂數就要補上差額。
+ * 次數不變 —— 還是同一筆，只是內容改了。
+ * 剩餘堂數與收費紀錄都不動：看不出這筆當初是不是補登的（補登本來就沒加過
+ * 剩餘），收費也是各自獨立的一筆。
+ *
+ * 抽成函式是為了測得到 —— 原本這幾行埋在 DOM 事件處理器裡，
+ * 而算錯就是已購堂數與業績一起歪掉。
+ */
+function applyRenewalEdit(student, record, patch) {
+  const newSessions = Math.max(0, +patch.sessions || 0);
+  student.totalPurchased = Math.max(0,
+    (student.totalPurchased || 0) - (record.sessions || 0) + newSessions);
+  record.date = patch.date || record.date;
+  record.sessions = newSessions;
+  record.amount = Math.max(0, +patch.amount || 0);
+  record.notes = patch.notes ?? record.notes;
+  student.updatedAt = new Date().toISOString();
+  return record;
+}
+
+/**
+ * 刪掉一筆續約紀錄。次數與已購跟著回去，剩餘堂數不動（理由同上）。
+ */
+function removeRenewalRecord(student, record) {
+  student.renewals = (student.renewals || []).filter((x) => x.id !== record.id);
+  student.renewalCount = Math.max(0, (student.renewalCount || 0) - 1);
+  student.totalPurchased = Math.max(0, (student.totalPurchased || 0) - (record.sessions || 0));
+  student.updatedAt = new Date().toISOString();
+}
+
 function renewalHistoryBlock(student) {
   const rs = renewalsOf(student);
   const sessions = rs.reduce((a, r) => a + (r.sessions || 0), 0);
   const amount = rs.reduce((a, r) => a + (r.amount || 0), 0);
+
+  // 編輯狀態的那一列。就地換成輸入框，不另外開 sheet ——
+  // openSheet 會先關掉現有的那張，等於把使用者在編輯學生表單裡
+  // 其他還沒存的修改一起吃掉。
+  const editRow = (r) => `
+    <div class="row" style="padding:8px 0;display:block" data-renewal-row="${r.id}">
+      <div class="field-row">
+        ${fieldText("r_date", "日期", r.date || "", { type: "date" })}
+        ${fieldText("r_sessions", "堂數", r.sessions || 0, { type: "number" })}
+      </div>
+      <div class="field-row">
+        ${fieldText("r_amount", "總額", r.amount || 0,
+            { type: "number", hint: r.sessions ? `每堂 ${money(Math.round((r.amount || 0) / r.sessions))}` : "" })}
+        ${fieldText("r_notes", "備註", r.notes || "")}
+      </div>
+      <div style="display:flex;gap:6px;justify-content:flex-end">
+        <button type="button" class="btn btn-sm" data-cancel-renewal="1">取消</button>
+        <button type="button" class="btn btn-sm btn-primary" data-save-renewal="${r.id}">儲存這筆</button>
+      </div>
+    </div>`;
+
+  const showRow = (r) => `
+    <div class="row" style="padding:8px 0">
+      <div class="row-main">
+        <div class="row-title" style="font-size:14px">${esc(r.date || "（無日期）")}</div>
+        ${r.notes ? `<div class="row-sub">${esc(r.notes)}</div>` : ""}
+      </div>
+      <div class="row-end" style="display:flex;align-items:center;gap:8px">
+        <div style="text-align:right">
+          <div class="mono" style="font-weight:600">${r.sessions || 0} 堂</div>
+          <div class="muted" style="font-size:12px">${money(r.amount || 0)}</div>
+        </div>
+        <button type="button" class="btn btn-sm" data-edit-renewal="${r.id}"
+                title="修改這筆續約紀錄">編輯</button>
+        <button type="button" class="btn btn-sm btn-danger" data-del-renewal="${r.id}"
+                title="刪除這筆續約紀錄">刪除</button>
+      </div>
+    </div>`;
+
   return `
     <div class="row-title" style="display:flex;align-items:center;justify-content:space-between;gap:8px">
       <span>續約紀錄</span>
       ${rs.length ? `<span class="muted" style="font-size:12px;font-weight:400">${rs.length} 次・${sessions} 堂・累計 ${money(amount)}</span>` : ""}
     </div>
-    ${rs.length ? rs.map((r) => `
-      <div class="row" style="padding:8px 0">
-        <div class="row-main">
-          <div class="row-title" style="font-size:14px">${esc(r.date || "（無日期）")}</div>
-          ${r.notes ? `<div class="row-sub">${esc(r.notes)}</div>` : ""}
-        </div>
-        <div class="row-end" style="display:flex;align-items:center;gap:10px">
-          <div style="text-align:right">
-            <div class="mono" style="font-weight:600">${r.sessions || 0} 堂</div>
-            <div class="muted" style="font-size:12px">${money(r.amount || 0)}</div>
-          </div>
-          <button type="button" class="btn btn-sm btn-danger" data-del-renewal="${r.id}"
-                  title="刪除這筆續約紀錄">刪除</button>
-        </div>
-      </div>`).join("") : `<p class="empty" style="padding:16px 0">尚無續約紀錄。按「續約」新增，補以前的請勾「補登以前的續約」。</p>`}
-    <p class="hint">刪除會一併扣掉續約次數與已購堂數，但<strong>不會動剩餘堂數</strong>——因為看不出這筆當初是不是補登的。需要的話用「調整剩餘堂數」。</p>`;
+    ${rs.length ? rs.map((r) => (r.id === editingRenewalId ? editRow(r) : showRow(r))).join("")
+                : `<p class="empty" style="padding:16px 0">尚無續約紀錄。按「續約」新增，補以前的請勾「補登以前的續約」。</p>`}
+    <p class="hint">改堂數會連動累計已購，改金額會連動銷售統計。<strong>剩餘堂數和收費紀錄都不會跟著動</strong>——看不出這筆當初是不是補登的，收費也是各自獨立的一筆。要改請用「調整剩餘堂數」與「收費」那一頁。</p>`;
 }
 
 function studentSheet(existing) {
   const s = existing || newStudent();
   const fields = S.settings.customFields;
+  // 上次關掉時可能停在某筆的編輯狀態，重開要回到乾淨的樣子
+  editingRenewalId = null;
   openSheet({
     title: existing ? "編輯學生" : "新增學生",
     body: `
@@ -2492,21 +2556,50 @@ function studentSheet(existing) {
       // 所以只重畫這一塊，其他欄位還沒存的修改要留著。
       const histBox = root.querySelector("[data-renewal-history]");
       if (histBox) {
+        const redraw = () => { histBox.innerHTML = renewalHistoryBlock(s); };
+
         histBox.addEventListener("click", (e) => {
+          // 進入編輯：只換那一列的樣子，其他欄位的未存修改不受影響
+          const edit = e.target.closest("[data-edit-renewal]");
+          if (edit) {
+            e.preventDefault();
+            editingRenewalId = edit.dataset.editRenewal;
+            redraw();
+            return;
+          }
+
+          if (e.target.closest("[data-cancel-renewal]")) {
+            e.preventDefault();
+            editingRenewalId = null;
+            redraw();
+            return;
+          }
+
+          const saveBtn = e.target.closest("[data-save-renewal]");
+          if (saveBtn) {
+            e.preventDefault();
+            const rec = (s.renewals || []).find((x) => x.id === saveBtn.dataset.saveRenewal);
+            const box = histBox.querySelector(`[data-renewal-row="${saveBtn.dataset.saveRenewal}"]`);
+            if (!rec || !box) return;
+            const val = (n) => box.querySelector(`[name="${n}"]`)?.value ?? "";
+            applyRenewalEdit(s, rec, {
+              date: val("r_date"), sessions: val("r_sessions"),
+              amount: val("r_amount"), notes: val("r_notes"),
+            });
+            editingRenewalId = null;
+            save(); render(); redraw();
+            toast(`已更新 ${rec.date} 的續約紀錄`);
+            return;
+          }
+
           const btn = e.target.closest("[data-del-renewal]");
           if (!btn) return;
           e.preventDefault();
           const r = (s.renewals || []).find((x) => x.id === btn.dataset.delRenewal);
           if (!r) return;
-          s.renewals = s.renewals.filter((x) => x.id !== r.id);
-          // 次數與已購要跟著回去，不然刪掉紀錄之後那兩個數字會永遠偏高。
-          // 剩餘堂數刻意不動：看不出這筆當初是不是補登的，
-          // 猜錯就是直接吃掉學生手上的課。要改請用「調整剩餘堂數」。
-          s.renewalCount = Math.max(0, (s.renewalCount || 0) - 1);
-          s.totalPurchased = Math.max(0, (s.totalPurchased || 0) - (r.sessions || 0));
-          s.updatedAt = new Date().toISOString();
-          save(); render();
-          histBox.innerHTML = renewalHistoryBlock(s);
+          removeRenewalRecord(s, r);
+          editingRenewalId = null;
+          save(); render(); redraw();
           toast(`已刪除 ${r.date} 的續約紀錄`);
         });
       }
@@ -2762,10 +2855,16 @@ function renewSheet(student) {
       </div>
       ${packages.length ? fieldSelect("pkg", "選擇方案",
         [["", "自己填"], ...packages.map((p) => [p.id, `${p.name}・${p.sessions} 堂・${money(p.price)}`])], "") : ""}
+      <div class="seg" style="max-width:260px;margin-bottom:8px">
+        ${[["total", "輸入總額"], ["unit", "輸入單價"]].map(([v, t], i) =>
+          `<button type="button" data-price-mode="${v}" aria-pressed="${i === 0}">${t}</button>`).join("")}
+      </div>
+      <input type="hidden" name="priceMode" value="total">
       <div class="field-row">
         ${fieldText("sessions", "加購堂數", 10, { type: "number", required: true })}
-        ${fieldText("amount", "金額", "", { type: "number" })}
+        ${fieldText("amount", "總額", "", { type: "number" })}
       </div>
+      <p class="hint" data-price-hint>存進去的一律是總額——銷售統計與業績抽成都是拿總額去算的。</p>
       <div class="field-row">
         ${fieldText("date", "日期", today(), { type: "date" })}
         ${fieldSelect("method", "付款方式", [["cash", "現金"], ["transfer", "轉帳"], ["other", "其他"]], "cash")}
@@ -2786,8 +2885,11 @@ function renewSheet(student) {
     confirmLabel: "確認續約",
     onConfirm: (form) => {
       const sessions = +form.elements.sessions.value || 0;
-      const amount = +form.elements.amount.value || 0;
       if (sessions <= 0) { toast("加購堂數要大於 0"); return false; }
+      // 存進去的一律是總額。銷售統計的均價是「總額 ÷ 堂數」除出來的，
+      // 業績抽成也是直接乘總額 —— 存單價的話兩邊都會少一個數量級。
+      const typed = +form.elements.amount.value || 0;
+      const amount = form.elements.priceMode.value === "unit" ? typed * sessions : typed;
       const date = form.elements.date.value || today();
       // 補登舊紀錄時只補「歷史」，不動「現況」。
       // 已購與續約紀錄是歷史（銷售統計要用），剩餘堂數是現況——
@@ -2810,13 +2912,54 @@ function renewSheet(student) {
       toast(backfill ? `已補登 ${student.name} ${sessions} 堂` : `${student.name} 續約 ${sessions} 堂`);
     },
     onMount: (root) => {
+      const modeInput = root.querySelector('[name="priceMode"]');
+      const amountInput = root.querySelector('[name="amount"]');
+      const sessionsInput = root.querySelector('[name="sessions"]');
+      const amountLabel = root.querySelector('label[for="f-amount"]');
+      const hint = root.querySelector("[data-price-hint]");
+
+      // 不管你用哪一種輸入，兩個數字都同時顯示出來 ——
+      // 「我剛剛填的是一堂還是全部」這個問題不該在按下確認之後才想起來。
+      const refresh = () => {
+        const n = Math.max(0, +sessionsInput.value || 0);
+        const v = Math.max(0, +amountInput.value || 0);
+        const unit = modeInput.value === "unit";
+        if (amountLabel) amountLabel.textContent = unit ? "每堂單價" : "總額";
+        if (!hint) return;
+        if (!n || !v) {
+          hint.textContent = "存進去的一律是總額——銷售統計與業績抽成都是拿總額去算的。";
+          return;
+        }
+        hint.textContent = unit
+          ? `${n} 堂 × ${money(v)} ＝ 總額 ${money(v * n)}`
+          : `${money(v)} ÷ ${n} 堂 ＝ 每堂 ${money(Math.round(v / n))}`;
+      };
+
+      root.addEventListener("click", (e) => {
+        const btn = e.target.closest("[data-price-mode]");
+        if (!btn) return;
+        e.preventDefault();
+        modeInput.value = btn.dataset.priceMode;
+        root.querySelectorAll("[data-price-mode]").forEach((b) =>
+          b.setAttribute("aria-pressed", String(b.dataset.priceMode === modeInput.value)));
+        refresh();
+      });
+      amountInput.addEventListener("input", refresh);
+      sessionsInput.addEventListener("input", refresh);
+
       const pkg = root.querySelector('[name="pkg"]');
       if (!pkg) return;
       pkg.addEventListener("change", () => {
         const p = packages.find((x) => x.id === pkg.value);
         if (!p) return;
-        root.querySelector('[name="sessions"]').value = p.sessions;
-        root.querySelector('[name="amount"]').value = p.price;
+        sessionsInput.value = p.sessions;
+        amountInput.value = p.price;
+        // 方案存的是整包的價錢，所以選了方案就把模式切回總額，
+        // 不然停在單價模式會把整包價格再乘一次堂數。
+        modeInput.value = "total";
+        root.querySelectorAll("[data-price-mode]").forEach((b) =>
+          b.setAttribute("aria-pressed", String(b.dataset.priceMode === "total")));
+        refresh();
       });
     },
   });
