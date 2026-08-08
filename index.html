@@ -719,7 +719,7 @@ const NOTICE_KEY = "coach-mate-web-notice-dismissed";
  * 版本標記。顯示在設定頁最下面，教練唸得出來就知道他手上是哪一版，
  * 不用再猜是不是拿到舊的快取。每次改版就把這個字串往上加。
  */
-const BUILD = "2026-08-08 · v14";
+const BUILD = "2026-08-08 · v15";
 
 /** 開發者署名，顯示在設定頁的「關於」 */
 const DEVELOPER = "杯子蛋糕好好吃";
@@ -2504,19 +2504,35 @@ function renewSheet(student) {
         ${fieldSelect("method", "付款方式", [["cash", "現金"], ["transfer", "轉帳"], ["other", "其他"]], "cash")}
       </div>
       ${fieldText("expiry", "新的到期日", student.expiry, { type: "date", hint: "留白就不改" })}
-      ${fieldText("notes", "備註", "")}`,
+      ${fieldText("notes", "備註", "")}
+      <div class="divider"></div>
+      <div class="switch">
+        <label for="f-backfill">補登以前的續約</label>
+        <input id="f-backfill" name="backfill" type="checkbox">
+      </div>
+      <p class="hint">補以前的紀錄用。堂數一樣算進「已購」與銷售統計，但<strong>不會加到剩餘堂數</strong>——那些課早就上完了，加上去會灌水。</p>
+      <div class="switch">
+        <label for="f-recordPayment">同時新增收費紀錄</label>
+        <input id="f-recordPayment" name="recordPayment" type="checkbox" checked>
+      </div>
+      <p class="hint">這筆錢如果在「收費」那邊已經記過了，取消勾選，否則累計收費與月營收會重複計算。</p>`,
     confirmLabel: "確認續約",
     onConfirm: (form) => {
       const sessions = +form.elements.sessions.value || 0;
       const amount = +form.elements.amount.value || 0;
       if (sessions <= 0) { toast("加購堂數要大於 0"); return false; }
       const date = form.elements.date.value || today();
+      // 補登舊紀錄時只補「歷史」，不動「現況」。
+      // 已購與續約紀錄是歷史（銷售統計要用），剩餘堂數是現況——
+      // 三個月前買的 10 堂早就上完了，加回剩餘會憑空多出十堂課。
+      const backfill = form.elements.backfill.checked;
       student.totalPurchased += sessions;
-      student.remaining += sessions;
+      if (!backfill) student.remaining += sessions;
       student.renewalCount += 1;
       if (form.elements.expiry.value) student.expiry = form.elements.expiry.value;
       student.renewals.push({ id: uid(), date, sessions, amount, notes: form.elements.notes.value, createdAt: new Date().toISOString() });
-      if (amount > 0) {
+      // 舊的錢常常已經記過了，再記一次會讓營收憑空翻倍，所以能關掉。
+      if (amount > 0 && form.elements.recordPayment.checked) {
         student.payments.push({
           id: uid(), amount, date, method: form.elements.method.value,
           notes: form.elements.notes.value || `續約 ${sessions} 堂`, createdAt: new Date().toISOString(),
@@ -2524,7 +2540,7 @@ function renewSheet(student) {
       }
       student.updatedAt = new Date().toISOString();
       save(); render();
-      toast(`${student.name} 續約 ${sessions} 堂`);
+      toast(backfill ? `已補登 ${student.name} ${sessions} 堂` : `${student.name} 續約 ${sessions} 堂`);
     },
     onMount: (root) => {
       const pkg = root.querySelector('[name="pkg"]');
