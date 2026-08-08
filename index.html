@@ -719,7 +719,7 @@ const NOTICE_KEY = "coach-mate-web-notice-dismissed";
  * 版本標記。顯示在設定頁最下面，教練唸得出來就知道他手上是哪一版，
  * 不用再猜是不是拿到舊的快取。每次改版就把這個字串往上加。
  */
-const BUILD = "2026-08-08 · v18";
+const BUILD = "2026-08-08 · v19";
 
 /** 開發者署名，顯示在設定頁的「關於」 */
 const DEVELOPER = "杯子蛋糕好好吃";
@@ -2358,10 +2358,30 @@ function applyRenewalEdit(student, record, patch) {
     (student.totalPurchased || 0) - (record.sessions || 0) + newSessions);
   record.date = patch.date || record.date;
   record.sessions = newSessions;
-  record.amount = Math.max(0, +patch.amount || 0);
+  // 這裡也吃得下單價 —— 存進去的一律是總額，理由跟 renewSheet 一樣：
+  // 銷售統計的均價是「總額 ÷ 堂數」除出來的，業績抽成也是直接乘總額。
+  const typed = Math.max(0, +patch.amount || 0);
+  record.amount = patch.priceMode === "unit" ? typed * newSessions : typed;
   record.notes = patch.notes ?? record.notes;
   student.updatedAt = new Date().toISOString();
   return record;
+}
+
+/**
+ * 更新續約編輯列底下的換算提示，兩個數字同時看得到。
+ * 「我剛剛填的是一堂還是全部」不該在按下儲存之後才想起來。
+ */
+function refreshRenewalHint(box) {
+  const hint = box.querySelector("[data-r-price-hint]");
+  if (!hint) return;
+  const num = (n) => Math.max(0, +(box.querySelector(`[name="${n}"]`)?.value || 0));
+  const n = num("r_sessions");
+  const v = num("r_amount");
+  const unit = (box.querySelector('[name="r_priceMode"]')?.value || "total") === "unit";
+  if (!n || !v) { hint.textContent = "存進去的一律是總額。"; return; }
+  hint.textContent = unit
+    ? `${n} 堂 × ${money(v)} ＝ 總額 ${money(v * n)}`
+    : `${money(v)} ÷ ${n} 堂 ＝ 每堂 ${money(Math.round(v / n))}`;
 }
 
 /**
@@ -2388,11 +2408,18 @@ function renewalHistoryBlock(student) {
         ${fieldText("r_date", "日期", r.date || "", { type: "date" })}
         ${fieldText("r_sessions", "堂數", r.sessions || 0, { type: "number" })}
       </div>
+      <div class="seg" style="max-width:260px;margin-bottom:8px">
+        ${[["total", "輸入總額"], ["unit", "輸入單價"]].map(([v, t], i) =>
+          `<button type="button" data-r-price-mode="${v}" aria-pressed="${i === 0}">${t}</button>`).join("")}
+      </div>
+      <input type="hidden" name="r_priceMode" value="total">
       <div class="field-row">
-        ${fieldText("r_amount", "總額", r.amount || 0,
-            { type: "number", hint: r.sessions ? `每堂 ${money(Math.round((r.amount || 0) / r.sessions))}` : "" })}
+        ${fieldText("r_amount", "總額", r.amount || 0, { type: "number" })}
         ${fieldText("r_notes", "備註", r.notes || "")}
       </div>
+      <p class="hint" data-r-price-hint>${
+        r.sessions ? `${money(r.amount || 0)} ÷ ${r.sessions} 堂 ＝ 每堂 ${money(Math.round((r.amount || 0) / r.sessions))}` : "存進去的一律是總額。"
+      }</p>
       <div style="display:flex;gap:6px;justify-content:flex-end">
         <button type="button" class="btn btn-sm" data-cancel-renewal="1">取消</button>
         <button type="button" class="btn btn-sm btn-primary" data-save-renewal="${r.id}">儲存這筆</button>
@@ -2558,6 +2585,12 @@ function studentSheet(existing) {
       if (histBox) {
         const redraw = () => { histBox.innerHTML = renewalHistoryBlock(s); };
 
+        // 編輯列是 redraw 出來的，沒辦法在掛載時綁 input，所以用委派。
+        histBox.addEventListener("input", (e) => {
+          const box = e.target.closest("[data-renewal-row]");
+          if (box) refreshRenewalHint(box);
+        });
+
         histBox.addEventListener("click", (e) => {
           // 進入編輯：只換那一列的樣子，其他欄位的未存修改不受影響
           const edit = e.target.closest("[data-edit-renewal]");
@@ -2575,6 +2608,25 @@ function studentSheet(existing) {
             return;
           }
 
+          // 總額／單價切換。刻意「不」換算欄位裡已經填的數字 ——
+          // 使用者可能是先打了數字才發現模式選錯，幫他乘除反而會把
+          // 原本正確的輸入改壞。下面的提示會同時顯示兩個數字，
+          // 按下儲存之前就看得出來對不對。
+          const pm = e.target.closest("[data-r-price-mode]");
+          if (pm) {
+            e.preventDefault();
+            const box = pm.closest("[data-renewal-row]");
+            if (!box) return;
+            const mode = pm.dataset.rPriceMode;
+            box.querySelector('[name="r_priceMode"]').value = mode;
+            box.querySelectorAll("[data-r-price-mode]").forEach((b) =>
+              b.setAttribute("aria-pressed", String(b.dataset.rPriceMode === mode)));
+            const lab = box.querySelector('label[for="f-r_amount"]');
+            if (lab) lab.textContent = mode === "unit" ? "每堂單價" : "總額";
+            refreshRenewalHint(box);
+            return;
+          }
+
           const saveBtn = e.target.closest("[data-save-renewal]");
           if (saveBtn) {
             e.preventDefault();
@@ -2585,6 +2637,7 @@ function studentSheet(existing) {
             applyRenewalEdit(s, rec, {
               date: val("r_date"), sessions: val("r_sessions"),
               amount: val("r_amount"), notes: val("r_notes"),
+              priceMode: val("r_priceMode"),
             });
             editingRenewalId = null;
             save(); render(); redraw();
