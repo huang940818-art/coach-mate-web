@@ -719,7 +719,7 @@ const NOTICE_KEY = "coach-mate-web-notice-dismissed";
  * 版本標記。顯示在設定頁最下面，教練唸得出來就知道他手上是哪一版，
  * 不用再猜是不是拿到舊的快取。每次改版就把這個字串往上加。
  */
-const BUILD = "2026-08-08 · v24";
+const BUILD = "2026-08-08 · v25";
 
 /** 開發者署名，顯示在設定頁的「關於」 */
 const DEVELOPER = "杯子蛋糕好好吃";
@@ -1222,7 +1222,10 @@ function paymentLabel(student, payment) {
   const r = renewalOfPayment(student, payment);
   const note = (payment.notes || "").trim();
   if (!r) return note;
-  const base = `續約 ${r.sessions || 0} 堂`;
+  // 首購不是續約，字面要對。判斷依據是續約紀錄自己的備註 ——
+  // 那筆是建立學生時自動寫的，不是使用者打的。
+  const verb = r.notes === "首次購買" ? "首次購買" : "續約";
+  const base = `${verb} ${r.sessions || 0} 堂`;
   // 自動產生的「續約」不必再印一次，自己打的備註要留著
   return note && note !== "續約" ? `${base}　${note}` : base;
 }
@@ -2625,7 +2628,15 @@ function studentSheet(existing) {
       </div>
       ${existing ? `
         <div class="divider"></div>
-        <div data-renewal-history>${renewalHistoryBlock(s)}</div>` : ""}`,
+        <div data-renewal-history>${renewalHistoryBlock(s)}</div>`
+      : `
+        <div class="divider"></div>
+        <div class="switch">
+          <label for="f-firstPayment">同時建立首次收費紀錄</label>
+          <input id="f-firstPayment" name="firstPayment" type="checkbox" checked>
+        </div>
+        <p class="hint">金額用「每堂費用 × 購買堂數」算。這筆錢如果已經在別的地方記過了就取消勾選。<br>
+        首購一定會留下一筆續約紀錄（不算進「續約次數」）——不然這筆生意不會出現在銷售統計與業績抽成裡。</p>`}`,
     extraFoot: existing ? `<button class="btn btn-danger btn-sm" type="button" data-action="delete-student" data-id="${s.id}">刪除</button>` : "",
     onConfirm: (form) => {
       const name = form.elements.name.value.trim();
@@ -2653,6 +2664,25 @@ function studentSheet(existing) {
       } else if (typedCurrent !== initialCurrent) {
         // 還沒有續約紀錄的人，那筆購買本身就是他現在的合約
         s.totalPurchased = typedCurrent;
+      }
+
+      // 新學生的首購也要留一筆續約紀錄，否則這筆生意不會出現在銷售統計與
+      // 業績抽成裡（那兩個的資料來源都是 renewals）。iOS 的 StudentFormView
+      // 本來就會建，網頁版一直沒有，等於第一筆永遠漏算。
+      //
+      // 刻意不動 renewalCount：那個數字的意思是「續約過幾次」，
+      // 第一次買不算續約。兩邊一致。
+      if (!existing && typedCurrent > 0) {
+        const firstAmount = Math.max(0, (s.rate || 0) * typedCurrent);
+        const rid = uid();
+        const stamp = new Date().toISOString();
+        s.renewals.push({ id: rid, date: today(), sessions: typedCurrent,
+                          amount: firstAmount, notes: "首次購買", createdAt: stamp });
+        if (firstAmount > 0 && form.elements.firstPayment.checked) {
+          s.payments.push({ id: uid(), renewalId: rid, amount: firstAmount,
+                            date: today(), method: "cash", notes: "",
+                            createdAt: stamp });
+        }
       }
       s.expiry = form.elements.expiry.value;
       s.acquisition = form.elements.acquisition.value;
