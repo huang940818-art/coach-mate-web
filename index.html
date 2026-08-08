@@ -719,7 +719,7 @@ const NOTICE_KEY = "coach-mate-web-notice-dismissed";
  * 版本標記。顯示在設定頁最下面，教練唸得出來就知道他手上是哪一版，
  * 不用再猜是不是拿到舊的快取。每次改版就把這個字串往上加。
  */
-const BUILD = "2026-08-08 · v20";
+const BUILD = "2026-08-08 · v21";
 
 /** 開發者署名，顯示在設定頁的「關於」 */
 const DEVELOPER = "杯子蛋糕好好吃";
@@ -916,6 +916,20 @@ function load() {
       students: (Array.isArray(parsed.students) ? parsed.students : []).map((s) => ({
         ...s,
         tags: Array.isArray(s.tags) ? s.tags : [],
+        // 續約時自動產生的收費備註原本會寫死「續約 N 堂」，但那個數字在
+        // 建立當下就凍住了：之後回頭改續約紀錄的堂數，這行不會跟著動，
+        // 於是好幾筆收費全都停在同一個數字，看起來像堂數沒存進去。
+        //
+        // 收費與續約是兩個獨立的陣列，沒有關聯欄位可以追（同一天同金額的
+        // 收費可能有好幾筆，靠日期＋金額配對也認不出來），所以乾脆不要在
+        // 收費這邊重複記堂數 —— 真相在續約紀錄裡，那邊是對的。
+        //
+        // 只改「完全符合自動產生格式」的那幾筆。你自己手打的備註不會被動到，
+        // 而且改完之後不再符合這個格式，重複載入也不會再改一次。
+        payments: (Array.isArray(s.payments) ? s.payments : []).map((p) => ({
+          ...p,
+          notes: /^續約 \d+ 堂$/.test(p.notes || "") ? "續約" : p.notes,
+        })),
       })),
       // 課程種類、檢測結果、單堂顏色也是後來才加的，舊課一律當正課
       lessons: (Array.isArray(parsed.lessons) ? parsed.lessons : []).map((l) => ({
@@ -2977,7 +2991,10 @@ function renewSheet(student) {
       if (amount > 0 && form.elements.recordPayment.checked) {
         student.payments.push({
           id: uid(), amount, date, method: form.elements.method.value,
-          notes: form.elements.notes.value || `續約 ${sessions} 堂`, createdAt: new Date().toISOString(),
+          // 刻意不把堂數寫進備註。這行是建立當下凍住的字串，之後改續約紀錄
+          // 的堂數它不會跟著動，而兩邊沒有關聯欄位可以追 —— 重複記一份遲早
+          // 不同步。堂數的真相在續約紀錄裡。
+          notes: form.elements.notes.value || "續約", createdAt: new Date().toISOString(),
         });
       }
       student.updatedAt = new Date().toISOString();
