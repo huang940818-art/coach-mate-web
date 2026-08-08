@@ -719,7 +719,7 @@ const NOTICE_KEY = "coach-mate-web-notice-dismissed";
  * 版本標記。顯示在設定頁最下面，教練唸得出來就知道他手上是哪一版，
  * 不用再猜是不是拿到舊的快取。每次改版就把這個字串往上加。
  */
-const BUILD = "2026-08-08 · v21";
+const BUILD = "2026-08-08 · v22";
 
 /** 開發者署名，顯示在設定頁的「關於」 */
 const DEVELOPER = "杯子蛋糕好好吃";
@@ -926,10 +926,9 @@ function load() {
         //
         // 只改「完全符合自動產生格式」的那幾筆。你自己手打的備註不會被動到，
         // 而且改完之後不再符合這個格式，重複載入也不會再改一次。
-        payments: (Array.isArray(s.payments) ? s.payments : []).map((p) => ({
-          ...p,
-          notes: /^續約 \d+ 堂$/.test(p.notes || "") ? "續約" : p.notes,
-        })),
+        payments: linkLegacyPayments(
+          Array.isArray(s.payments) ? s.payments : [],
+          Array.isArray(s.renewals) ? s.renewals : []),
       })),
       // 課程種類、檢測結果、單堂顏色也是後來才加的，舊課一律當正課
       lessons: (Array.isArray(parsed.lessons) ? parsed.lessons : []).map((l) => ({
@@ -946,6 +945,29 @@ function load() {
     console.warn("讀取本機資料失敗，改用空白資料", e);
     return null;
   }
+}
+
+/**
+ * 舊資料的一次性補救：把還沒有 renewalId 的收費接回對應的續約。
+ *
+ * 續約產生收費時兩筆的日期與金額是同一組值，所以拿這兩個去配。
+ * **只在配到剛好一筆時才接** —— 同一天同金額有好幾筆續約的話就認不出來，
+ * 猜錯比留白更糟（會在收費上印出別筆的堂數）。
+ *
+ * 順便把舊的「續約 N 堂」備註洗掉：那個數字是凍住的，接上關聯之後
+ * 堂數會從續約紀錄即時讀出來，備註再留一份只會互相矛盾。
+ * 只洗完全符合自動格式的，自己打的不動。
+ */
+function linkLegacyPayments(payments, renewals) {
+  return payments.map((p) => {
+    const notes = /^續約 \d+ 堂$/.test(p.notes || "") ? "續約" : p.notes;
+    if (p.renewalId) return { ...p, notes };
+    const hits = renewals.filter((r) =>
+      (r.date || "") === (p.date || "") && (r.amount || 0) === (p.amount || 0));
+    return hits.length === 1
+      ? { ...p, notes, renewalId: hits[0].id }
+      : { ...p, notes };
+  });
 }
 
 let saveFailed = false;
@@ -1181,6 +1203,28 @@ function renewalsOf(student) {
   return [...(student.renewals || [])].sort((a, b) =>
     (b.date || "").localeCompare(a.date || "")
     || (b.createdAt || "").localeCompare(a.createdAt || ""));
+}
+
+/**
+ * 這筆收費對應到哪一筆續約（沒有就是 null）。
+ *
+ * 以前是把「續約 N 堂」直接寫進收費備註，但那是建立當下凍住的字串：
+ * 回頭改續約紀錄的堂數，備註不會跟著動，於是好幾筆收費全停在同一個數字。
+ * 改成存 renewalId，顯示時去讀活的堂數，改哪邊都不會再對不上。
+ */
+function renewalOfPayment(student, payment) {
+  if (!payment || !payment.renewalId) return null;
+  return (student.renewals || []).find((r) => r.id === payment.renewalId) || null;
+}
+
+/** 收費那一列要顯示的說明文字 */
+function paymentLabel(student, payment) {
+  const r = renewalOfPayment(student, payment);
+  const note = (payment.notes || "").trim();
+  if (!r) return note;
+  const base = `續約 ${r.sessions || 0} 堂`;
+  // 自動產生的「續約」不必再印一次，自己打的備註要留著
+  return note && note !== "續約" ? `${base}　${note}` : base;
 }
 
 /**
@@ -2270,7 +2314,7 @@ function studentDetailSheet(student) {
             <div class="row" style="padding:6px 0">
               <div class="row-main">
                 <div class="row-title" style="font-size:14px">${esc(p.date)}</div>
-                ${p.notes ? `<div class="row-sub">${esc(p.notes)}</div>` : ""}
+                ${paymentLabel(student, p) ? `<div class="row-sub">${esc(paymentLabel(student, p))}</div>` : ""}
               </div>
               <div class="row-end">
                 <div class="mono" style="font-weight:600">${money(p.amount)}</div>
@@ -2986,11 +3030,13 @@ function renewSheet(student) {
       if (!backfill) student.remaining += sessions;
       student.renewalCount += 1;
       if (form.elements.expiry.value) student.expiry = form.elements.expiry.value;
-      student.renewals.push({ id: uid(), date, sessions, amount, notes: form.elements.notes.value, createdAt: new Date().toISOString() });
+      const renewalId = uid();
+      student.renewals.push({ id: renewalId, date, sessions, amount, notes: form.elements.notes.value, createdAt: new Date().toISOString() });
       // 舊的錢常常已經記過了，再記一次會讓營收憑空翻倍，所以能關掉。
       if (amount > 0 && form.elements.recordPayment.checked) {
         student.payments.push({
-          id: uid(), amount, date, method: form.elements.method.value,
+          // 存關聯而不是把堂數抄成字串：抄過去的數字改續約時不會跟著動。
+          id: uid(), renewalId, amount, date, method: form.elements.method.value,
           // 刻意不把堂數寫進備註。這行是建立當下凍住的字串，之後改續約紀錄
           // 的堂數它不會跟著動，而兩邊沒有關聯欄位可以追 —— 重複記一份遲早
           // 不同步。堂數的真相在續約紀錄裡。
@@ -3529,7 +3575,7 @@ function viewPayments() {
             <span class="dot" style="background:${esc(st?.color || "var(--muted)")}"></span>
             <div class="row-main">
               <div class="row-title">${esc(st?.name || "（已刪除的學生）")}</div>
-              <div class="row-sub mono">${esc(p.date)}　${method}${p.notes ? "　" + esc(p.notes) : ""}</div>
+              <div class="row-sub mono">${esc(p.date)}　${method}${st && paymentLabel(st, p) ? "　" + esc(paymentLabel(st, p)) : ""}</div>
             </div>
             <div class="row-end">
               <span class="mono" style="font-weight:600">${money(p.amount)}</span>
@@ -4253,6 +4299,12 @@ function buildBackup() {
       payments: s.payments.map((p) => ({
         amount: p.amount, date: p.date, methodRaw: p.method, notes: p.notes || "",
         createdAt: iso(p.createdAt),
+        // 這筆收費對應第幾筆續約。跟這個格式其他地方一樣用陣列索引不用 id，
+        // 沒有對應就是 null。iOS 讀到不認得的欄位會直接忽略，不會壞。
+        renewalIndex: (() => {
+          const i = s.renewals.findIndex((r) => r.id === p.renewalId);
+          return i >= 0 ? i : null;
+        })(),
       })),
       renewals: s.renewals.map((r) => ({
         date: r.date, sessionsPurchased: r.sessions, amount: r.amount,
@@ -4394,14 +4446,24 @@ function parseBackup(raw) {
     mayNotRenew: !!d.mayNotRenew,
     acquisition: ACQUISITION[d.acquisitionRaw] ? d.acquisitionRaw : "selfDeveloped",
     status: ["active", "paused", "archived"].includes(d.statusRaw) ? d.statusRaw : "active",
-    payments: (d.payments || []).map((p) => ({
-      id: uid(), amount: p.amount || 0, date: p.date || "",
-      method: p.methodRaw || "cash", notes: p.notes || "", createdAt: p.createdAt,
-    })),
-    renewals: (d.renewals || []).map((r) => ({
-      id: uid(), date: r.date || "", sessions: r.sessionsPurchased || 0,
-      amount: r.amount || 0, notes: r.notes || "", createdAt: r.createdAt,
-    })),
+    ...(() => {
+      // 續約要先有 id，收費才接得回去。舊備份沒有 renewalIndex，
+      // 那就交給 linkLegacyPayments 用日期＋金額去配。
+      const renewals = (d.renewals || []).map((r) => ({
+        id: uid(), date: r.date || "", sessions: r.sessionsPurchased || 0,
+        amount: r.amount || 0, notes: r.notes || "", createdAt: r.createdAt,
+      }));
+      const payments = (d.payments || []).map((p) => {
+        const i = p.renewalIndex;
+        const linked = Number.isInteger(i) && renewals[i] ? renewals[i].id : "";
+        return {
+          id: uid(), amount: p.amount || 0, date: p.date || "",
+          method: p.methodRaw || "cash", notes: p.notes || "", createdAt: p.createdAt,
+          ...(linked ? { renewalId: linked } : {}),
+        };
+      });
+      return { renewals, payments: linkLegacyPayments(payments, renewals) };
+    })(),
     // 顏色標籤：舊備份沒有這一欄
     tags: typeof d.tagsCSV === "string"
       ? d.tagsCSV.split(",").map((x) => x.trim()).filter(Boolean)
