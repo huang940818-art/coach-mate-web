@@ -719,7 +719,7 @@ const NOTICE_KEY = "coach-mate-web-notice-dismissed";
  * 版本標記。顯示在設定頁最下面，教練唸得出來就知道他手上是哪一版，
  * 不用再猜是不是拿到舊的快取。每次改版就把這個字串往上加。
  */
-const BUILD = "2026-08-08 · v22";
+const BUILD = "2026-08-08 · v23";
 
 /** 開發者署名，顯示在設定頁的「關於」 */
 const DEVELOPER = "杯子蛋糕好好吃";
@@ -4037,9 +4037,14 @@ function viewSettings() {
         <form class="tier-add" data-form="add-package" style="margin-top:11px">
           <input type="text" name="name" placeholder="名稱" style="width:104px">
           <input type="number" name="sessions" placeholder="堂數" inputmode="numeric">
+          <select name="priceMode" style="width:76px">
+            <option value="total">總額</option>
+            <option value="unit">單價</option>
+          </select>
           <input type="number" name="price" placeholder="金額" inputmode="numeric" style="width:88px">
           <button class="btn btn-sm" type="submit">加入</button>
         </form>
+        <p class="hint">選「單價」的話會自動乘上堂數。方案存的一律是整包的總額——續約時套用會直接帶入，銷售統計與業績抽成也都是拿總額去算的。</p>
       </section>
 
       ${st.employment === "company" ? `
@@ -4855,10 +4860,14 @@ document.addEventListener("submit", (e) => {
   if (form.dataset.form === "add-package") {
     const name = form.elements.name.value.trim();
     const sessions = +form.elements.sessions.value || 0;
-    const price = +form.elements.price.value || 0;
     if (!name || sessions <= 0) { toast("方案要有名稱與堂數"); return; }
+    // 方案存的一律是整包的總額：續約套用時直接帶入金額欄，
+    // 而那一欄存進續約紀錄的也是總額（銷售統計與抽成都拿總額算）。
+    const typed = Math.max(0, +form.elements.price.value || 0);
+    const price = form.elements.priceMode.value === "unit" ? typed * sessions : typed;
     S.settings.packages.push({ id: uid(), name, sessions, price });
-    save(); render(); toast(`已加入方案「${name}」`);
+    save(); render();
+    toast(`已加入方案「${name}」・${sessions} 堂 ${money(price)}`);
     return;
   }
 
