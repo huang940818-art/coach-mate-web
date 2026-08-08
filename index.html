@@ -719,7 +719,7 @@ const NOTICE_KEY = "coach-mate-web-notice-dismissed";
  * 版本標記。顯示在設定頁最下面，教練唸得出來就知道他手上是哪一版，
  * 不用再猜是不是拿到舊的快取。每次改版就把這個字串往上加。
  */
-const BUILD = "2026-08-07 · v12";
+const BUILD = "2026-08-08 · v13";
 
 /** 開發者署名，顯示在設定頁的「關於」 */
 const DEVELOPER = "杯子蛋糕好好吃";
@@ -1612,8 +1612,11 @@ function openSheet({ title, body, confirmLabel = "儲存", closeLabel = "取消"
     if (onConfirm && onConfirm($("#sheet-form", scrim), scrim) !== false) closeSheet();
   });
   if (onMount) onMount(scrim);
-  const first = scrim.querySelector("input, select, textarea");
-  if (first) first.focus();
+  // 只有空白表單（新增）才把游標放進第一格。編輯既有資料時第一格多半是姓名，
+  // 自動聚焦會直接彈出鍵盤、看起來像逼人改名字。
+  const first = scrim.querySelector(
+    "#sheet-form input:not([type=hidden]):not([type=checkbox]):not([type=radio]), #sheet-form textarea");
+  if (first && !first.value) first.focus();
 }
 
 function closeSheet() {
