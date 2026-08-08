@@ -719,7 +719,7 @@ const NOTICE_KEY = "coach-mate-web-notice-dismissed";
  * 版本標記。顯示在設定頁最下面，教練唸得出來就知道他手上是哪一版，
  * 不用再猜是不是拿到舊的快取。每次改版就把這個字串往上加。
  */
-const BUILD = "2026-08-08 · v23";
+const BUILD = "2026-08-08 · v24";
 
 /** 開發者署名，顯示在設定頁的「關於」 */
 const DEVELOPER = "杯子蛋糕好好吃";
@@ -2421,8 +2421,38 @@ function applyRenewalEdit(student, record, patch) {
   const typed = Math.max(0, +patch.amount || 0);
   record.amount = patch.priceMode === "unit" ? typed * newSessions : typed;
   record.notes = patch.notes ?? record.notes;
+
+  // 勾了才同步，而且只動掛在這筆續約底下的收費。堂數不用同步 ——
+  // 收費那一列的堂數是即時從續約讀出來的，本來就會跟著變。
+  if (patch.syncPayment) {
+    for (const p of paymentsOfRenewal(student, record.id)) {
+      p.amount = record.amount;
+      p.date = record.date;
+    }
+  }
+
   student.updatedAt = new Date().toISOString();
   return record;
+}
+
+/** 掛在這筆續約底下的收費紀錄（分期的話會有好幾筆） */
+function paymentsOfRenewal(student, renewalId) {
+  return (student.payments || []).filter((p) => p.renewalId && p.renewalId === renewalId);
+}
+
+/**
+ * 改續約時，那筆收費要不要跟著改？
+ *
+ * 不能無條件同步：收費金額不一定等於續約金額 —— 分期或部分收款時
+ * 一筆 $46,800 的續約底下可能掛著三筆 $1,300，硬同步會把它們全部
+ * 改成 $46,800，資料反而爛掉。
+ *
+ * 所以只在「本來就對得起來」時預設打勾：剛好一筆收費、且金額與續約
+ * 相同，代表它就是續約當下自動產生的那筆，跟著改才是使用者要的。
+ */
+function shouldSyncPaymentByDefault(student, record) {
+  const hits = paymentsOfRenewal(student, record.id);
+  return hits.length === 1 && (hits[0].amount || 0) === (record.amount || 0);
 }
 
 /**
@@ -2478,6 +2508,21 @@ function renewalHistoryBlock(student) {
       <p class="hint" data-r-price-hint>${
         r.sessions ? `${money(r.amount || 0)} ÷ ${r.sessions} 堂 ＝ 每堂 ${money(Math.round((r.amount || 0) / r.sessions))}` : "存進去的一律是總額。"
       }</p>
+      ${(() => {
+        const linked = paymentsOfRenewal(student, r.id);
+        if (!linked.length) return "";
+        const on = shouldSyncPaymentByDefault(student, r);
+        const sum = linked.reduce((a, p) => a + (p.amount || 0), 0);
+        return `
+        <div class="switch">
+          <label for="f-r_syncPayment">同時更新收費紀錄</label>
+          <input id="f-r_syncPayment" name="r_syncPayment" type="checkbox" ${on ? "checked" : ""}>
+        </div>
+        <p class="hint">${linked.length === 1
+          ? `底下掛著一筆 ${money(sum)} 的收費，勾了會把金額與日期一起改成上面填的。`
+          : `底下掛著 ${linked.length} 筆收費、合計 ${money(sum)}（看起來是分期）。勾了會把每一筆都改成上面填的金額，通常不是你要的。`}
+          堂數不用管，收費那邊顯示的堂數本來就是即時從這筆續約讀出來的。</p>`;
+      })()}
       <div style="display:flex;gap:6px;justify-content:flex-end">
         <button type="button" class="btn btn-sm" data-cancel-renewal="1">取消</button>
         <button type="button" class="btn btn-sm btn-primary" data-save-renewal="${r.id}">儲存這筆</button>
@@ -2526,6 +2571,7 @@ function studentSheet(existing) {
         ${fieldText("rate", "每堂費用", s.rate || "", { type: "number", hint: "算收入與抽成用" })}
       </div>
       <div class="field-row">
+        <input type="hidden" name="currentSessionsInitial" value="${currentPackageSessions(s)}">
         ${fieldText("currentSessions", "本期購買堂數", currentPackageSessions(s), {
           type: "number",
           hint: renewalsOf(s).length
@@ -2592,15 +2638,19 @@ function studentSheet(existing) {
       // 不能直接蓋掉 totalPurchased —— 那是所有續約的總和，
       // 銷售統計與客群分析都在用，蓋掉就整組錯。
       const typedCurrent = Math.max(0, +form.elements.currentSessions.value || 0);
+      // 跟「開啟表單時的值」比，不是跟續約紀錄現在的值比。
+      // 使用者可能在下面的續約紀錄那邊改過同一筆，這格若沒被動過就不該
+      // 插手 —— 拿開啟當下的舊值再算一次差額，等於把那個修改打回去。
+      const initialCurrent = Math.max(0, +form.elements.currentSessionsInitial.value || 0);
       const latestRenewal = renewalsOf(s)[0];
       if (latestRenewal) {
-        if (typedCurrent !== (latestRenewal.sessions || 0)) {
+        if (typedCurrent !== initialCurrent && typedCurrent !== (latestRenewal.sessions || 0)) {
           applyRenewalEdit(s, latestRenewal, {
             date: latestRenewal.date, sessions: typedCurrent,
             amount: latestRenewal.amount, notes: latestRenewal.notes,
           });
         }
-      } else {
+      } else if (typedCurrent !== initialCurrent) {
         // 還沒有續約紀錄的人，那筆購買本身就是他現在的合約
         s.totalPurchased = typedCurrent;
       }
@@ -2663,6 +2713,23 @@ function studentSheet(existing) {
       if (histBox) {
         const redraw = () => { histBox.innerHTML = renewalHistoryBlock(s); };
 
+        // 在下面改動續約紀錄之後，上面那格「本期購買堂數」要跟著更新。
+        // 不然它會停在開啟表單當下的舊值，按儲存時再用那個舊值算一次差額，
+        // 等於把剛剛在下面做的修改整個打回去。
+        const syncCurrentField = () => {
+          const el = root.querySelector('[name="currentSessions"]');
+          const init = root.querySelector('[name="currentSessionsInitial"]');
+          if (el) el.value = currentPackageSessions(s);
+          if (init) init.value = currentPackageSessions(s);
+          const box = el && el.closest(".field");
+          const hint = box && box.querySelector(".hint");
+          if (hint) {
+            hint.textContent = renewalsOf(s).length
+              ? `累計已購 ${s.totalPurchased || 0} 堂。改這格等於改最近一筆續約紀錄，累計會自動跟著調。`
+              : "還沒有續約紀錄，這格就是他目前的合約。";
+          }
+        };
+
         // 編輯列是 redraw 出來的，沒辦法在掛載時綁 input，所以用委派。
         histBox.addEventListener("input", (e) => {
           const box = e.target.closest("[data-renewal-row]");
@@ -2712,13 +2779,15 @@ function studentSheet(existing) {
             const box = histBox.querySelector(`[data-renewal-row="${saveBtn.dataset.saveRenewal}"]`);
             if (!rec || !box) return;
             const val = (n) => box.querySelector(`[name="${n}"]`)?.value ?? "";
+            const syncBox = box.querySelector('[name="r_syncPayment"]');
             applyRenewalEdit(s, rec, {
               date: val("r_date"), sessions: val("r_sessions"),
               amount: val("r_amount"), notes: val("r_notes"),
               priceMode: val("r_priceMode"),
+              syncPayment: !!(syncBox && syncBox.checked),
             });
             editingRenewalId = null;
-            save(); render(); redraw();
+            save(); render(); redraw(); syncCurrentField();
             toast(`已更新 ${rec.date} 的續約紀錄`);
             return;
           }
@@ -2730,7 +2799,7 @@ function studentSheet(existing) {
           if (!r) return;
           removeRenewalRecord(s, r);
           editingRenewalId = null;
-          save(); render(); redraw();
+          save(); render(); redraw(); syncCurrentField();
           toast(`已刪除 ${r.date} 的續約紀錄`);
         });
       }
