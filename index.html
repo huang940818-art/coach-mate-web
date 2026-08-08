@@ -719,7 +719,7 @@ const NOTICE_KEY = "coach-mate-web-notice-dismissed";
  * 版本標記。顯示在設定頁最下面，教練唸得出來就知道他手上是哪一版，
  * 不用再猜是不是拿到舊的快取。每次改版就把這個字串往上加。
  */
-const BUILD = "2026-08-08 · v19";
+const BUILD = "2026-08-08 · v20";
 
 /** 開發者署名，顯示在設定頁的「關於」 */
 const DEVELOPER = "杯子蛋糕好好吃";
@@ -2468,7 +2468,12 @@ function studentSheet(existing) {
         ${fieldText("rate", "每堂費用", s.rate || "", { type: "number", hint: "算收入與抽成用" })}
       </div>
       <div class="field-row">
-        ${fieldText("totalPurchased", "購買堂數", s.totalPurchased || 0, { type: "number" })}
+        ${fieldText("currentSessions", "本期購買堂數", currentPackageSessions(s), {
+          type: "number",
+          hint: renewalsOf(s).length
+            ? `累計已購 ${s.totalPurchased || 0} 堂。改這格等於改最近一筆續約紀錄，累計會自動跟著調。`
+            : `還沒有續約紀錄，這格就是他目前的合約。`,
+        })}
         ${fieldText("remaining", "剩餘堂數", s.remaining || 0, { type: "number" })}
       </div>
       <div class="field-row">
@@ -2524,8 +2529,23 @@ function studentSheet(existing) {
       s.name = name;
       s.phone = form.elements.phone.value.trim();
       s.rate = +form.elements.rate.value || 0;
-      s.totalPurchased = Math.max(0, +form.elements.totalPurchased.value || 0);
       s.remaining = Math.max(0, +form.elements.remaining.value || 0);
+      // 「本期購買堂數」改的是最近一筆續約的堂數，累計自動跟著調差額。
+      // 不能直接蓋掉 totalPurchased —— 那是所有續約的總和，
+      // 銷售統計與客群分析都在用，蓋掉就整組錯。
+      const typedCurrent = Math.max(0, +form.elements.currentSessions.value || 0);
+      const latestRenewal = renewalsOf(s)[0];
+      if (latestRenewal) {
+        if (typedCurrent !== (latestRenewal.sessions || 0)) {
+          applyRenewalEdit(s, latestRenewal, {
+            date: latestRenewal.date, sessions: typedCurrent,
+            amount: latestRenewal.amount, notes: latestRenewal.notes,
+          });
+        }
+      } else {
+        // 還沒有續約紀錄的人，那筆購買本身就是他現在的合約
+        s.totalPurchased = typedCurrent;
+      }
       s.expiry = form.elements.expiry.value;
       s.acquisition = form.elements.acquisition.value;
       s.status = form.elements.status.value;
