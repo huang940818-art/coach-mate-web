@@ -719,7 +719,7 @@ const NOTICE_KEY = "coach-mate-web-notice-dismissed";
  * 版本標記。顯示在設定頁最下面，教練唸得出來就知道他手上是哪一版，
  * 不用再猜是不是拿到舊的快取。每次改版就把這個字串往上加。
  */
-const BUILD = "2026-08-08 · v25";
+const BUILD = "2026-08-08 · v26";
 
 /** 開發者署名，顯示在設定頁的「關於」 */
 const DEVELOPER = "杯子蛋糕好好吃";
@@ -1217,15 +1217,25 @@ function renewalOfPayment(student, payment) {
   return (student.renewals || []).find((r) => r.id === payment.renewalId) || null;
 }
 
+/**
+ * 這筆續約是不是「首次購買」。
+ *
+ * 由**位置**推導，不是建立學生時寫死的備註 —— 使用者後來補了一筆更早的
+ * 續約，那筆才是首購，原本那筆就變成續約了。存成固定字串的話，
+ * 補完歷史之後標籤會停在錯的那一筆。
+ */
+function isFirstPurchase(student, record) {
+  const all = renewalsOf(student);          // 新的排前面
+  const first = all[all.length - 1];
+  return !!first && !!record && first.id === record.id;
+}
+
 /** 收費那一列要顯示的說明文字 */
 function paymentLabel(student, payment) {
   const r = renewalOfPayment(student, payment);
   const note = (payment.notes || "").trim();
   if (!r) return note;
-  // 首購不是續約，字面要對。判斷依據是續約紀錄自己的備註 ——
-  // 那筆是建立學生時自動寫的，不是使用者打的。
-  const verb = r.notes === "首次購買" ? "首次購買" : "續約";
-  const base = `${verb} ${r.sessions || 0} 堂`;
+  const base = `${isFirstPurchase(student, r) ? "首次購買" : "續約"} ${r.sessions || 0} 堂`;
   // 自動產生的「續約」不必再印一次，自己打的備註要留著
   return note && note !== "續約" ? `${base}　${note}` : base;
 }
@@ -2535,7 +2545,10 @@ function renewalHistoryBlock(student) {
   const showRow = (r) => `
     <div class="row" style="padding:8px 0">
       <div class="row-main">
-        <div class="row-title" style="font-size:14px">${esc(r.date || "（無日期）")}</div>
+        <div class="row-title" style="font-size:14px">${esc(r.date || "（無日期）")}
+          ${isFirstPurchase(student, r) ? '<span class="pill pill-mute">首購</span>' : ""}
+          ${paymentsOfRenewal(student, r.id).length === 0 ? '<span class="pill pill-warn">沒有收費紀錄</span>' : ""}
+        </div>
         ${r.notes ? `<div class="row-sub">${esc(r.notes)}</div>` : ""}
       </div>
       <div class="row-end" style="display:flex;align-items:center;gap:8px">
@@ -2553,7 +2566,11 @@ function renewalHistoryBlock(student) {
   return `
     <div class="row-title" style="display:flex;align-items:center;justify-content:space-between;gap:8px">
       <span>續約紀錄</span>
-      ${rs.length ? `<span class="muted" style="font-size:12px;font-weight:400">${rs.length} 次・${sessions} 堂・累計 ${money(amount)}</span>` : ""}
+      ${rs.length ? (() => {
+        const linked = rs.filter((r) => paymentsOfRenewal(student, r.id).length).length;
+        return `<span class="muted" style="font-size:12px;font-weight:400">${rs.length} 次・${sessions} 堂・累計 ${money(amount)}${
+          linked < rs.length ? `・<strong style="color:var(--warn)">${rs.length - linked} 筆沒有收費</strong>` : ""}</span>`;
+      })() : ""}
     </div>
     ${rs.length ? rs.map((r) => (r.id === editingRenewalId ? editRow(r) : showRow(r))).join("")
                 : `<p class="empty" style="padding:16px 0">尚無續約紀錄。按「續約」新增，補以前的請勾「補登以前的續約」。</p>`}
@@ -2676,9 +2693,11 @@ function studentSheet(existing) {
         const firstAmount = Math.max(0, (s.rate || 0) * typedCurrent);
         const rid = uid();
         const stamp = new Date().toISOString();
+        // 備註留空：「首次購買」是由誰最早推導出來的，不寫死。
+        // 之後補了更早的續約，那筆才是首購。
         s.renewals.push({ id: rid, date: today(), sessions: typedCurrent,
-                          amount: firstAmount, notes: "首次購買", createdAt: stamp });
-        if (firstAmount > 0 && form.elements.firstPayment.checked) {
+                          amount: firstAmount, notes: "", createdAt: stamp });
+        if (form.elements.firstPayment.checked) {
           s.payments.push({ id: uid(), renewalId: rid, amount: firstAmount,
                             date: today(), method: "cash", notes: "",
                             createdAt: stamp });
@@ -3132,7 +3151,9 @@ function renewSheet(student) {
       const renewalId = uid();
       student.renewals.push({ id: renewalId, date, sessions, amount, notes: form.elements.notes.value, createdAt: new Date().toISOString() });
       // 舊的錢常常已經記過了，再記一次會讓營收憑空翻倍，所以能關掉。
-      if (amount > 0 && form.elements.recordPayment.checked) {
+      // 但**金額 0 也要記**：不記的話續約紀錄與收費紀錄的筆數就對不起來，
+      // 對帳時會以為漏了一筆。0 元本身也是資訊（贈送、補課、待收）。
+      if (form.elements.recordPayment.checked) {
         student.payments.push({
           // 存關聯而不是把堂數抄成字串：抄過去的數字改續約時不會跟著動。
           id: uid(), renewalId, amount, date, method: form.elements.method.value,
