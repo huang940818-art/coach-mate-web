@@ -719,7 +719,7 @@ const NOTICE_KEY = "coach-mate-web-notice-dismissed";
  * 版本標記。顯示在設定頁最下面，教練唸得出來就知道他手上是哪一版，
  * 不用再猜是不是拿到舊的快取。每次改版就把這個字串往上加。
  */
-const BUILD = "2026-08-08 · v15";
+const BUILD = "2026-08-08 · v16";
 
 /** 開發者署名，顯示在設定頁的「關於」 */
 const DEVELOPER = "杯子蛋糕好好吃";
@@ -1162,6 +1162,28 @@ function lessonsOf(studentId) {
 function attendedCount(studentId) {
   return lessonsOf(studentId).filter((l) => CONSUMING.includes(l.status)).length;
 }
+/** 續約紀錄，新的排前面。日期相同時用建立時間分先後。 */
+function renewalsOf(student) {
+  return [...(student.renewals || [])].sort((a, b) =>
+    (b.date || "").localeCompare(a.date || "")
+    || (b.createdAt || "").localeCompare(a.createdAt || ""));
+}
+
+/**
+ * 這一期合約買了幾堂。
+ *
+ * totalPurchased 是「累計」—— 補完歷史之後會變成 50、80，
+ * 拿它當分母看不出這期的進度（「0 / 50 堂」沒有意義）。
+ * 改用最近一次續約買的堂數，累計那個數字移到編輯頁的續約紀錄裡看。
+ *
+ * 沒有任何續約紀錄的人（直接在表單填「購買堂數」建的），
+ * 那筆購買本身就是他現在的合約，所以退回 totalPurchased。
+ */
+function currentPackageSessions(student) {
+  const latest = renewalsOf(student)[0];
+  return latest ? (latest.sessions || 0) : (student.totalPurchased || 0);
+}
+
 function paymentsOf(studentId) {
   const st = studentById(studentId);
   return st ? st.payments : [];
@@ -2111,7 +2133,7 @@ function viewStudents() {
             <div class="row-end">
               <button class="mono btn-plain" type="button" data-action="adjust-sessions" data-id="${s.id}"
                       title="調整剩餘堂數" style="font-weight:600">
-                ${s.remaining}<span class="muted" style="font-size:12px"> / ${s.totalPurchased} 堂</span>
+                ${s.remaining}<span class="muted" style="font-size:12px"> / ${currentPackageSessions(s)} 堂</span>
               </button>
               <div style="display:flex;gap:6px;justify-content:flex-end;margin-top:5px">
                 <button class="btn btn-sm" type="button" data-action="renew" data-id="${s.id}">續約</button>
@@ -2122,6 +2144,39 @@ function viewStudents() {
         }).join("") : `<p class="empty">還沒有學生。點右上角「新增學生」開始。</p>`}
       </section>
     </div>`;
+}
+
+/**
+ * 編輯學生頁面裡的續約紀錄（對應 iOS 的 RenewalHistorySectionView）。
+ *
+ * 抽成函式是因為刪掉一筆之後要就地重畫這一塊 —— 不能整張表單重開，
+ * 那會把使用者其他還沒存的修改一起吃掉。
+ */
+function renewalHistoryBlock(student) {
+  const rs = renewalsOf(student);
+  const sessions = rs.reduce((a, r) => a + (r.sessions || 0), 0);
+  const amount = rs.reduce((a, r) => a + (r.amount || 0), 0);
+  return `
+    <div class="row-title" style="display:flex;align-items:center;justify-content:space-between;gap:8px">
+      <span>續約紀錄</span>
+      ${rs.length ? `<span class="muted" style="font-size:12px;font-weight:400">${rs.length} 次・${sessions} 堂・累計 ${money(amount)}</span>` : ""}
+    </div>
+    ${rs.length ? rs.map((r) => `
+      <div class="row" style="padding:8px 0">
+        <div class="row-main">
+          <div class="row-title" style="font-size:14px">${esc(r.date || "（無日期）")}</div>
+          ${r.notes ? `<div class="row-sub">${esc(r.notes)}</div>` : ""}
+        </div>
+        <div class="row-end" style="display:flex;align-items:center;gap:10px">
+          <div style="text-align:right">
+            <div class="mono" style="font-weight:600">${r.sessions || 0} 堂</div>
+            <div class="muted" style="font-size:12px">${money(r.amount || 0)}</div>
+          </div>
+          <button type="button" class="btn btn-sm btn-danger" data-del-renewal="${r.id}"
+                  title="刪除這筆續約紀錄">刪除</button>
+        </div>
+      </div>`).join("") : `<p class="empty" style="padding:16px 0">尚無續約紀錄。按「續約」新增，補以前的請勾「補登以前的續約」。</p>`}
+    <p class="hint">刪除會一併扣掉續約次數與已購堂數，但<strong>不會動剩餘堂數</strong>——因為看不出這筆當初是不是補登的。需要的話用「調整剩餘堂數」。</p>`;
 }
 
 function studentSheet(existing) {
@@ -2181,7 +2236,10 @@ function studentSheet(existing) {
       <div class="field">
         <label for="f-notes">備註</label>
         <textarea id="f-notes" name="notes">${esc(s.notes)}</textarea>
-      </div>`,
+      </div>
+      ${existing ? `
+        <div class="divider"></div>
+        <div data-renewal-history>${renewalHistoryBlock(s)}</div>` : ""}`,
     extraFoot: existing ? `<button class="btn btn-danger btn-sm" type="button" data-action="delete-student" data-id="${s.id}">刪除</button>` : "",
     onConfirm: (form) => {
       const name = form.elements.name.value.trim();
@@ -2241,6 +2299,29 @@ function studentSheet(existing) {
           btn.classList.toggle("on");
           tagInput.value = [...tagPicker.querySelectorAll(".tag-chip.on")]
             .map((x) => x.dataset.tag).join(",");
+        });
+      }
+
+      // 刪除單筆續約紀錄。跟 iOS 一樣是立即生效的動作，不等整張表單按儲存，
+      // 所以只重畫這一塊，其他欄位還沒存的修改要留著。
+      const histBox = root.querySelector("[data-renewal-history]");
+      if (histBox) {
+        histBox.addEventListener("click", (e) => {
+          const btn = e.target.closest("[data-del-renewal]");
+          if (!btn) return;
+          e.preventDefault();
+          const r = (s.renewals || []).find((x) => x.id === btn.dataset.delRenewal);
+          if (!r) return;
+          s.renewals = s.renewals.filter((x) => x.id !== r.id);
+          // 次數與已購要跟著回去，不然刪掉紀錄之後那兩個數字會永遠偏高。
+          // 剩餘堂數刻意不動：看不出這筆當初是不是補登的，
+          // 猜錯就是直接吃掉學生手上的課。要改請用「調整剩餘堂數」。
+          s.renewalCount = Math.max(0, (s.renewalCount || 0) - 1);
+          s.totalPurchased = Math.max(0, (s.totalPurchased || 0) - (r.sessions || 0));
+          s.updatedAt = new Date().toISOString();
+          save(); render();
+          histBox.innerHTML = renewalHistoryBlock(s);
+          toast(`已刪除 ${r.date} 的續約紀錄`);
         });
       }
 
