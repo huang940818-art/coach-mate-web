@@ -719,7 +719,7 @@ const NOTICE_KEY = "coach-mate-web-notice-dismissed";
  * 版本標記。顯示在設定頁最下面，教練唸得出來就知道他手上是哪一版，
  * 不用再猜是不是拿到舊的快取。每次改版就把這個字串往上加。
  */
-const BUILD = "2026-08-08 · v16";
+const BUILD = "2026-08-08 · v17";
 
 /** 開發者署名，顯示在設定頁的「關於」 */
 const DEVELOPER = "杯子蛋糕好好吃";
@@ -2121,7 +2121,8 @@ function viewStudents() {
             <span class="dot" style="background:${esc(s.color)}"></span>
             <div class="row-main">
               <div class="row-title">
-                ${esc(s.name || "（未命名）")}
+                <button type="button" class="btn-plain" data-action="view-student" data-id="${s.id}"
+                        style="font:inherit;color:inherit;cursor:pointer;text-align:left">${esc(s.name || "（未命名）")}</button>
                 ${s.status === "archived" ? '<span class="pill pill-mute">封存</span>' : ""}
                 ${s.mayNotRenew ? '<span class="pill pill-warn">可能不續約</span>' : ""}
                 ${owedCount(s.id) > 0 ? `<span class="pill pill-crit">欠 ${owedCount(s.id)} 堂</span>` : ""}
@@ -2144,6 +2145,191 @@ function viewStudents() {
         }).join("") : `<p class="empty">還沒有學生。點右上角「新增學生」開始。</p>`}
       </section>
     </div>`;
+}
+
+/**
+ * 學生詳情（對應 iOS 的 StudentDetailView）。
+ *
+ * 網頁版原本點學生沒反應，只能從「編輯」「續約」進去，想看某個人的
+ * 課程與收費紀錄得自己去別的頁面翻，翻到了也認不出是誰的。
+ *
+ * 做成 sheet 而不是獨立頁面：這個 App 的子畫面全是 sheet
+ * （lessonSheet / renewSheet / adjustSessionsSheet），為了一個唯讀畫面
+ * 多加一條路由與網址狀態不划算。
+ *
+ * 唯讀。要改資料走上面那排按鈕，跟 iOS 一樣。
+ */
+function studentDetailSheet(student) {
+  const ls = lessonsOf(student.id)
+    .slice()
+    .sort((a, b) => (b.date + b.start).localeCompare(a.date + a.start));
+
+  // 跟 iOS 的出缺勤統計對齊：「已出席」只算 attended，
+  // 但出席率把遲到當成有到（人有來，只是晚了）。
+  const attended = ls.filter((l) => l.status === "attended").length;
+  const absent = ls.filter((l) => l.status === "absent").length;
+  const late = ls.filter((l) => l.status === "late").length;
+  const counted = attended + absent + late;
+  const rate = counted ? (attended + late) / counted : 0;
+
+  const pays = (student.payments || []).slice()
+    .sort((a, b) => (b.date || "").localeCompare(a.date || ""));
+  const paid = pays.reduce((a, p) => a + (p.amount || 0), 0);
+  const fields = Object.entries(student.custom || {}).filter(([, v]) => v);
+  const owed = owedCount(student.id);
+
+  const byMonth = {};
+  for (const l of ls) {
+    const m = (l.date || "").slice(0, 7) || "（無日期）";
+    if (!byMonth[m]) byMonth[m] = [];
+    byMonth[m].push(l);
+  }
+  const months = Object.keys(byMonth).sort().reverse();
+
+  const statCell = (value, label, color) => `
+    <div style="flex:1;text-align:center">
+      <div style="font-size:20px;font-weight:700;color:${color}">${value}</div>
+      <div class="muted" style="font-size:11px">${label}</div>
+    </div>`;
+
+  openSheet({
+    title: student.name || "（未命名）",
+    closeLabel: "關閉",
+    body: `
+      <div class="row" style="padding-top:0">
+        <span class="dot" style="background:${esc(student.color)}"></span>
+        <div class="row-main">
+          <div class="row-title">
+            ${esc(student.name || "（未命名）")}
+            ${student.status === "archived" ? '<span class="pill pill-mute">封存</span>' : ""}
+            ${student.status === "paused" ? '<span class="pill pill-mute">暫停</span>' : ""}
+            ${student.mayNotRenew ? '<span class="pill pill-warn">可能不續約</span>' : ""}
+            ${owed > 0 ? `<span class="pill pill-crit">欠 ${owed} 堂</span>` : ""}
+          </div>
+          <div class="row-sub">
+            ${student.phone ? esc(student.phone) + "　" : ""}${student.rate ? "每堂 " + money(student.rate) : ""}
+          </div>
+        </div>
+        <div class="row-end">
+          <div class="mono" style="font-weight:600">${student.remaining}<span class="muted" style="font-size:12px"> / ${currentPackageSessions(student)} 堂</span></div>
+          ${student.expiry ? `<div class="muted" style="font-size:12px">到期 ${esc(student.expiry)}</div>` : ""}
+        </div>
+      </div>
+      ${tagsOf(student).length ? `<div class="tag-row" style="margin-bottom:10px">${tagsOf(student).map((t) =>
+        `<span class="tag-chip tag-chip-sm" style="--tag:${esc(t.color)}"><span class="tag-dot"></span>${esc(t.name)}</span>`).join("")}</div>` : ""}
+
+      <div style="display:flex;gap:6px;margin-bottom:12px">
+        <button type="button" class="btn btn-sm btn-primary" data-detail-action="renew">續約</button>
+        <button type="button" class="btn btn-sm" data-detail-action="adjust">調整堂數</button>
+        <button type="button" class="btn btn-sm" data-detail-action="edit">編輯</button>
+      </div>
+
+      <div class="seg" style="margin-bottom:12px">
+        ${[["lessons", "課程紀錄"], ["payments", "收費紀錄"], ["stats", "統計"]].map(([v, t], i) =>
+          `<button type="button" data-detail-tab="${v}" aria-pressed="${i === 0}">${t}</button>`).join("")}
+      </div>
+
+      <div data-panel="lessons">
+        ${months.length ? months.map((m) => `
+          <div class="row-title" style="font-size:13px;margin:10px 0 4px">${esc(m)}　<span class="muted" style="font-weight:400">${byMonth[m].length} 堂</span></div>
+          ${byMonth[m].map((l) => {
+            const meta = LESSON_STATUS[l.status] || LESSON_STATUS.scheduled;
+            const isPartner = l.partnerId === student.id;
+            return `
+            <div class="row" style="padding:6px 0">
+              <div class="row-main">
+                <div class="row-title" style="font-size:14px">
+                  ${esc(l.date)} <span class="pill ${meta.pill}">${meta.label}</span>
+                  ${isPartner ? '<span class="pill pill-mute">雙人課</span>' : ""}
+                  ${(isPartner ? l.partnerOwed : l.owed) ? '<span class="pill pill-crit">欠一堂</span>' : ""}
+                </div>
+                <div class="row-sub mono">${esc(l.start)}–${esc(l.end)}　${durationLabel(durationOf(l))}${l.location ? "　" + esc(l.location) : ""}</div>
+              </div>
+            </div>`;
+          }).join("")}`).join("") : `<p class="empty">還沒有課程紀錄。</p>`}
+      </div>
+
+      <div data-panel="payments" hidden>
+        ${pays.length ? `
+          <p class="hint" style="margin:0 0 8px">共 ${pays.length} 筆・累計 ${money(paid)}</p>
+          ${pays.map((p) => `
+            <div class="row" style="padding:6px 0">
+              <div class="row-main">
+                <div class="row-title" style="font-size:14px">${esc(p.date)}</div>
+                ${p.notes ? `<div class="row-sub">${esc(p.notes)}</div>` : ""}
+              </div>
+              <div class="row-end">
+                <div class="mono" style="font-weight:600">${money(p.amount)}</div>
+                <div class="muted" style="font-size:12px">${({ cash: "現金", transfer: "轉帳", other: "其他" })[p.method] || "其他"}</div>
+              </div>
+            </div>`).join("")}` : `<p class="empty">還沒有收費紀錄。</p>`}
+      </div>
+
+      <div data-panel="stats" hidden>
+        <div class="row-title" style="font-size:13px;margin-bottom:6px">出缺勤統計</div>
+        <div style="display:flex;margin-bottom:10px">
+          ${statCell(ls.length, "總課程", "var(--info)")}
+          ${statCell(attended, "已出席", "var(--good)")}
+          ${statCell(absent, "缺席", "var(--crit)")}
+          ${statCell(late, "遲到", "var(--warn)")}
+        </div>
+        ${counted ? `
+          <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:4px">
+            <span class="muted">出席率</span>
+            <strong style="color:${rate >= 0.8 ? "var(--good)" : "var(--warn)"}">${(rate * 100).toFixed(0)}%</strong>
+          </div>
+          <span class="bar-track" style="display:block;margin-bottom:14px"><span class="bar-fill" style="width:${(rate * 100).toFixed(1)}%"></span></span>`
+        : `<p class="hint">還沒有上過課，算不出出席率。</p>`}
+
+        ${fields.length ? `
+          <div class="row-title" style="font-size:13px;margin-bottom:6px">學生資訊</div>
+          ${fields.map(([k, v]) => `
+            <div class="row" style="padding:5px 0">
+              <div class="row-main"><span class="muted" style="font-size:13px">${esc(k)}</span></div>
+              <div class="row-end" style="font-size:14px">${esc(v)}</div>
+            </div>`).join("")}` : ""}
+
+        <div class="row-title" style="font-size:13px;margin:12px 0 6px">累計數據</div>
+        <div class="row" style="padding:5px 0">
+          <div class="row-main"><span class="muted" style="font-size:13px">續約次數</span></div>
+          <div class="row-end mono" style="font-weight:600">${student.renewalCount || 0}</div>
+        </div>
+        <div class="row" style="padding:5px 0">
+          <div class="row-main"><span class="muted" style="font-size:13px">累計已購</span></div>
+          <div class="row-end mono" style="font-weight:600">${student.totalPurchased || 0} 堂</div>
+        </div>
+        <div class="row" style="padding:5px 0">
+          <div class="row-main"><span class="muted" style="font-size:13px">累計收費</span></div>
+          <div class="row-end mono" style="font-weight:600">${money(paid)}</div>
+        </div>
+        <p class="hint">缺席與遲到都是從課程紀錄實算的，不是另外一組計數，所以跟上面那排一定對得起來。續約的每一筆明細在「編輯」裡。</p>
+      </div>`,
+    onMount: (root) => {
+      root.addEventListener("click", (e) => {
+        const t = e.target.closest("[data-detail-tab]");
+        if (t) {
+          e.preventDefault();
+          const v = t.dataset.detailTab;
+          root.querySelectorAll("[data-detail-tab]").forEach((b) =>
+            b.setAttribute("aria-pressed", String(b.dataset.detailTab === v)));
+          root.querySelectorAll("[data-panel]").forEach((p) => {
+            p.hidden = p.dataset.panel !== v;
+          });
+          return;
+        }
+        // 這些按鈕在 .scrim 裡面，全域的 data-action 分派會跳過它們
+        // （那是為了不讓表單裡的按鈕誤觸發頁面動作），所以自己接。
+        const act = e.target.closest("[data-detail-action]");
+        if (!act) return;
+        e.preventDefault();
+        const a = act.dataset.detailAction;
+        closeSheet();
+        if (a === "renew") renewSheet(student);
+        else if (a === "edit") studentSheet(student);
+        else if (a === "adjust") adjustSessionsSheet(student);
+      });
+    },
+  });
 }
 
 /**
@@ -4221,6 +4407,7 @@ document.addEventListener("click", (e) => {
       render();
       break;
     case "new-student": studentSheet(null); break;
+    case "view-student": studentDetailSheet(studentById(id)); break;
     case "edit-student": studentSheet(studentById(id)); break;
     case "renew": renewSheet(studentById(id)); break;
     case "student-filter": studentFilter = value; render(); break;
