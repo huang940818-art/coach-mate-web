@@ -719,7 +719,7 @@ const NOTICE_KEY = "coach-mate-web-notice-dismissed";
  * 版本標記。顯示在設定頁最下面，教練唸得出來就知道他手上是哪一版，
  * 不用再猜是不是拿到舊的快取。每次改版就把這個字串往上加。
  */
-const BUILD = "2026-08-08 · v13";
+const BUILD = "2026-08-08 · v14";
 
 /** 開發者署名，顯示在設定頁的「關於」 */
 const DEVELOPER = "杯子蛋糕好好吃";
@@ -2104,7 +2104,7 @@ function viewStudents() {
                 ${s.mayNotRenew ? '<span class="pill pill-warn">可能不續約</span>' : ""}
                 ${owedCount(s.id) > 0 ? `<span class="pill pill-crit">欠 ${owedCount(s.id)} 堂</span>` : ""}
               </div>
-              <div class="row-sub">已上 ${att} 堂・累計收費 ${money(paid)}${s.phone ? "・" + esc(s.phone) : ""}</div>
+              <div class="row-sub">已上 ${att} 堂${s.renewalCount > 0 ? `・續約 ${s.renewalCount} 次` : ""}・累計收費 ${money(paid)}${s.phone ? "・" + esc(s.phone) : ""}</div>
               ${tagsOf(s).length ? `<div class="tag-row">${tagsOf(s).map((t) =>
                 `<span class="tag-chip tag-chip-sm" style="--tag:${esc(t.color)}"><span class="tag-dot"></span>${esc(t.name)}</span>`).join("")}</div>` : ""}
             </div>
@@ -2143,7 +2143,11 @@ function studentSheet(existing) {
         ${fieldText("expiry", "方案到期日", s.expiry, { type: "date" })}
         ${fieldSelect("acquisition", "客戶來源", Object.entries(ACQUISITION), s.acquisition)}
       </div>
-      ${fieldSelect("status", "狀態", [["active", "在檔"], ["paused", "暫停"], ["archived", "封存"]], s.status)}
+      <div class="field-row">
+        ${fieldSelect("status", "狀態", [["active", "在檔"], ["paused", "暫停"], ["archived", "封存"]], s.status)}
+        ${fieldText("renewalCount", "續約次數", s.renewalCount || 0,
+            { type: "number", hint: "按「續約」會自動加一，這裡只用來更正" })}
+      </div>
       <div class="switch">
         <label for="f-mayNotRenew">標記為可能不續約</label>
         <input id="f-mayNotRenew" name="mayNotRenew" type="checkbox" ${s.mayNotRenew ? "checked" : ""}>
@@ -2190,6 +2194,10 @@ function studentSheet(existing) {
       s.expiry = form.elements.expiry.value;
       s.acquisition = form.elements.acquisition.value;
       s.status = form.elements.status.value;
+      // 只改次數，不碰 s.renewals。那個陣列是銷售統計的資料來源，
+      // 在這裡補一筆假的續約紀錄會讓業績憑空多出一筆金額。
+      // 所以這格是「更正數字」，真的成交要走「續約」按鈕。
+      s.renewalCount = Math.max(0, +form.elements.renewalCount.value || 0);
       s.mayNotRenew = form.elements.mayNotRenew.checked;
       s.notes = form.elements.notes.value;
       s.color = form.elements.color.value || s.color;
