@@ -719,7 +719,7 @@ const NOTICE_KEY = "coach-mate-web-notice-dismissed";
  * 版本標記。顯示在設定頁最下面，教練唸得出來就知道他手上是哪一版，
  * 不用再猜是不是拿到舊的快取。每次改版就把這個字串往上加。
  */
-const BUILD = "2026-08-08 · v26";
+const BUILD = "2026-08-09 · v27";
 
 /** 開發者署名，顯示在設定頁的「關於」 */
 const DEVELOPER = "杯子蛋糕好好吃";
@@ -2329,9 +2329,13 @@ function studentDetailSheet(student) {
                 <div class="row-title" style="font-size:14px">${esc(p.date)}</div>
                 ${paymentLabel(student, p) ? `<div class="row-sub">${esc(paymentLabel(student, p))}</div>` : ""}
               </div>
-              <div class="row-end">
-                <div class="mono" style="font-weight:600">${money(p.amount)}</div>
-                <div class="muted" style="font-size:12px">${({ cash: "現金", transfer: "轉帳", other: "其他" })[p.method] || "其他"}</div>
+              <div class="row-end" style="display:flex;align-items:center;gap:8px">
+                <div style="text-align:right">
+                  <div class="mono" style="font-weight:600">${money(p.amount)}</div>
+                  <div class="muted" style="font-size:12px">${({ cash: "現金", transfer: "轉帳", other: "其他" })[p.method] || "其他"}</div>
+                </div>
+                <button type="button" class="btn btn-sm" data-detail-action="edit-payment"
+                        data-id="${p.id}">編輯</button>
               </div>
             </div>`).join("")}` : `<p class="empty">還沒有收費紀錄。</p>`}
       </div>
@@ -2394,10 +2398,15 @@ function studentDetailSheet(student) {
         if (!act) return;
         e.preventDefault();
         const a = act.dataset.detailAction;
+        // 收費那一列的編輯要先認出是哪一筆，closeSheet 之後 DOM 就沒了
+        const payment = a === "edit-payment"
+          ? (student.payments || []).find((p) => p.id === act.dataset.id)
+          : null;
         closeSheet();
         if (a === "renew") renewSheet(student);
         else if (a === "edit") studentSheet(student);
         else if (a === "adjust") adjustSessionsSheet(student);
+        else if (a === "edit-payment" && payment) paymentSheet(student, payment);
       });
     },
   });
@@ -2523,7 +2532,13 @@ function renewalHistoryBlock(student) {
       }</p>
       ${(() => {
         const linked = paymentsOfRenewal(student, r.id);
-        if (!linked.length) return "";
+        // 沒有掛任何收費時以前是靜靜什麼都不顯示，於是改了金額之後
+        // 收費不動、畫面上也沒有任何線索。缺開關的原因要講出來。
+        if (!linked.length) {
+          return `<p class="hint">這筆續約底下<strong>沒有掛任何收費紀錄</strong>，所以沒有「同時更新收費紀錄」可以勾——
+            改這裡的金額不會動到收費。要接起來：到「收費」那一頁找到那筆錢按「編輯」，
+            把「對應的續約」選成這一筆。</p>`;
+        }
         const on = shouldSyncPaymentByDefault(student, r);
         const sum = linked.reduce((a, p) => a + (p.amount || 0), 0);
         return `
@@ -2532,7 +2547,9 @@ function renewalHistoryBlock(student) {
           <input id="f-r_syncPayment" name="r_syncPayment" type="checkbox" ${on ? "checked" : ""}>
         </div>
         <p class="hint">${linked.length === 1
-          ? `底下掛著一筆 ${money(sum)} 的收費，勾了會把金額與日期一起改成上面填的。`
+          ? (on
+              ? `底下掛著一筆 ${money(sum)} 的收費，勾了會把金額與日期一起改成上面填的。`
+              : `底下掛著一筆 ${money(sum)} 的收費，跟這筆續約的金額<strong>目前就不一樣</strong>（可能是分期、訂金，或上次改的時候沒同步），所以沒有預設勾。要讓收費跟著改就自己勾起來。`)
           : `底下掛著 ${linked.length} 筆收費、合計 ${money(sum)}（看起來是分期）。勾了會把每一筆都改成上面填的金額，通常不是你要的。`}
           堂數不用管，收費那邊顯示的堂數本來就是即時從這筆續約讀出來的。</p>`;
       })()}
@@ -3699,7 +3716,9 @@ function viewPayments() {
             </div>
             <div class="row-end">
               <span class="mono" style="font-weight:600">${money(p.amount)}</span>
-              <div style="margin-top:5px">
+              <div style="margin-top:5px;display:flex;gap:4px;justify-content:flex-end">
+                <button class="btn btn-sm" type="button" data-action="edit-payment"
+                        data-id="${p.id}" data-student="${p.studentId}">編輯</button>
                 <button class="btn btn-sm btn-ghost" type="button" data-action="delete-payment"
                         data-id="${p.id}" data-student="${p.studentId}">刪除</button>
               </div>
@@ -3710,29 +3729,95 @@ function viewPayments() {
     </div>`;
 }
 
-function paymentSheet() {
+/**
+ * 「這筆錢是哪一次續約收的」的選項。
+ *
+ * 手動新增的收費以前永遠沒有 renewalId，接不回任何一筆續約，於是
+ * 續約編輯列的「同時更新收費紀錄」開關根本不會出現 —— 改了續約金額，
+ * 收費就是不會跟上，而且畫面上完全沒有說明為什麼。
+ * 所以關聯要能用手指定，不能只靠日期＋金額去猜。
+ */
+function renewalOptions(student) {
+  return [["", "不對應（單獨的一筆）"],
+    ...renewalsOf(student).map((r) =>
+      [r.id, `${r.date || "（無日期）"}・${r.sessions || 0} 堂・${money(r.amount || 0)}`])];
+}
+
+/** 收費表單裡「對應的續約」那一格。學生換了要整格重畫，選項不一樣。 */
+function renewalPickField(student, value) {
+  if (!student) return "";
+  const rs = renewalsOf(student);
+  if (!rs.length) {
+    return `<p class="hint">${esc(student.name || "這位學生")}還沒有續約紀錄，這筆收費沒有可以對應的對象。</p>`;
+  }
+  return fieldSelect("renewalId", "對應的續約", renewalOptions(student), value || "",
+    "對應起來之後，這一列會即時顯示那筆續約的堂數；改續約金額時也才有「同時更新收費紀錄」可以勾。");
+}
+
+/**
+ * 新增或編輯一筆收費。
+ *
+ * 以前只能新增與刪除：金額打錯只能刪掉重建，而重建會失去 renewalId，
+ * 於是「改續約金額，收費跟不上」變成沒有出口的死路。
+ */
+function paymentSheet(student = null, payment = null) {
   if (!activeStudents().length) { toast("請先新增至少一位學生"); return; }
+  const editing = !!(student && payment);
+  const owner = editing ? student : null;
+
   openSheet({
-    title: "新增收費",
+    title: editing ? "編輯收費" : "新增收費",
     body: `
-      ${fieldSelect("studentId", "學生", studentOptions(false), activeStudents()[0].id)}
+      ${editing
+        ? `<div class="row" style="padding-top:0">
+             <span class="dot" style="background:${esc(student.color || "var(--muted)")}"></span>
+             <div class="row-main"><div class="row-title">${esc(student.name || "（未命名）")}</div>
+               <div class="row-sub">要換人請刪掉這筆，重新記一次</div></div>
+           </div>`
+        : fieldSelect("studentId", "學生", studentOptions(false), activeStudents()[0].id)}
       <div class="field-row">
-        ${fieldText("amount", "金額", "", { type: "number", required: true })}
-        ${fieldText("date", "日期", today(), { type: "date" })}
+        ${fieldText("amount", "金額", editing ? (payment.amount || 0) : "", { type: "number", required: true })}
+        ${fieldText("date", "日期", editing ? (payment.date || today()) : today(), { type: "date" })}
       </div>
-      ${fieldSelect("method", "付款方式", [["cash", "現金"], ["transfer", "轉帳"], ["other", "其他"]], "cash")}
-      ${fieldText("notes", "備註", "")}`,
+      ${fieldSelect("method", "付款方式", [["cash", "現金"], ["transfer", "轉帳"], ["other", "其他"]],
+                    editing ? (payment.method || "cash") : "cash")}
+      ${fieldText("notes", "備註", editing ? (payment.notes || "") : "")}
+      <div data-renewal-pick>${renewalPickField(owner || activeStudents()[0], editing ? payment.renewalId : "")}</div>`,
+    onMount: (root) => {
+      // 新增時換學生，可以對應的續約也跟著換
+      const sel = root.querySelector('[name="studentId"]');
+      if (!sel) return;
+      sel.addEventListener("change", () => {
+        const box = root.querySelector("[data-renewal-pick]");
+        if (box) box.innerHTML = renewalPickField(studentById(sel.value), "");
+      });
+    },
     onConfirm: (form) => {
       const amount = +form.elements.amount.value || 0;
       if (amount <= 0) { toast("金額要大於 0"); return false; }
-      const st = studentById(form.elements.studentId.value);
+      const st = editing ? student : studentById(form.elements.studentId.value);
       if (!st) return false;
-      st.payments.push({
-        id: uid(), amount, date: form.elements.date.value || today(),
+      // 選項是從這位學生的續約長出來的，但表單值仍要驗一次 ——
+      // 換過學生之後留在 DOM 裡的舊值不能直接信。
+      const picked = form.elements.renewalId ? form.elements.renewalId.value : "";
+      const renewalId = (st.renewals || []).some((r) => r.id === picked) ? picked : "";
+      const fields = {
+        amount, date: form.elements.date.value || today(),
         method: form.elements.method.value, notes: form.elements.notes.value,
-        createdAt: new Date().toISOString(),
-      });
-      save(); render(); toast(`已記錄 ${money(amount)}`);
+        ...(renewalId ? { renewalId } : {}),
+      };
+
+      if (editing) {
+        Object.assign(payment, fields);
+        // 取消對應時要真的把欄位拿掉，留著空字串會讓 paymentsOfRenewal 之類
+        // 的判斷變成「有 renewalId 但指向不存在的續約」。
+        if (!renewalId) delete payment.renewalId;
+        st.updatedAt = new Date().toISOString();
+      } else {
+        st.payments.push({ id: uid(), ...fields, createdAt: new Date().toISOString() });
+      }
+      save(); render();
+      toast(editing ? `已更新為 ${money(amount)}` : `已記錄 ${money(amount)}`);
     },
   });
 }
@@ -4867,6 +4952,12 @@ document.addEventListener("click", (e) => {
     }
 
     case "new-payment": paymentSheet(); break;
+    case "edit-payment": {
+      const st = studentById(el.dataset.student);
+      const p = st && (st.payments || []).find((x) => x.id === id);
+      if (p) paymentSheet(st, p);
+      break;
+    }
     case "delete-payment": {
       const st = studentById(el.dataset.student);
       if (!st) break;
