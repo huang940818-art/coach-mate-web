@@ -719,7 +719,7 @@ const NOTICE_KEY = "coach-mate-web-notice-dismissed";
  * 版本標記。顯示在設定頁最下面，教練唸得出來就知道他手上是哪一版，
  * 不用再猜是不是拿到舊的快取。每次改版就把這個字串往上加。
  */
-const BUILD = "2026-08-09 · v28";
+const BUILD = "2026-08-09 · v30";
 
 /** 開發者署名，顯示在設定頁的「關於」 */
 const DEVELOPER = "杯子蛋糕好好吃";
@@ -916,6 +916,16 @@ function load() {
       students: (Array.isArray(parsed.students) ? parsed.students : []).map((s) => ({
         ...s,
         tags: Array.isArray(s.tags) ? s.tags : [],
+        // 續約紀錄與自訂欄位都是後來才加的。**沒有補正的話不是顯示成空的，
+        // 是直接炸掉**：程式裡有好幾處是 `s.renewals.push(...)`／
+        // `s.custom["年齡"]` 這樣直接用的（2026-08-09 實測：早期測試教練的
+        // 資料一打開「分析」頁整頁掛掉、「續約」按下去沒反應、銷售統計與
+        // 匯出備份也一起失敗 —— 連救資料的出口都堵住）。
+        //
+        // 補在這裡而不是在每個使用點加 `|| []`：這是所有存下來的資料唯一的
+        // 入口，補一次就好，散在幾十處反而會漏。
+        renewals: Array.isArray(s.renewals) ? s.renewals : [],
+        custom: (s.custom && typeof s.custom === "object") ? s.custom : {},
         // 續約時自動產生的收費備註原本會寫死「續約 N 堂」，但那個數字在
         // 建立當下就凍住了：之後回頭改續約紀錄的堂數，這行不會跟著動，
         // 於是好幾筆收費全都停在同一個數字，看起來像堂數沒存進去。
@@ -3692,6 +3702,14 @@ function viewPayments() {
   const ym = thisMonth();
   const rows = allPayments().sort((a, b) => (b.date || "").localeCompare(a.date || ""));
   const monthRows = rows.filter((p) => (p.date || "").startsWith(ym));
+  // 「收到」就是真的已經收到的。日期還沒到的是預收（教練常常先把下個月的
+  // 課錢記進來），混在一起會讓這個數字比實際入帳的多 —— iOS 早就分開算了，
+  // 這邊跟著對齊。整月的總額在總覽頁的「本月收入」看。
+  const todayStr = today();
+  const collectedThisMonth = monthRows
+    .filter((p) => (p.date || "") <= todayStr).reduce((a, p) => a + (p.amount || 0), 0);
+  const upcomingThisMonth = monthRows
+    .filter((p) => (p.date || "") > todayStr).reduce((a, p) => a + (p.amount || 0), 0);
   const isCompany = S.settings.employment === "company";
   const sal = isCompany ? salaryFor(ym) : null;
 
@@ -3708,8 +3726,10 @@ function viewPayments() {
 
     <div class="stack">
       <div class="tiles">
-        ${tile({ value: money(monthRevenue(ym)), label: "本月收到", iconName: "money", color: "var(--good)",
-                 note: `${monthRows.length} 筆` })}
+        ${tile({ value: money(collectedThisMonth), label: "本月收到", iconName: "money", color: "var(--good)",
+                 note: upcomingThisMonth
+                   ? `${monthRows.length} 筆・另有預收 ${money(upcomingThisMonth)}`
+                   : `${monthRows.length} 筆` })}
         ${tile({ value: money(rows.reduce((a, p) => a + p.amount, 0)), label: "累計收入", iconName: "money",
                  color: "var(--gold)", note: `${rows.length} 筆` })}
         ${isCompany
@@ -3791,6 +3811,19 @@ function renewalPickField(student, value) {
 }
 
 /**
+ * 這筆收費對應的續約買了幾堂 —— 「每堂單價 × 堂數」的那個堂數。
+ *
+ * 收費紀錄本身沒有堂數（一筆錢就是一筆錢），所以單價模式的堂數只能從
+ * 對應的續約來。沒有對應就換算不出來，這也是為什麼「對應的續約」那一格
+ * 要排在金額**之前**：先確定拿什麼當堂數，再填金額。
+ */
+function sessionsOfRenewalId(student, renewalId) {
+  if (!student || !renewalId) return 0;
+  const r = (student.renewals || []).find((x) => x.id === renewalId);
+  return r ? (r.sessions || 0) : 0;
+}
+
+/**
  * 新增或編輯一筆收費。
  *
  * 以前只能新增與刪除：金額打錯只能刪掉重建，而重建會失去 renewalId，
@@ -3811,32 +3844,112 @@ function paymentSheet(student = null, payment = null) {
                <div class="row-sub">要換人請刪掉這筆，重新記一次</div></div>
            </div>`
         : fieldSelect("studentId", "學生", studentOptions(false), activeStudents()[0].id)}
+      <div data-renewal-pick>${renewalPickField(owner || activeStudents()[0], editing ? payment.renewalId : "")}</div>
+      <div class="seg" style="max-width:260px;margin-bottom:8px" data-price-toggle hidden>
+        ${[["total", "輸入總額"], ["unit", "輸入單價"]].map(([v, t], i) =>
+          `<button type="button" data-pay-price-mode="${v}" aria-pressed="${i === 0}">${t}</button>`).join("")}
+      </div>
+      <input type="hidden" name="payPriceMode" value="total">
       <div class="field-row">
         ${fieldText("amount", "金額", editing ? (payment.amount || 0) : "", { type: "number", required: true })}
         ${fieldText("date", "日期", editing ? (payment.date || today()) : today(), { type: "date" })}
       </div>
+      <p class="hint" data-pay-price-hint></p>
       ${fieldSelect("method", "付款方式", [["cash", "現金"], ["transfer", "轉帳"], ["other", "其他"]],
                     editing ? (payment.method || "cash") : "cash")}
-      ${fieldText("notes", "備註", editing ? (payment.notes || "") : "")}
-      <div data-renewal-pick>${renewalPickField(owner || activeStudents()[0], editing ? payment.renewalId : "")}</div>`,
+      ${fieldText("notes", "備註", editing ? (payment.notes || "") : "")}`,
     onMount: (root) => {
-      // 新增時換學生，可以對應的續約也跟著換
-      const sel = root.querySelector('[name="studentId"]');
-      if (!sel) return;
-      sel.addEventListener("change", () => {
-        const box = root.querySelector("[data-renewal-pick]");
-        if (box) box.innerHTML = renewalPickField(studentById(sel.value), "");
+      const studentSel = root.querySelector('[name="studentId"]');
+      const modeInput = root.querySelector('[name="payPriceMode"]');
+      const toggle = root.querySelector("[data-price-toggle]");
+      const amountInput = root.querySelector('[name="amount"]');
+      const amountLabel = root.querySelector('label[for="f-amount"]');
+      const hint = root.querySelector("[data-pay-price-hint]");
+
+      const currentStudent = () =>
+        editing ? student : studentById(studentSel ? studentSel.value : "");
+
+      /**
+       * 單價模式的堂數來自對應的續約，所以沒有對應就不能給單價選項 ——
+       * 堂數是 0，乘下去金額直接變成 0。
+       */
+      const sessions = () => {
+        const sel = root.querySelector('[name="renewalId"]');
+        return sessionsOfRenewalId(currentStudent(), sel ? sel.value : "");
+      };
+
+      const setMode = (mode) => {
+        modeInput.value = mode;
+        root.querySelectorAll("[data-pay-price-mode]").forEach((b) =>
+          b.setAttribute("aria-pressed", String(b.dataset.payPriceMode === mode)));
+      };
+
+      // 不管用哪一種輸入，兩個數字都同時顯示 ——
+      // 「我剛剛填的是一堂還是全部」不該在按下儲存之後才想起來。
+      const refresh = () => {
+        const n = sessions();
+        // 沒有對應的續約就沒有堂數可以換算，選項收起來並強制回總額
+        if (!n) {
+          if (modeInput.value === "unit") setMode("total");
+          toggle.hidden = true;
+        } else {
+          toggle.hidden = false;
+        }
+        const unit = modeInput.value === "unit";
+        const v = Math.max(0, +amountInput.value || 0);
+        if (amountLabel) amountLabel.textContent = unit ? "每堂單價" : "金額";
+        if (!hint) return;
+        if (!n) {
+          hint.textContent = "沒有對應續約就沒有堂數可以換算，這一格填實收的金額。";
+        } else if (!v) {
+          hint.textContent = `對應的續約是 ${n} 堂。存進去的一律是總額。`;
+        } else {
+          hint.textContent = unit
+            ? `${n} 堂 × ${money(v)} ＝ 總額 ${money(v * n)}`
+            : `${money(v)} ÷ ${n} 堂 ＝ 每堂 ${money(Math.round(v / n))}`;
+        }
+      };
+
+      root.addEventListener("click", (e) => {
+        const btn = e.target.closest("[data-pay-price-mode]");
+        if (!btn) return;
+        e.preventDefault();
+        setMode(btn.dataset.payPriceMode);
+        refresh();
       });
+      amountInput.addEventListener("input", refresh);
+      // 續約的下拉是重畫出來的（換學生時），所以用委派接 change
+      root.addEventListener("change", (e) => {
+        if (e.target.name === "renewalId") refresh();
+      });
+
+      if (studentSel) {
+        studentSel.addEventListener("change", () => {
+          const box = root.querySelector("[data-renewal-pick]");
+          if (box) box.innerHTML = renewalPickField(studentById(studentSel.value), "");
+          setMode("total");   // 換人之後堂數的來源也換了，別停在單價
+          refresh();
+        });
+      }
+      refresh();
     },
     onConfirm: (form) => {
-      const amount = +form.elements.amount.value || 0;
-      if (amount <= 0) { toast("金額要大於 0"); return false; }
       const st = editing ? student : studentById(form.elements.studentId.value);
       if (!st) return false;
       // 選項是從這位學生的續約長出來的，但表單值仍要驗一次 ——
       // 換過學生之後留在 DOM 裡的舊值不能直接信。
       const picked = form.elements.renewalId ? form.elements.renewalId.value : "";
       const renewalId = (st.renewals || []).some((r) => r.id === picked) ? picked : "";
+
+      // 存進去的一律是總額，理由跟續約一樣：收入統計與業績抽成都是拿總額去算的。
+      // 單價模式沒有堂數時當成總額 —— 乘 0 會把金額直接吃掉。
+      const typed = Math.max(0, +form.elements.amount.value || 0);
+      const n = sessionsOfRenewalId(st, renewalId);
+      const unit = form.elements.payPriceMode
+                && form.elements.payPriceMode.value === "unit" && n > 0;
+      const amount = unit ? typed * n : typed;
+      if (amount <= 0) { toast("金額要大於 0"); return false; }
+
       const fields = {
         amount, date: form.elements.date.value || today(),
         method: form.elements.method.value, notes: form.elements.notes.value,
@@ -4524,7 +4637,14 @@ function buildBackup() {
   const indexOf = new Map(S.students.map((s, i) => [s.id, i]));
   // 檢測掛的是名單而不是學生，另外編一組索引
   const leadIndexOf = new Map(S.leads.map((l, i) => [l.id, i]));
-  const iso = (v) => (v ? new Date(v).toISOString() : new Date().toISOString());
+  // 認不出來的日期一律退回「現在」。原本是 `new Date(v).toISOString()`，
+  // 遇到無法解析的字串會丟 "Invalid time value" —— 而這裡是匯出，
+  // 整份備份會做不出來。備份是資料出了問題時的**逃生口**，
+  // 不能因為某一筆的 createdAt 壞掉就整個堵住。
+  const iso = (v) => {
+    const d = v ? new Date(v) : null;
+    return d && !isNaN(d.getTime()) ? d.toISOString() : new Date().toISOString();
+  };
 
   return {
     version: 1,
