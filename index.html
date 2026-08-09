@@ -719,7 +719,7 @@ const NOTICE_KEY = "coach-mate-web-notice-dismissed";
  * 版本標記。顯示在設定頁最下面，教練唸得出來就知道他手上是哪一版，
  * 不用再猜是不是拿到舊的快取。每次改版就把這個字串往上加。
  */
-const BUILD = "2026-08-09 · v31";
+const BUILD = "2026-08-09 · v32";
 
 /** 開發者署名，顯示在設定頁的「關於」 */
 const DEVELOPER = "杯子蛋糕好好吃";
@@ -1273,6 +1273,11 @@ function currentPackageSessions(student) {
   const latest = renewalsOf(student)[0];
   return latest ? (latest.sessions || 0) : (student.totalPurchased || 0);
 }
+// 註：**剩餘堂數比「本期」多是合理的，不要去「修正」它。**
+// 上一期結轉過來就會這樣（實例：最近買的是 4 堂補課，手上還有 19 堂是前一期
+// 剩的，「19 / 4」是實話）。iOS 也是為了同一個理由，把「剩餘不得大於購買」
+// 的自動夾擠限縮成只在新增學生時做。曾經想過「往前找裝得下剩餘的那一筆」，
+// 那會讓分母不再是他這期真的買了幾堂 —— 分母說謊比分子大醜。
 
 function paymentsOf(studentId) {
   const st = studentById(studentId);
@@ -3889,16 +3894,28 @@ function renewalPickField(student, value) {
 }
 
 /**
- * 這筆收費對應的續約買了幾堂 —— 「每堂單價 × 堂數」的那個堂數。
+ * 「每堂單價 × 堂數」要乘的那個堂數，以及它是哪裡來的。
  *
- * 收費紀錄本身沒有堂數（一筆錢就是一筆錢），所以單價模式的堂數只能從
- * 對應的續約來。沒有對應就換算不出來，這也是為什麼「對應的續約」那一格
- * 要排在金額**之前**：先確定拿什麼當堂數，再填金額。
+ * 收費紀錄本身沒有堂數（一筆錢就是一筆錢），所以要向外找：
+ * 　1. 有選「對應的續約」→ 用那筆買的堂數
+ * 　2. 沒選（或這位學生根本沒有續約紀錄）→ 退回「本期購買堂數」
+ *
+ * 第 2 條是後來補的。原本只認續約，於是**還沒有任何續約紀錄的學生完全沒有
+ * 單價選項**（實際踩到：一位剩 3 堂、本期 30 堂的學生，想填「每堂 1300」，
+ * 但那一格只收總額，1300 就被當成整包的錢存進去）。
+ * 搬家進來的學生大多是這樣：堂數是手填的，續約紀錄還沒補。
  */
+function unitPriceBasis(student, renewalId) {
+  if (!student) return { sessions: 0, from: "" };
+  const r = renewalId ? (student.renewals || []).find((x) => x.id === renewalId) : null;
+  if (r) return { sessions: r.sessions || 0, from: "對應的續約" };
+  const cur = currentPackageSessions(student);
+  return cur > 0 ? { sessions: cur, from: "本期購買堂數" } : { sessions: 0, from: "" };
+}
+
+/** 只要堂數的舊介面（測試與 onConfirm 在用） */
 function sessionsOfRenewalId(student, renewalId) {
-  if (!student || !renewalId) return 0;
-  const r = (student.renewals || []).find((x) => x.id === renewalId);
-  return r ? (r.sessions || 0) : 0;
+  return unitPriceBasis(student, renewalId).sessions;
 }
 
 /**
@@ -3951,9 +3968,9 @@ function paymentSheet(student = null, payment = null) {
        * 單價模式的堂數來自對應的續約，所以沒有對應就不能給單價選項 ——
        * 堂數是 0，乘下去金額直接變成 0。
        */
-      const sessions = () => {
+      const basis = () => {
         const sel = root.querySelector('[name="renewalId"]');
-        return sessionsOfRenewalId(currentStudent(), sel ? sel.value : "");
+        return unitPriceBasis(currentStudent(), sel ? sel.value : "");
       };
 
       const setMode = (mode) => {
@@ -3965,8 +3982,8 @@ function paymentSheet(student = null, payment = null) {
       // 不管用哪一種輸入，兩個數字都同時顯示 ——
       // 「我剛剛填的是一堂還是全部」不該在按下儲存之後才想起來。
       const refresh = () => {
-        const n = sessions();
-        // 沒有對應的續約就沒有堂數可以換算，選項收起來並強制回總額
+        const { sessions: n, from } = basis();
+        // 連本期堂數都是 0 才真的沒有堂數可以換算，選項收起來並強制回總額
         if (!n) {
           if (modeInput.value === "unit") setMode("total");
           toggle.hidden = true;
@@ -3978,13 +3995,14 @@ function paymentSheet(student = null, payment = null) {
         if (amountLabel) amountLabel.textContent = unit ? "每堂單價" : "金額";
         if (!hint) return;
         if (!n) {
-          hint.textContent = "沒有對應續約就沒有堂數可以換算，這一格填實收的金額。";
+          hint.textContent = "這位學生還沒有堂數可以換算，這一格填實收的金額。";
         } else if (!v) {
-          hint.textContent = `對應的續約是 ${n} 堂。存進去的一律是總額。`;
+          hint.textContent = `堂數用「${from}」的 ${n} 堂。存進去的一律是總額。`;
         } else {
-          hint.textContent = unit
+          hint.textContent = (unit
             ? `${n} 堂 × ${money(v)} ＝ 總額 ${money(v * n)}`
-            : `${money(v)} ÷ ${n} 堂 ＝ 每堂 ${money(Math.round(v / n))}`;
+            : `${money(v)} ÷ ${n} 堂 ＝ 每堂 ${money(Math.round(v / n))}`)
+            + `（堂數取自${from}）`;
         }
       };
 
