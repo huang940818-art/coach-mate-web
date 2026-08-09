@@ -719,7 +719,7 @@ const NOTICE_KEY = "coach-mate-web-notice-dismissed";
  * 版本標記。顯示在設定頁最下面，教練唸得出來就知道他手上是哪一版，
  * 不用再猜是不是拿到舊的快取。每次改版就把這個字串往上加。
  */
-const BUILD = "2026-08-09 · v30";
+const BUILD = "2026-08-09 · v31";
 
 /** 開發者署名，顯示在設定頁的「關於」 */
 const DEVELOPER = "杯子蛋糕好好吃";
@@ -869,7 +869,16 @@ const DEFAULT_SALARY = {
 const DEFAULT_SETTINGS = {
   employment: "independent",       // independent | company
   defaultDuration: 90,             // 分鐘
+  // 總覽頁「堂數快用完」從剩幾堂開始提醒。教練的方案差很多（10 堂與 36 堂
+  // 的「快用完」不是同一個數字），寫死 3 對買大包的人來說太晚了。
+  lowSessions: 3,
   customFields: ["性別", "職業", "生日"],
+  // 每個自訂欄位的型別與選項。鍵是欄位名稱，所以**改名時要一起搬**。
+  //
+  // 為什麼不把型別併進上面那個陣列：`customFields` 就是備份裡與 iOS 共用的
+  // `customFieldDefinitions`（純字串陣列）。改成物件 iOS 會整組讀不到。
+  // 型別另外放，iOS 讀到不認得的鍵會直接忽略。
+  customFieldSpecs: { "生日": { type: "date" } },
   packages: [
     { id: "p1", name: "體驗", sessions: 1, price: 1200 },
     { id: "p2", name: "10 堂", sessions: 10, price: 11000 },
@@ -1571,8 +1580,63 @@ function ageOf(student) {
   return age > 0 ? age : null;
 }
 
-/** 年齡另有長條圖、生日只用來算年齡，不再多做一張分佈 */
-const FIELDS_WITH_OWN_CHART = new Set(["生日", "年齡"]);
+/** 自訂欄位可以是哪些型別 */
+const FIELD_TYPES = [["text", "文字"], ["number", "數字"], ["date", "日期"], ["select", "單選"]];
+
+/**
+ * 某個自訂欄位的型別與選項。
+ *
+ * 原本只有「生日」被寫死成日期欄位，其他一律純文字 —— 想要一個「日期」欄位
+ * 就只能取名叫生日。現在型別是自己設的，寫死的特例拿掉了。
+ */
+function fieldSpec(name) {
+  const raw = (S.settings.customFieldSpecs || {})[name] || {};
+  const type = FIELD_TYPES.some(([v]) => v === raw.type) ? raw.type : "text";
+  const options = Array.isArray(raw.options)
+    ? raw.options.map((o) => String(o).trim()).filter(Boolean) : [];
+  return { type, options };
+}
+
+/**
+ * 改一個自訂欄位的名字。
+ *
+ * **學生已經填的值要一起搬**：`s.custom` 是用欄位名稱當鍵的，不搬的話改個
+ * 名字等於把所有人在那一欄填過的資料清空（而且看起來像是自己不見的）。
+ */
+function renameCustomField(oldName, newName) {
+  const name = String(newName || "").trim();
+  if (!name || name === oldName) return false;
+  const list = S.settings.customFields;
+  if (list.includes(name)) { toast("已經有同名欄位了"); return false; }
+  const i = list.indexOf(oldName);
+  if (i < 0) return false;
+  list[i] = name;
+
+  const specs = S.settings.customFieldSpecs || (S.settings.customFieldSpecs = {});
+  if (specs[oldName]) { specs[name] = specs[oldName]; delete specs[oldName]; }
+
+  for (const st of S.students) {
+    if (st.custom && Object.prototype.hasOwnProperty.call(st.custom, oldName)) {
+      st.custom[name] = st.custom[oldName];
+      delete st.custom[oldName];
+      st.updatedAt = new Date().toISOString();
+    }
+  }
+  return true;
+}
+
+/** 欄位上下移動。陣列順序就是顯示順序，所以搬動陣列就夠了。 */
+function moveCustomField(name, dir) {
+  const list = S.settings.customFields;
+  const i = list.indexOf(name);
+  const j = i + (dir === "up" ? -1 : 1);
+  if (i < 0 || j < 0 || j >= list.length) return false;
+  [list[i], list[j]] = [list[j], list[i]];
+  return true;
+}
+
+/** 年齡另有長條圖；日期型別每一筆都不一樣，長條圖沒有意義 */
+const FIELDS_WITH_OWN_CHART = new Set(["年齡"]);
 
 /**
  * 只有真的有學生填了值的自訂欄位，才會多出一張分佈圖。
@@ -1587,6 +1651,8 @@ function customFieldDistributions() {
   const out = [];
   for (const key of keys) {
     if (FIELDS_WITH_OWN_CHART.has(key)) continue;
+    // 日期型別每個人都不一樣，畫成長條圖是一堆高度 1 的長條
+    if (fieldSpec(key).type === "date") continue;
     const dist = new Map();
     for (const s of students) {
       const v = String(s.custom?.[key] ?? "").trim();
@@ -1975,7 +2041,8 @@ function viewDashboard() {
   const todays = S.lessons.filter((l) => l.date === today())
     .sort((a, b) => minutesOf(a.start) - minutesOf(b.start));
 
-  const expiring = students.filter((s) => s.remaining > 0 && s.remaining <= 3)
+  const lowAt = Math.max(1, +S.settings.lowSessions || 3);
+  const expiring = students.filter((s) => s.remaining > 0 && s.remaining <= lowAt)
     .sort((a, b) => a.remaining - b.remaining);
 
   const conv = conversionStats(ym);
@@ -2018,7 +2085,7 @@ function viewDashboard() {
         <section class="card">
           <div class="sec-head">
             <h2 class="sec-title">堂數快用完</h2>
-            <span class="sec-sub">剩 3 堂以內</span>
+            <span class="sec-sub">剩 ${lowAt} 堂以內</span>
           </div>
           ${expiring.length ? expiring.map((s) => `
             <div class="row">
@@ -2564,6 +2631,8 @@ function renewalHistoryBlock(student) {
         ${fieldText("r_amount", "總額", r.amount || 0, { type: "number" })}
         ${fieldText("r_notes", "備註", r.notes || "")}
       </div>
+      <p class="hint">到期日不在這裡 —— 那是「這位學生現在的方案」什麼時候到期，
+        不屬於某一筆續約，所以只有一個，在這張表單上面的「方案到期日」那格改。</p>
       <p class="hint" data-r-price-hint>${
         r.sessions ? `${money(r.amount || 0)} ÷ ${r.sessions} 堂 ＝ 每堂 ${money(Math.round((r.amount || 0) / r.sessions))}` : "存進去的一律是總額。"
       }</p>
@@ -2690,8 +2759,17 @@ function studentSheet(existing) {
 
       <div class="divider"></div>
       <p class="hint" style="margin:0 0 10px">自訂欄位（填了才會出現在客群分析）</p>
-      ${fields.map((f) => fieldText("cf_" + f, f, s.custom?.[f] || "",
-          { type: f === "生日" ? "date" : "text" })).join("")}
+      ${fields.map((f) => {
+          const spec = fieldSpec(f);
+          const v = s.custom?.[f] || "";
+          if (spec.type === "select" && spec.options.length) {
+            // 選項裡沒有的舊值要留著，不然改選項會把已經填好的值吃掉
+            const opts = spec.options.includes(v) || !v
+              ? spec.options : [...spec.options, v];
+            return fieldSelect("cf_" + f, f, [["", "（未選擇）"], ...opts.map((o) => [o, o])], v);
+          }
+          return fieldText("cf_" + f, f, v, { type: spec.type === "select" ? "text" : spec.type });
+        }).join("")}
       ${fields.length ? "" : `<p class="hint">還沒有自訂欄位，可以到「設定」新增。</p>`}
       <div class="field">
         <label for="f-notes">備註</label>
@@ -4344,6 +4422,17 @@ function viewSettings() {
         </div>
         <div class="row">
           <div class="row-main">
+            <div class="row-title">堂數快用完的提醒</div>
+            <div class="row-sub">總覽頁從剩幾堂開始提醒你該談續約</div>
+          </div>
+          <div class="row-end">
+            <input type="number" min="1" inputmode="numeric" style="width:72px"
+                   data-action="set-low-sessions" value="${Math.max(1, +st.lowSessions || 3)}">
+            <span class="muted" style="margin-left:6px">堂</span>
+          </div>
+        </div>
+        <div class="row">
+          <div class="row-main">
             <div class="row-title">外觀</div>
             <div class="row-sub">淺色／深色／跟隨系統</div>
           </div>
@@ -4359,14 +4448,47 @@ function viewSettings() {
       <section class="card">
         <div class="sec-head">
           <h2 class="sec-title">自訂欄位</h2>
-          <span class="sec-sub">填進學生資料後，分析頁才會多一欄</span>
+          <span class="sec-sub">名稱、型別、順序都自己決定</span>
         </div>
-        <div class="chips" style="margin-bottom:11px">
-          ${st.customFields.length ? st.customFields.map((f) => `
-            <span class="chip">${esc(f)}
-              <button type="button" data-action="del-field" data-value="${esc(f)}" aria-label="刪除欄位 ${esc(f)}">✕</button>
-            </span>`).join("") : `<span class="muted" style="font-size:13px">還沒有自訂欄位</span>`}
-        </div>
+        ${st.customFields.length ? st.customFields.map((f, i) => {
+          const spec = fieldSpec(f);
+          return `
+          <div class="row" style="display:block;padding:9px 0">
+            <div class="field-row" style="margin-bottom:6px">
+              <div class="field" style="margin:0">
+                <label for="cfn-${i}">名稱</label>
+                <input id="cfn-${i}" type="text" value="${esc(f)}"
+                       data-action="rename-field" data-value="${esc(f)}">
+              </div>
+              <div class="field" style="margin:0">
+                <label for="cft-${i}">型別</label>
+                <select id="cft-${i}" data-action="set-field-type" data-value="${esc(f)}">
+                  ${FIELD_TYPES.map(([v, t]) =>
+                    `<option value="${v}" ${spec.type === v ? "selected" : ""}>${t}</option>`).join("")}
+                </select>
+              </div>
+            </div>
+            ${spec.type === "select" ? `
+              <div class="field" style="margin:0 0 6px">
+                <label for="cfo-${i}">選項（用逗號分隔）</label>
+                <input id="cfo-${i}" type="text" value="${esc(spec.options.join("、"))}"
+                       placeholder="例如：男、女" data-action="set-field-options" data-value="${esc(f)}">
+              </div>` : ""}
+            <div style="display:flex;gap:6px;justify-content:flex-end">
+              <button class="btn btn-sm" type="button" data-action="move-field"
+                      data-value="${esc(f)}" data-dir="up" ${i === 0 ? "disabled" : ""}
+                      aria-label="把 ${esc(f)} 往上移">↑</button>
+              <button class="btn btn-sm" type="button" data-action="move-field"
+                      data-value="${esc(f)}" data-dir="down"
+                      ${i === st.customFields.length - 1 ? "disabled" : ""}
+                      aria-label="把 ${esc(f)} 往下移">↓</button>
+              <button class="btn btn-sm btn-ghost" type="button" data-action="del-field"
+                      data-value="${esc(f)}">刪除</button>
+            </div>
+          </div>`;
+        }).join("") : `<p class="empty" style="padding:10px 0">還沒有自訂欄位</p>`}
+        <p class="hint">改名字會把每位學生已經填的值一起搬過去，不會弄丟。
+          順序就是學生表單上的順序。日期型別不會在分析頁畫長條圖（每個人都不一樣）。</p>
         <form class="tier-add" data-form="add-field">
           <input type="text" name="field" placeholder="例如：職業" style="width:150px">
           <button class="btn btn-sm" type="submit">新增欄位</button>
@@ -4703,7 +4825,11 @@ function buildBackup() {
     settings: {
       employmentType: S.settings.employment,
       defaultLessonDurationMinutes: String(S.settings.defaultDuration),
+      // iOS 還沒有這個設定。讀到不認得的鍵會直接忽略，不會壞。
+      lowSessionsThreshold: String(Math.max(1, +S.settings.lowSessions || 3)),
       customFieldDefinitions: JSON.stringify(S.settings.customFields),
+      // 型別與選項。iOS 只讀上面那個名稱陣列，多這一個鍵它會忽略。
+      customFieldSpecs: JSON.stringify(S.settings.customFieldSpecs || {}),
       coachPackages: JSON.stringify(S.settings.packages.map((p) => ({
         id: p.id, name: p.name, sessions: p.sessions, price: p.price,
       }))),
@@ -4871,8 +4997,13 @@ function parseBackup(raw) {
   if (rawSettings.defaultLessonDurationMinutes) {
     settings.defaultDuration = clampDuration(+rawSettings.defaultLessonDurationMinutes);
   }
+  if (rawSettings.lowSessionsThreshold) {
+    settings.lowSessions = Math.max(1, Math.round(+rawSettings.lowSessionsThreshold) || 3);
+  }
   const fields = parseJSON(rawSettings.customFieldDefinitions, null);
   if (Array.isArray(fields)) settings.customFields = fields.filter((f) => typeof f === "string");
+  const specs = parseJSON(rawSettings.customFieldSpecs, null);
+  if (specs && typeof specs === "object") settings.customFieldSpecs = specs;
   const pkgs = parseJSON(rawSettings.coachPackages, null);
   if (Array.isArray(pkgs)) {
     settings.packages = pkgs.map((p) => ({
@@ -5134,8 +5265,12 @@ document.addEventListener("click", (e) => {
     case "set-theme": S.settings.theme = value; save(); render(); break;
     case "set-basis": S.settings.salary.payoutBasisRaw = value; save(); render(); break;
     case "edit-duration": durationSheet(); break;
+    case "move-field":
+      if (moveCustomField(value, el.dataset.dir)) { save(); render(); }
+      break;
     case "del-field":
       S.settings.customFields = S.settings.customFields.filter((f) => f !== value);
+      if (S.settings.customFieldSpecs) delete S.settings.customFieldSpecs[value];
       save(); render(); toast(`已刪除欄位「${value}」`);
       break;
     case "del-package":
@@ -5199,6 +5334,36 @@ document.addEventListener("change", (e) => {
       const v = +el.value;
       S.settings.salary[key] = Number.isFinite(v) ? v : 0;
       save();
+      return;
+    }
+    if (action === "rename-field") {
+      if (renameCustomField(el.dataset.value, el.value)) {
+        save(); render(); toast(`欄位改名為「${el.value.trim()}」，已填的資料一起搬過去了`);
+      } else { render(); }   // 沒改成功就把輸入框還原成原本的名字
+      return;
+    }
+    if (action === "set-field-type") {
+      const specs = S.settings.customFieldSpecs || (S.settings.customFieldSpecs = {});
+      const name = el.dataset.value;
+      specs[name] = { ...(specs[name] || {}), type: el.value };
+      save(); render();
+      return;
+    }
+    if (action === "set-field-options") {
+      const specs = S.settings.customFieldSpecs || (S.settings.customFieldSpecs = {});
+      const name = el.dataset.value;
+      // 全形與半形逗號、頓號都當分隔符 —— 使用者不會記得該打哪一個
+      specs[name] = { ...(specs[name] || {}),
+        options: el.value.split(/[,，、]/).map((x) => x.trim()).filter(Boolean) };
+      save(); render();
+      return;
+    }
+    if (action === "set-low-sessions") {
+      // 至少 1 —— 設成 0 的話這個提醒等於關掉，但畫面上看不出來是關的
+      const v = Math.max(1, Math.round(+el.value) || 1);
+      S.settings.lowSessions = v;
+      el.value = v;
+      save(); render();
       return;
     }
   }
