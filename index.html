@@ -719,7 +719,7 @@ const NOTICE_KEY = "coach-mate-web-notice-dismissed";
  * 版本標記。顯示在設定頁最下面，教練唸得出來就知道他手上是哪一版，
  * 不用再猜是不是拿到舊的快取。每次改版就把這個字串往上加。
  */
-const BUILD = "2026-08-09 · v27";
+const BUILD = "2026-08-09 · v28";
 
 /** 開發者署名，顯示在設定頁的「關於」 */
 const DEVELOPER = "杯子蛋糕好好吃";
@@ -2457,6 +2457,33 @@ function applyRenewalEdit(student, record, patch) {
   return record;
 }
 
+/**
+ * 套用「還開著的續約編輯列」，回傳被改的那筆續約（沒有開著就回 null）。
+ *
+ * 為什麼要抽出來：編輯列有自己的「儲存這筆」，但整張表單底下還有一顆「儲存」。
+ * 使用者在編輯列填完金額之後按的往往是後者 —— 那是表單裡最顯眼、也最像
+ * 「我改完了」的按鈕。原本那顆完全不看編輯列，於是輸入靜靜被丟掉、表單照樣
+ * 關閉，看起來就是「改了金額但畫面跟收費都沒反應」（2026-08-09 回報）。
+ *
+ * 同一時間只會有一列展開，所以不必用 id 去找。
+ */
+function applyOpenRenewalRow(student, scope) {
+  const row = scope.querySelector("[data-renewal-row]");
+  if (!row) return null;
+  const rec = (student.renewals || []).find((x) => x.id === row.dataset.renewalRow);
+  if (!rec) return null;
+  const val = (n) => row.querySelector(`[name="${n}"]`)?.value ?? "";
+  const syncBox = row.querySelector('[name="r_syncPayment"]');
+  applyRenewalEdit(student, rec, {
+    date: val("r_date"), sessions: val("r_sessions"),
+    amount: val("r_amount"), notes: val("r_notes"),
+    priceMode: val("r_priceMode"),
+    syncPayment: !!(syncBox && syncBox.checked),
+  });
+  editingRenewalId = null;
+  return rec;
+}
+
 /** 掛在這筆續約底下的收費紀錄（分期的話會有好幾筆） */
 function paymentsOfRenewal(student, renewalId) {
   return (student.payments || []).filter((p) => p.renewalId && p.renewalId === renewalId);
@@ -2591,7 +2618,7 @@ function renewalHistoryBlock(student) {
     </div>
     ${rs.length ? rs.map((r) => (r.id === editingRenewalId ? editRow(r) : showRow(r))).join("")
                 : `<p class="empty" style="padding:16px 0">尚無續約紀錄。按「續約」新增，補以前的請勾「補登以前的續約」。</p>`}
-    <p class="hint">改堂數會連動累計已購，改金額會連動銷售統計。<strong>剩餘堂數和收費紀錄都不會跟著動</strong>——看不出這筆當初是不是補登的，收費也是各自獨立的一筆。要改請用「調整剩餘堂數」與「收費」那一頁。</p>`;
+    <p class="hint">改堂數會連動累計已購，改金額會連動銷售統計。<strong>剩餘堂數不會跟著動</strong>——看不出這筆當初是不是補登的，猜錯就是吃掉學生手上的課，要改請用「調整剩餘堂數」。掛在底下的收費紀錄要不要一起改，展開編輯時可以勾。</p>`;
 }
 
 function studentSheet(existing) {
@@ -2675,6 +2702,22 @@ function studentSheet(existing) {
     onConfirm: (form) => {
       const name = form.elements.name.value.trim();
       if (!name) { toast("請填學生姓名"); return false; }
+
+      // 續約紀錄的編輯列還開著就先幫他存 —— 他填了數字又按了整張表單的
+      // 「儲存」，意圖很清楚。原本這些輸入會靜靜被丟掉。
+      // **一定要在下面「本期購買堂數」那段之前做**：那段是拿
+      // currentSessionsInitial 比差額的，套用完不更新的話會用開啟表單當下的
+      // 舊值再算一次，等於把剛剛存進去的改回去。
+      const savedRenewal = applyOpenRenewalRow(s, form);
+      if (savedRenewal) {
+        if (form.elements.currentSessions) {
+          form.elements.currentSessions.value = currentPackageSessions(s);
+        }
+        if (form.elements.currentSessionsInitial) {
+          form.elements.currentSessionsInitial.value = currentPackageSessions(s);
+        }
+      }
+
       s.name = name;
       s.phone = form.elements.phone.value.trim();
       s.rate = +form.elements.rate.value || 0;
@@ -2742,7 +2785,10 @@ function studentSheet(existing) {
       s.updatedAt = new Date().toISOString();
       if (!existing) S.students.push(s);
       save(); render();
-      toast(existing ? "已更新學生資料" : `已新增 ${s.name}`);
+      // 連編輯列一起存了要講出來，不然使用者不知道那一列也生效了
+      toast(savedRenewal
+            ? `已更新學生資料，含 ${savedRenewal.date} 的續約紀錄`
+            : (existing ? "已更新學生資料" : `已新增 ${s.name}`));
     },
     onMount: (root) => {
       // 代表色
@@ -2841,18 +2887,8 @@ function studentSheet(existing) {
           const saveBtn = e.target.closest("[data-save-renewal]");
           if (saveBtn) {
             e.preventDefault();
-            const rec = (s.renewals || []).find((x) => x.id === saveBtn.dataset.saveRenewal);
-            const box = histBox.querySelector(`[data-renewal-row="${saveBtn.dataset.saveRenewal}"]`);
-            if (!rec || !box) return;
-            const val = (n) => box.querySelector(`[name="${n}"]`)?.value ?? "";
-            const syncBox = box.querySelector('[name="r_syncPayment"]');
-            applyRenewalEdit(s, rec, {
-              date: val("r_date"), sessions: val("r_sessions"),
-              amount: val("r_amount"), notes: val("r_notes"),
-              priceMode: val("r_priceMode"),
-              syncPayment: !!(syncBox && syncBox.checked),
-            });
-            editingRenewalId = null;
+            const rec = applyOpenRenewalRow(s, histBox);
+            if (!rec) return;
             save(); render(); redraw(); syncCurrentField();
             toast(`已更新 ${rec.date} 的續約紀錄`);
             return;
