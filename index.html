@@ -719,7 +719,7 @@ const NOTICE_KEY = "coach-mate-web-notice-dismissed";
  * 版本標記。顯示在設定頁最下面，教練唸得出來就知道他手上是哪一版，
  * 不用再猜是不是拿到舊的快取。每次改版就把這個字串往上加。
  */
-const BUILD = "2026-08-10 · v34";
+const BUILD = "2026-08-11 · v35";
 
 /** 開發者署名，顯示在設定頁的「關於」 */
 const DEVELOPER = "杯子蛋糕好好吃";
@@ -978,8 +978,15 @@ function load() {
  * 只洗完全符合自動格式的，自己打的不動。
  */
 function linkLegacyPayments(payments, renewals) {
+  const ids = new Set(renewals.map((r) => r.id));
   return payments.map((p) => {
     const notes = /^續約 \d+ 堂$/.test(p.notes || "") ? "續約" : p.notes;
+    // 指向已經被刪掉的續約：那個 id 是斷頭，留著只會讓這筆錢既印不出堂數、
+    // 又不算「還沒對應」，等於再也接不回去。拿掉之後下面照樣有機會補接。
+    if (p.renewalId && !ids.has(p.renewalId)) {
+      const { renewalId, ...rest } = p;
+      p = rest;
+    }
     if (p.renewalId) return { ...p, notes };
     const hits = renewals.filter((r) =>
       (r.date || "") === (p.date || "") && (r.amount || 0) === (p.amount || 0));
@@ -2535,6 +2542,8 @@ function studentDetailSheet(student) {
  */
 /** 目前正在就地編輯的那筆續約紀錄 id（null＝沒有在編輯） */
 let editingRenewalId = null;
+/** editingRenewalId 等於這個值時，展開的是「新增一筆」的空白列 */
+const NEW_RENEWAL = "new";
 
 /**
  * 改一筆續約紀錄的內容。
@@ -2558,7 +2567,38 @@ function applyRenewalEdit(student, record, patch) {
   const typed = Math.max(0, +patch.amount || 0);
   record.amount = patch.priceMode === "unit" ? typed * newSessions : typed;
   record.notes = patch.notes ?? record.notes;
+  applyPaymentLink(student, record, patch);
+  student.updatedAt = new Date().toISOString();
+  return record;
+}
 
+/**
+ * 收費那一頭：接上一筆現成的、或補一筆新的，然後看要不要同步金額與日期。
+ *
+ * 為什麼要能在這裡接：「同時更新收費紀錄」以前只有在**已經**掛著收費時
+ * 才畫得出來，於是分開記的那筆錢永遠接不上 —— 使用者改了續約金額按儲存，
+ * 收費不動、畫面上也沒有任何開關可以按（2026-08-11 回報的「編輯後收費紀錄
+ * 沒有更新」就是這個）。要接得先去收費那一頁找到那筆錢再繞回來，
+ * 而那是最不會被想到的一條路。
+ *
+ * 同步是**選擇性**的：接起來多半只是要把兩筆對上，金額本來就可能不同
+ * （分期、訂金），無條件蓋掉會把真的收到多少改壞。
+ */
+function applyPaymentLink(student, record, patch) {
+  if (patch.linkPaymentId) {
+    // 只從「還沒對應的」裡面找 —— 已經掛在別筆續約底下的不搶，
+    // 那會讓另一筆續約的收費憑空消失。
+    const p = unlinkedPayments(student).find((x) => x.id === patch.linkPaymentId);
+    if (p) p.renewalId = record.id;
+  }
+  if (patch.addPayment) {
+    student.payments = student.payments || [];
+    student.payments.push({
+      id: uid(), renewalId: record.id, amount: record.amount || 0,
+      date: record.date || today(), method: "cash", notes: "",
+      createdAt: new Date().toISOString(),
+    });
+  }
   // 勾了才同步，而且只動掛在這筆續約底下的收費。堂數不用同步 ——
   // 收費那一列的堂數是即時從續約讀出來的，本來就會跟著變。
   if (patch.syncPayment) {
@@ -2567,7 +2607,39 @@ function applyRenewalEdit(student, record, patch) {
       p.date = record.date;
     }
   }
+}
 
+/**
+ * 在續約紀錄那一塊直接補一筆。
+ *
+ * 為什麼需要：那一區以前只能改和刪。要補一筆漏掉的續約只有「續約」按鈕
+ * 一條路，而使用者在紀錄清單裡找不到「新增」時，會去改舊的那一筆 ——
+ * 改是同一筆，次數當然不會加，看起來就是「我增加了但還是續約一次」
+ * （2026-08-11 回報）。
+ *
+ * 預設是**補登**（不加剩餘堂數）：會在這裡補資料的多半是在補歷史，
+ * 那些課早就上完了，加回剩餘等於憑空多出堂數。真的是新成交的一筆，
+ * 走「續約」按鈕比較順（那邊有方案、到期日與付款方式）。
+ *
+ * 次數只有在「本來就有紀錄」時才 +1：第一筆是首購，首購不算續約，
+ * 跟 isFirstPurchase 的判斷（最早的那筆是首購）保持同一套說法。
+ */
+function addRenewalRecord(student, patch) {
+  const sessions = Math.max(0, +patch.sessions || 0);
+  const typed = Math.max(0, +patch.amount || 0);
+  const hadAny = (student.renewals || []).length > 0;
+  const record = {
+    id: uid(), date: patch.date || today(), sessions,
+    amount: patch.priceMode === "unit" ? typed * sessions : typed,
+    notes: patch.notes || "", createdAt: new Date().toISOString(),
+  };
+  student.renewals = student.renewals || [];
+  student.renewals.push(record);
+  if (hadAny) student.renewalCount = (student.renewalCount || 0) + 1;
+  student.totalPurchased = Math.max(0, (student.totalPurchased || 0) + sessions);
+  // 補登只補歷史，不動現況。理由同 renewSheet：三個月前買的 10 堂早就上完了。
+  if (!patch.backfill) student.remaining = Math.max(0, (student.remaining || 0) + sessions);
+  applyPaymentLink(student, record, patch);
   student.updatedAt = new Date().toISOString();
   return record;
 }
@@ -2585,23 +2657,49 @@ function applyRenewalEdit(student, record, patch) {
 function applyOpenRenewalRow(student, scope) {
   const row = scope.querySelector("[data-renewal-row]");
   if (!row) return null;
-  const rec = (student.renewals || []).find((x) => x.id === row.dataset.renewalRow);
-  if (!rec) return null;
+  const adding = row.dataset.renewalRow === NEW_RENEWAL;
+  const rec = adding ? null
+    : (student.renewals || []).find((x) => x.id === row.dataset.renewalRow);
+  if (!adding && !rec) return null;
   const val = (n) => row.querySelector(`[name="${n}"]`)?.value ?? "";
-  const syncBox = row.querySelector('[name="r_syncPayment"]');
-  applyRenewalEdit(student, rec, {
+  const on = (n) => {
+    const box = row.querySelector(`[name="${n}"]`);
+    return !!(box && box.checked);
+  };
+  const patch = {
     date: val("r_date"), sessions: val("r_sessions"),
     amount: val("r_amount"), notes: val("r_notes"),
     priceMode: val("r_priceMode"),
-    syncPayment: !!(syncBox && syncBox.checked),
-  });
+    syncPayment: on("r_syncPayment"),
+    addPayment: on("r_addPayment"),
+    linkPaymentId: val("r_linkPayment"),
+  };
+  // 空白列什麼都沒填就當作沒開過 —— 按外層「儲存」不該憑空長出一筆 0 堂的續約
+  if (adding && !(+patch.sessions || 0) && !(+patch.amount || 0)) {
+    editingRenewalId = null;
+    return null;
+  }
+  const saved = adding
+    ? addRenewalRecord(student, { ...patch, backfill: on("r_backfill") })
+    : applyRenewalEdit(student, rec, patch);
   editingRenewalId = null;
-  return rec;
+  return saved;
 }
 
 /** 掛在這筆續約底下的收費紀錄（分期的話會有好幾筆） */
 function paymentsOfRenewal(student, renewalId) {
   return (student.payments || []).filter((p) => p.renewalId && p.renewalId === renewalId);
+}
+
+/**
+ * 還沒對應到任何續約的收費 —— 「把哪一筆收費接上來」那個下拉的來源。
+ *
+ * 指向已經被刪掉的續約的那種也算，那是**斷頭**不是已對應：留著那個 id
+ * 收費列印不出堂數，卻又不會被當成可以接的對象，等於永遠接不回來。
+ */
+function unlinkedPayments(student) {
+  const ids = new Set((student.renewals || []).map((r) => r.id));
+  return (student.payments || []).filter((p) => !p.renewalId || !ids.has(p.renewalId));
 }
 
 /**
@@ -2640,10 +2738,16 @@ function refreshRenewalHint(box) {
  * 刪掉一筆續約紀錄。次數與已購跟著回去，剩餘堂數不動（理由同上）。
  */
 function removeRenewalRecord(student, record) {
+  // 掛在底下的收費要解開關聯，不是留著指向一筆已經不存在的續約。
+  // 錢本身不刪（收到就是收到），但那個 id 留著就是斷頭：收費那一列印不出
+  // 堂數，也不會被當成「還沒對應的收費」，於是永遠接不回任何一筆。
+  const orphans = paymentsOfRenewal(student, record.id);
+  for (const p of orphans) delete p.renewalId;
   student.renewals = (student.renewals || []).filter((x) => x.id !== record.id);
   student.renewalCount = Math.max(0, (student.renewalCount || 0) - 1);
   student.totalPurchased = Math.max(0, (student.totalPurchased || 0) - (record.sessions || 0));
   student.updatedAt = new Date().toISOString();
+  return orphans.length;
 }
 
 function renewalHistoryBlock(student) {
@@ -2654,8 +2758,9 @@ function renewalHistoryBlock(student) {
   // 編輯狀態的那一列。就地換成輸入框，不另外開 sheet ——
   // openSheet 會先關掉現有的那張，等於把使用者在編輯學生表單裡
   // 其他還沒存的修改一起吃掉。
-  const editRow = (r) => `
-    <div class="row" style="padding:8px 0;display:block" data-renewal-row="${r.id}">
+  const editRow = (r, adding = false) => `
+    <div class="row" style="padding:8px 0;display:block" data-renewal-row="${adding ? NEW_RENEWAL : r.id}">
+      ${adding ? `<div class="row-title" style="font-size:14px;margin-bottom:6px">新增一筆續約紀錄</div>` : ""}
       <div class="field-row">
         ${fieldText("r_date", "日期", r.date || "", { type: "date" })}
         ${fieldText("r_sessions", "堂數", r.sessions || 0, { type: "number" })}
@@ -2674,14 +2779,43 @@ function renewalHistoryBlock(student) {
       <p class="hint" data-r-price-hint>${
         r.sessions ? `${money(r.amount || 0)} ÷ ${r.sessions} 堂 ＝ 每堂 ${money(Math.round((r.amount || 0) / r.sessions))}` : "存進去的一律是總額。"
       }</p>
+      ${adding ? `
+        <div class="switch">
+          <label for="f-r_backfill">補登以前的續約</label>
+          <input id="f-r_backfill" name="r_backfill" type="checkbox" checked>
+        </div>
+        <p class="hint">在這裡補紀錄多半是在補歷史，所以預設<strong>不加到剩餘堂數</strong>——那些課早就上完了。
+          如果這是剛成交、堂數要真的加給學生，把它取消勾選。</p>` : ""}
       ${(() => {
-        const linked = paymentsOfRenewal(student, r.id);
-        // 沒有掛任何收費時以前是靜靜什麼都不顯示，於是改了金額之後
-        // 收費不動、畫面上也沒有任何線索。缺開關的原因要講出來。
+        const linked = adding ? [] : paymentsOfRenewal(student, r.id);
+        // 沒有掛任何收費時以前只印一句「去別頁自己接」，於是分開記的那筆錢
+        // 永遠接不上：改了金額按儲存，收費不動、也沒有開關可以按。
+        // 現在直接在這裡接得起來（沒有現成的就補一筆）。
         if (!linked.length) {
-          return `<p class="hint">這筆續約底下<strong>沒有掛任何收費紀錄</strong>，所以沒有「同時更新收費紀錄」可以勾——
-            改這裡的金額不會動到收費。要接起來：到「收費」那一頁找到那筆錢按「編輯」，
-            把「對應的續約」選成這一筆。</p>`;
+          const free = unlinkedPayments(student);
+          return `
+            ${free.length ? `
+              ${fieldSelect("r_linkPayment", "把哪一筆收費接上來",
+                  [["", "（先不接）"], ...free
+                    .slice()
+                    .sort((a, b) => (b.date || "").localeCompare(a.date || ""))
+                    .map((p) => [p.id, `${p.date || "（無日期）"}・${money(p.amount || 0)}`])],
+                  "",
+                  "這位學生還沒有對應到任何續約的收費。接起來之後，那一列就會顯示這筆續約的堂數。")}
+              <div class="switch">
+                <label for="f-r_syncPayment">接上來之後，金額與日期也一起改成上面填的</label>
+                <input id="f-r_syncPayment" name="r_syncPayment" type="checkbox">
+              </div>
+              <p class="hint">預設不勾：分期或訂金時收費本來就跟續約金額不同，蓋掉會把「實際收到多少」改壞。</p>`
+            : ""}
+            <div class="switch">
+              <label for="f-r_addPayment">同時新增一筆收費紀錄</label>
+              <input id="f-r_addPayment" name="r_addPayment" type="checkbox">
+            </div>
+            <p class="hint">${free.length
+              ? "上面那筆錢還沒記進來的話勾這個，用這裡填的金額與日期建一筆（現金）。"
+              : `這筆續約底下<strong>沒有掛任何收費紀錄</strong>，這位學生也沒有還沒對應的收費可以接。
+                 錢如果還沒記，勾這個就用上面填的金額與日期建一筆（現金）。`}</p>`;
         }
         const on = shouldSyncPaymentByDefault(student, r);
         const sum = linked.reduce((a, p) => a + (p.amount || 0), 0);
@@ -2699,9 +2833,13 @@ function renewalHistoryBlock(student) {
       })()}
       <div style="display:flex;gap:6px;justify-content:flex-end">
         <button type="button" class="btn btn-sm" data-cancel-renewal="1">取消</button>
-        <button type="button" class="btn btn-sm btn-primary" data-save-renewal="${r.id}">儲存這筆</button>
+        <button type="button" class="btn btn-sm btn-primary"
+                data-save-renewal="${adding ? NEW_RENEWAL : r.id}">${adding ? "新增這筆" : "儲存這筆"}</button>
       </div>
     </div>`;
+
+  // 空白列：日期預設今天，堂數與金額留白讓人自己填
+  const blankRenewal = () => ({ id: NEW_RENEWAL, date: today(), sessions: "", amount: "", notes: "" });
 
   const showRow = (r) => `
     <div class="row" style="padding:8px 0">
@@ -2724,6 +2862,8 @@ function renewalHistoryBlock(student) {
       </div>
     </div>`;
 
+  const adding = editingRenewalId === NEW_RENEWAL;
+
   return `
     <div class="row-title" style="display:flex;align-items:center;justify-content:space-between;gap:8px">
       <span>續約紀錄</span>
@@ -2732,10 +2872,14 @@ function renewalHistoryBlock(student) {
         return `<span class="muted" style="font-size:12px;font-weight:400">${rs.length} 次・${sessions} 堂・累計 ${money(amount)}${
           linked < rs.length ? `・<strong style="color:var(--warn)">${rs.length - linked} 筆沒有收費</strong>` : ""}</span>`;
       })() : ""}
+      ${adding ? "" : `<button type="button" class="btn btn-sm" data-add-renewal="1">新增一筆</button>`}
     </div>
+    ${adding ? editRow(blankRenewal(), true) : ""}
     ${rs.length ? rs.map((r) => (r.id === editingRenewalId ? editRow(r) : showRow(r))).join("")
-                : `<p class="empty" style="padding:16px 0">尚無續約紀錄。按「續約」新增，補以前的請勾「補登以前的續約」。</p>`}
-    <p class="hint">改堂數會連動累計已購，改金額會連動銷售統計。<strong>剩餘堂數不會跟著動</strong>——看不出這筆當初是不是補登的，猜錯就是吃掉學生手上的課，要改請用「調整剩餘堂數」。掛在底下的收費紀錄要不要一起改，展開編輯時可以勾。</p>`;
+                : (adding ? "" : `<p class="empty" style="padding:16px 0">尚無續約紀錄。剛成交的按上面的「續約」，補以前漏掉的按「新增一筆」。</p>`)}
+    <p class="hint"><strong>「新增一筆」是補漏掉的續約</strong>——次數會 +1（除非這是第一筆，那筆是首購），
+      堂數進累計已購與銷售統計。改舊的那一筆不會加次數，那還是同一筆。
+      改堂數會連動累計已購，改金額會連動銷售統計。<strong>剩餘堂數不會跟著動</strong>——看不出這筆當初是不是補登的，猜錯就是吃掉學生手上的課，要改請用「調整剩餘堂數」。掛在底下的收費紀錄要不要一起改，展開編輯時可以勾。</p>`;
 }
 
 function studentSheet(existing) {
@@ -2834,7 +2978,18 @@ function studentSheet(existing) {
       // **一定要在下面「本期購買堂數」那段之前做**：那段是拿
       // currentSessionsInitial 比差額的，套用完不更新的話會用開啟表單當下的
       // 舊值再算一次，等於把剛剛存進去的改回去。
+      const remainingBefore = s.remaining || 0;
+      const countBefore = s.renewalCount || 0;
       const savedRenewal = applyOpenRenewalRow(s, form);
+      // 新增一筆「不是補登」的續約會加剩餘堂數，而下面那行是拿表單裡的
+      // 「剩餘堂數」直接覆蓋 —— 那一格還停在開啟表單當下的值，會把剛加的
+      // 堂數靜靜寫回去。所以記下差額，等一下加回來（使用者同時手改那一格
+      // 也還是對的：他填的數字 ＋ 這次續約加的堂數）。
+      const remainingDelta = (s.remaining || 0) - remainingBefore;
+      // 「續約次數」那一格同理：它是可以手動更正的欄位，值停在開啟表單當下的
+      // 數字，直接覆蓋會把新增的那一筆加的次數靜靜抹掉（症狀就是使用者說的
+      // 「我增加了但還是顯示續約一次」）。
+      const countDelta = (s.renewalCount || 0) - countBefore;
       if (savedRenewal) {
         if (form.elements.currentSessions) {
           form.elements.currentSessions.value = currentPackageSessions(s);
@@ -2847,7 +3002,7 @@ function studentSheet(existing) {
       s.name = name;
       s.phone = form.elements.phone.value.trim();
       s.rate = +form.elements.rate.value || 0;
-      s.remaining = Math.max(0, +form.elements.remaining.value || 0);
+      s.remaining = Math.max(0, (+form.elements.remaining.value || 0) + remainingDelta);
       // 「本期購買堂數」改的是最近一筆續約的堂數，累計自動跟著調差額。
       // 不能直接蓋掉 totalPurchased —— 那是所有續約的總和，
       // 銷售統計與客群分析都在用，蓋掉就整組錯。
@@ -2895,7 +3050,7 @@ function studentSheet(existing) {
       // 只改次數，不碰 s.renewals。那個陣列是銷售統計的資料來源，
       // 在這裡補一筆假的續約紀錄會讓業績憑空多出一筆金額。
       // 所以這格是「更正數字」，真的成交要走「續約」按鈕。
-      s.renewalCount = Math.max(0, +form.elements.renewalCount.value || 0);
+      s.renewalCount = Math.max(0, (+form.elements.renewalCount.value || 0) + countDelta);
       s.mayNotRenew = form.elements.mayNotRenew.checked;
       s.notes = form.elements.notes.value;
       s.color = form.elements.color.value || s.color;
@@ -2975,6 +3130,14 @@ function studentSheet(existing) {
         });
 
         histBox.addEventListener("click", (e) => {
+          // 補一筆漏掉的續約。展開的是同一種編輯列，只是還沒有對應的紀錄。
+          if (e.target.closest("[data-add-renewal]")) {
+            e.preventDefault();
+            editingRenewalId = NEW_RENEWAL;
+            redraw();
+            return;
+          }
+
           // 進入編輯：只換那一列的樣子，其他欄位的未存修改不受影響
           const edit = e.target.closest("[data-edit-renewal]");
           if (edit) {
@@ -3013,10 +3176,27 @@ function studentSheet(existing) {
           const saveBtn = e.target.closest("[data-save-renewal]");
           if (saveBtn) {
             e.preventDefault();
+            const adding = saveBtn.dataset.saveRenewal === NEW_RENEWAL;
+            const before = s.remaining || 0;
+            const countBefore = s.renewalCount || 0;
             const rec = applyOpenRenewalRow(s, histBox);
-            if (!rec) return;
+            if (!rec) {
+              if (adding) { toast("堂數或金額至少要填一個"); }
+              return;
+            }
+            // 剩餘堂數與續約次數真的變了，就把表單那兩格也帶上去 —— 不然
+            // 使用者接著按表單底下的「儲存」，那兩格的舊值會把剛剛加的
+            // 堂數與次數寫回去（表單那一格是可以手動更正的欄位）。
+            if ((s.remaining || 0) !== before) {
+              const rem = root.querySelector('[name="remaining"]');
+              if (rem) rem.value = s.remaining || 0;
+            }
+            if ((s.renewalCount || 0) !== countBefore) {
+              const cnt = root.querySelector('[name="renewalCount"]');
+              if (cnt) cnt.value = s.renewalCount || 0;
+            }
             save(); render(); redraw(); syncCurrentField();
-            toast(`已更新 ${rec.date} 的續約紀錄`);
+            toast(adding ? `已補上 ${rec.date} 的續約紀錄` : `已更新 ${rec.date} 的續約紀錄`);
             return;
           }
 
@@ -3025,10 +3205,15 @@ function studentSheet(existing) {
           e.preventDefault();
           const r = (s.renewals || []).find((x) => x.id === btn.dataset.delRenewal);
           if (!r) return;
-          removeRenewalRecord(s, r);
+          const freed = removeRenewalRecord(s, r);
           editingRenewalId = null;
+          const cnt = root.querySelector('[name="renewalCount"]');
+          if (cnt) cnt.value = s.renewalCount || 0;
           save(); render(); redraw(); syncCurrentField();
-          toast(`已刪除 ${r.date} 的續約紀錄`);
+          // 錢沒有跟著刪，這件事要講出來 —— 不然對帳時會以為連收費也沒了
+          toast(freed
+            ? `已刪除 ${r.date} 的續約紀錄，底下 ${freed} 筆收費留著（已解除對應）`
+            : `已刪除 ${r.date} 的續約紀錄`);
         });
       }
 
