@@ -719,7 +719,7 @@ const NOTICE_KEY = "coach-mate-web-notice-dismissed";
  * 版本標記。顯示在設定頁最下面，教練唸得出來就知道他手上是哪一版，
  * 不用再猜是不是拿到舊的快取。每次改版就把這個字串往上加。
  */
-const BUILD = "2026-08-09 · v33";
+const BUILD = "2026-08-10 · v34";
 
 /** 開發者署名，顯示在設定頁的「關於」 */
 const DEVELOPER = "杯子蛋糕好好吃";
@@ -3294,8 +3294,17 @@ function renewSheet(student) {
       </div>
       <p class="hint" data-price-hint>存進去的一律是總額——銷售統計與業績抽成都是拿總額去算的。</p>
       <div class="field-row">
-        ${fieldText("date", "日期", today(), { type: "date" })}
+        ${fieldText("date", "合約日期", today(), { type: "date",
+          hint: "簽約的那一天。銷售統計與「依簽約」計薪的業績都照這個日期分月。" })}
         ${fieldSelect("method", "付款方式", [["cash", "現金"], ["transfer", "轉帳"], ["other", "其他"]], "cash")}
+      </div>
+      <div class="switch">
+        <label for="f-separatePayDate">收費日期與合約不同天</label>
+        <input id="f-separatePayDate" name="separatePayDate" type="checkbox">
+      </div>
+      <div data-pay-date hidden>
+        ${fieldText("payDate", "收費日期", today(), { type: "date",
+          hint: "錢什麼時候進來。收入算在這個月，業績留在合約那個月。" })}
       </div>
       ${fieldText("expiry", "新的到期日", student.expiry, { type: "date", hint: "留白就不改" })}
       ${fieldText("notes", "備註", "")}
@@ -3319,6 +3328,10 @@ function renewSheet(student) {
       const typed = +form.elements.amount.value || 0;
       const amount = form.elements.priceMode.value === "unit" ? typed * sessions : typed;
       const date = form.elements.date.value || today();
+      // 收費日期預設跟合約同一天。分開填是很常見的：這個月簽約、下個月才
+      // 轉帳。混在一起的話收入會記到錯的月份，而業績本來就該留在簽約那個月。
+      const payDate = (form.elements.separatePayDate && form.elements.separatePayDate.checked
+        && form.elements.payDate.value) || date;
       // 補登舊紀錄時只補「歷史」，不動「現況」。
       // 已購與續約紀錄是歷史（銷售統計要用），剩餘堂數是現況——
       // 三個月前買的 10 堂早就上完了，加回剩餘會憑空多出十堂課。
@@ -3335,7 +3348,7 @@ function renewSheet(student) {
       if (form.elements.recordPayment.checked) {
         student.payments.push({
           // 存關聯而不是把堂數抄成字串：抄過去的數字改續約時不會跟著動。
-          id: uid(), renewalId, amount, date, method: form.elements.method.value,
+          id: uid(), renewalId, amount, date: payDate, method: form.elements.method.value,
           // 刻意不把堂數寫進備註。這行是建立當下凍住的字串，之後改續約紀錄
           // 的堂數它不會跟著動，而兩邊沒有關聯欄位可以追 —— 重複記一份遲早
           // 不同步。堂數的真相在續約紀錄裡。
@@ -3381,6 +3394,22 @@ function renewSheet(student) {
       });
       amountInput.addEventListener("input", refresh);
       sessionsInput.addEventListener("input", refresh);
+
+      // 收費日期只有「不同天」時才出現；沒開的時候要跟著合約走，
+      // 不然它會靜靜留在今天，收入就記到錯的月份
+      const sepBox = root.querySelector('[name="separatePayDate"]');
+      const payDateBox = root.querySelector("[data-pay-date]");
+      const payDateInput = root.querySelector('[name="payDate"]');
+      const dateInput = root.querySelector('[name="date"]');
+      if (sepBox && payDateBox && payDateInput && dateInput) {
+        const syncPayDate = () => {
+          payDateBox.hidden = !sepBox.checked;
+          if (!sepBox.checked) payDateInput.value = dateInput.value;
+        };
+        sepBox.addEventListener("change", syncPayDate);
+        dateInput.addEventListener("change", syncPayDate);
+        syncPayDate();
+      }
 
       const pkg = root.querySelector('[name="pkg"]');
       if (!pkg) return;
