@@ -535,11 +535,11 @@ dialog.sheet {
 .day-name { font-size: 10.5px; color: var(--muted); }
 .day-num { font-family: var(--mono); font-size: 15px; font-variant-numeric: tabular-nums; }
 .day.today .day-num { background: var(--gold); color: var(--on-gold); border-radius: 50%; width: 26px; height: 26px; display: grid; place-items: center; }
-/* 每堂一個色點（跟 iOS 一致）。原本只有一個灰點「有課就亮」，
-   看不出那天是正課還是檢測，也看不出幾堂。 */
-.day-dots { display: flex; gap: 2px; align-items: center; height: 6px; }
-.day-dot { width: 5px; height: 5px; border-radius: 50%; background: var(--gold); }
-.day-more { font-size: 8px; font-weight: 600; color: var(--muted); line-height: 1; }
+/* 有課一個點，有檢測再多一個紫點。最多兩個 —— 「每堂一個色點」試過，
+   照學生代表色畫出來是一排彩虹，又雜又看不出重點。 */
+.day-dots { display: flex; gap: 3px; align-items: center; height: 6px; }
+.day-dot { width: 5px; height: 5px; border-radius: 50%; background: var(--gold); opacity: .55; }
+.day-dot-assess { background: #8B5CF6; opacity: .75; }
 
 .chips { display: flex; flex-wrap: wrap; gap: 6px; }
 .chip {
@@ -768,7 +768,7 @@ const NOTICE_KEY = "coach-mate-web-notice-dismissed";
  * 版本標記。顯示在設定頁最下面，教練唸得出來就知道他手上是哪一版，
  * 不用再猜是不是拿到舊的快取。每次改版就把這個字串往上加。
  */
-const BUILD = "2026-08-12 · v52";
+const BUILD = "2026-08-12 · v53";
 
 /** 開發者署名，顯示在設定頁的「關於」 */
 const DEVELOPER = "杯子蛋糕好好吃";
@@ -1372,15 +1372,20 @@ function attendedCount(studentId) {
  * 於是列表寫「已上 0 堂」，可是他買了 30 堂、只剩 3 堂 —— 那明明是上了 27 堂。
  * 0 是「我沒有紀錄」，不是「他沒上過課」，但畫面上看起來一樣（2026-08-09 回報）。
  *
- * 刻意**不把兩者相加**：往後開始記課程紀錄之後，那幾堂已經反映在剩餘堂數裡，
- * 加起來會重複計算。有紀錄就以紀錄為準。
+ * 刻意**不把兩者相加**：課程紀錄上的那幾堂已經反映在剩餘堂數裡，加起來會
+ * 重複計算。
+ *
+ * **取兩者大的那個**（2026-08-12 改）。原本「有紀錄就以紀錄為準」，但補歷史
+ * 的人只會記最近幾堂：買了 36 剩 12（等於上了 24），補了 4 堂紀錄之後
+ * 「已上 24 堂」竟然變成「已上 4 堂」——數字反而縮水，看起來像資料壞了。
+ * 紀錄是「我有憑據的那幾堂」，餘額差是「他實際上掉幾堂」，後者才是總數。
  */
 function consumedSessions(student) {
-  if (!student) return { count: 0, estimated: false };
+  if (!student) return { count: 0, estimated: false, recorded: 0 };
   const recorded = attendedCount(student.id);
-  if (recorded > 0) return { count: recorded, estimated: false };
-  const implied = (student.totalPurchased || 0) - Math.max(0, student.remaining || 0);
-  return { count: Math.max(0, implied), estimated: implied > 0 };
+  const implied = Math.max(0, (student.totalPurchased || 0) - Math.max(0, student.remaining || 0));
+  if (implied > recorded) return { count: implied, estimated: true, recorded };
+  return { count: recorded, estimated: false, recorded };
 }
 /** 續約紀錄，新的排前面。日期相同時用建立時間分先後。 */
 function renewalsOf(student) {
@@ -2566,7 +2571,7 @@ function viewStudents() {
                 ${s.mayNotRenew ? '<span class="pill pill-warn">可能不續約</span>' : ""}
               </div>
               <div class="row-sub">${used.estimated
-                  ? `已上 ${used.count} 堂（依剩餘推算）`
+                  ? `已上 ${used.count} 堂（依剩餘推算${used.recorded ? `，${used.recorded} 堂有紀錄` : ""}）`
                   : `已上 ${used.count} 堂`}${usedValue > 0 ? `・${money(usedValue)}` : ""}${s.renewalCount > 0 ? `・續約 ${s.renewalCount} 次` : ""}・累計收費 ${money(paid)}${s.phone ? "・" + esc(s.phone) : ""}</div>
               ${tagsOf(s).length ? `<div class="tag-row">${tagsOf(s).map((t) =>
                 `<span class="tag-chip tag-chip-sm" style="--tag:${esc(t.color)}"><span class="tag-dot"></span>${esc(t.name)}</span>`).join("")}</div>` : ""}
@@ -3296,6 +3301,9 @@ function studentSheet(existing) {
         })}
         ${fieldText("remaining", "剩餘堂數", s.remaining || 0, { type: "number" })}
       </div>
+      ${existing ? "" : `
+        ${fieldText("purchaseDate", "購買日期", today(), { type: "date" })}
+        <p class="hint" data-purchase-hint></p>`}
       <div class="field-row">
         ${fieldText("expiry", "方案到期日", s.expiry, { type: "date" })}
         ${fieldSelect("acquisition", "客戶來源", Object.entries(ACQUISITION), s.acquisition)}
@@ -3425,13 +3433,18 @@ function studentSheet(existing) {
         const firstAmount = Math.max(0, (s.rate || 0) * typedCurrent);
         const rid = uid();
         const stamp = new Date().toISOString();
+        // **購買日期要看得到、改得動。**
+        // 這一筆首購合約以前是拿 today() 偷偷建的，於是把舊學生一位一位建進來
+        // 的人，所有合約都掛在建檔那天 —— 銷售的月份整個失真，而畫面上從頭到尾
+        // 沒出現過任何日期（2026-08-12 實際 key 一遍才發現，那才是真正的來源）。
+        const bought = (form.elements.purchaseDate && form.elements.purchaseDate.value) || today();
         // 備註留空：「首次購買」是由誰最早推導出來的，不寫死。
         // 之後補了更早的續約，那筆才是首購。
-        s.renewals.push({ id: rid, date: today(), sessions: typedCurrent,
-                          amount: firstAmount, notes: "", createdAt: stamp });
+        s.renewals.push({ id: rid, date: bought, sessions: typedCurrent,
+                          amount: firstAmount, carryOver: 0, notes: "", createdAt: stamp });
         if (form.elements.firstPayment.checked) {
           s.payments.push({ id: uid(), renewalId: rid, amount: firstAmount,
-                            date: today(), method: "cash", notes: "",
+                            date: bought, method: "cash", notes: "",
                             createdAt: stamp });
         }
       }
@@ -3463,6 +3476,26 @@ function studentSheet(existing) {
             : (existing ? "已更新學生資料" : `已新增 ${s.name}`));
     },
     onMount: (root) => {
+      // 剩餘比購買少，代表他早就上過課了 —— 那筆合約一定不是今天買的。
+      // 一位一位把舊學生建進來的人最容易在這裡把日期留成今天，
+      // 而那一筆會直接變成「這個月的業績」。
+      const purchaseHint = root.querySelector("[data-purchase-hint]");
+      const boughtEl = root.querySelector('[name="currentSessions"]');
+      const remainEl = root.querySelector('[name="remaining"]');
+      const dateEl = root.querySelector('[name="purchaseDate"]');
+      const refreshPurchase = () => {
+        if (!purchaseHint || !boughtEl || !remainEl || !dateEl) return;
+        const bought = +boughtEl.value || 0, left = +remainEl.value || 0;
+        const used = bought - left;
+        purchaseHint.innerHTML = used > 0 && dateEl.value === today()
+          ? `<strong style="color:var(--warn)">他已經上掉 ${used} 堂了，這份合約應該不是今天買的。</strong>`
+            + `日期留成今天的話，這筆業績會算進這個月。`
+          : "當初買這份合約的日期。銷售統計與業績都照這個日期分月。";
+      };
+      root.addEventListener("input", refreshPurchase);
+      root.addEventListener("change", refreshPurchase);
+      refreshPurchase();
+
       // 代表色
       const picker = root.querySelector("[data-color-picker]");
       const colorInput = root.querySelector('[name="color"]');
@@ -4138,17 +4171,19 @@ function viewCalendar() {
         <div class="week">
           ${days.map((d) => {
             const ds = dayStr(d);
-            // 每堂一個色點，檢測是紫的 —— 一眼看得出那天有沒有檢測。
-            // 超過四堂就用「+N」收尾，跟 iOS 一樣。
+            // 一個點代表那天有課，有檢測才多一個紫點 —— 最多兩個。
+            // 中間試過「每堂一個色點」（照學生的代表色），畫面變成一排彩虹，
+            // 又雜又看不出重點（2026-08-12 回報）。要看幾堂點進去就好。
             const ofDay = S.lessons.filter((l) => l.date === ds && l.status !== "cancelled");
+            const hasLesson = ofDay.some((l) => !isAssessment(l));
+            const hasAssess = ofDay.some((l) => isAssessment(l));
             return `<button class="day ${ds === today() ? "today" : ""}" type="button"
                       data-action="pick-day" data-value="${ds}" aria-pressed="${ds === selectedDate}">
               <span class="day-name">${weekdayName(d)}</span>
               <span class="day-num">${d.getDate()}</span>
               <span class="day-dots">
-                ${ofDay.slice(0, 4).map((l) =>
-                  `<span class="day-dot" style="background:${esc(lessonColor(l) || "var(--gold)")}"></span>`).join("")}
-                ${ofDay.length > 4 ? `<span class="day-more">+${ofDay.length - 4}</span>` : ""}
+                ${hasLesson ? `<span class="day-dot"></span>` : ""}
+                ${hasAssess ? `<span class="day-dot day-dot-assess"></span>` : ""}
               </span>
             </button>`;
           }).join("")}
