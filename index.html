@@ -737,7 +737,7 @@ const NOTICE_KEY = "coach-mate-web-notice-dismissed";
  * 版本標記。顯示在設定頁最下面，教練唸得出來就知道他手上是哪一版，
  * 不用再猜是不是拿到舊的快取。每次改版就把這個字串往上加。
  */
-const BUILD = "2026-08-11 · v41";
+const BUILD = "2026-08-11 · v42";
 
 /** 開發者署名，顯示在設定頁的「關於」 */
 const DEVELOPER = "杯子蛋糕好好吃";
@@ -886,6 +886,9 @@ const DEFAULT_SALARY = {
 
 const DEFAULT_SETTINGS = {
   employment: "independent",       // independent | company
+  // 身份。跟 iOS 的 userRole 是同一個東西（備份也是用這個鍵搬）：
+  // 承攬教練在健身房／場館授課，要登記上課地點；一般教練不必區分。
+  role: "coach",                   // coach | contractor
   defaultDuration: 90,             // 分鐘
   // 總覽頁「堂數快用完」從剩幾堂開始提醒。教練的方案差很多（10 堂與 36 堂
   // 的「快用完」不是同一個數字），寫死 3 對買大包的人來說太晚了。
@@ -1268,14 +1271,29 @@ function owedCount(studentId) {
 }
 
 /** 結束時間已過卻還停在「已排定」的課，補標成已出席 */
-function autoMarkPastLessons() {
+/**
+ * 這個時段過了沒。
+ *
+ * 「結束時間已經過去」才算過了 —— 正在上的那一堂不能算完成。
+ * 抽出來是因為兩個地方要用同一把尺：開 App 時的自動補標，
+ * 以及新排一堂課時要預設成「已上課」還是「已排定」。
+ */
+function isPastSlot(date, end, start = "") {
   const now = new Date();
   const nowDay = dayStr(now), nowMin = now.getHours() * 60 + now.getMinutes();
+  // 跨午夜的課（23:30–00:30）結束時間會比開始時間小，實際上是**隔天**才結束。
+  // 不看這件事的話，今晚 23:30 那堂會被當成早上就已經上完 —— 排下去立刻
+  // 記成已出席、還扣一堂。
+  const endsNextDay = start && minutesOf(end) <= minutesOf(start);
+  const endDay = endsNextDay ? dayStr(addDays(parseDay(date) || now, 1)) : date;
+  return endDay < nowDay || (endDay === nowDay && minutesOf(end) <= nowMin);
+}
+
+function autoMarkPastLessons() {
   let changed = 0;
   for (const l of S.lessons) {
     if (l.status !== "scheduled") continue;
-    const past = l.date < nowDay || (l.date === nowDay && minutesOf(l.end) <= nowMin);
-    if (!past) continue;
+    if (!isPastSlot(l.date, l.end, l.start)) continue;
     setLessonStatus(l, "attended");
     changed++;
   }
@@ -1401,6 +1419,28 @@ function currentPackageTotal(student) {
 // 只在新增學生時做。曾經想過「往前找裝得下剩餘的那一筆」，那會讓分母不再是
 // 他這期真的買了幾堂 —— 分母說謊比分子大醜。現在的解法是把結轉記下來，
 // 分母改成「這次買的＋結轉」，兩個數字都留著，畫面上也講得出來。
+
+/**
+ * 身份：一般教練還是承攬教練。
+ *
+ * 跟 iOS 的 `userRole` 是同一個東西（備份也用那個鍵），差別只有一件事：
+ * 承攬教練在場館授課，每一堂要登記上課地點；一般教練不必，那一格對他來說
+ * 只是雜訊。舊資料沒有這個鍵，一律當一般教練。
+ */
+function roleOf() {
+  return S.settings.role === "contractor" ? "contractor" : "coach";
+}
+const isContractor = () => roleOf() === "contractor";
+
+/** 這位教練用過的上課地點，排課時給他直接選 */
+function knownLocations() {
+  const seen = new Map();
+  for (const l of S.lessons) {
+    const name = (l.location || "").trim();
+    if (name) seen.set(name, (seen.get(name) || 0) + 1);
+  }
+  return [...seen.entries()].sort((a, b) => b[1] - a[1]).map(([name]) => name);
+}
 
 function paymentsOf(studentId) {
   const st = studentById(studentId);
@@ -1933,11 +1973,12 @@ function confirmSheet(title, message, onYes, yesLabel = "確定") {
 /* ── 表單片段 ───────────────────────────────── */
 
 function fieldText(name, label, value = "", opts = {}) {
-  const { type = "text", hint = "", placeholder = "", required = false } = opts;
+  const { type = "text", hint = "", placeholder = "", required = false, list = "" } = opts;
   return `<div class="field">
     <label for="f-${name}">${esc(label)}</label>
     <input id="f-${name}" name="${name}" type="${type}" value="${esc(value)}"
            placeholder="${esc(placeholder)}" ${required ? "required" : ""}
+           ${list ? `list="${esc(list)}"` : ""}
            ${type === "number" ? 'inputmode="numeric"' : ""}>
     ${hint ? `<span class="hint">${hint}</span>` : ""}
   </div>`;
@@ -4103,12 +4144,22 @@ function lessonSheet(existing, presetKind = "lesson") {
         ${fieldText("start", "開始時間", l.start, { type: "time" })}
       </div>
       ${durationPicker(dur)}
+      ${existing ? "" : `<p class="hint" data-past-hint></p>`}
       ${existing ? fieldSelect("status", "狀態", Object.entries(LESSON_STATUS).map(([k, v]) => [k, v.label]), l.status) : ""}
       ${existing && assessing
         ? fieldSelect("outcome", "成交結果",
             Object.entries(OUTCOME).map(([k, v]) => [k, v.label]), outcomeOf(l))
         : ""}
-      ${fieldText("location", "上課地點", l.location, { placeholder: "選填" })}
+      ${// 一般教練不需要區分上課地點，那一格對他只是雜訊（跟 iOS 一致）。
+        // 已經填過地點的課還是要看得到、改得到，不然換身份就等於把資料藏起來。
+        isContractor() || (l.location || "").trim() ? `
+        ${fieldText("location", "上課地點", l.location,
+            { placeholder: isContractor() ? "在哪個場館" : "選填",
+              list: knownLocations().length ? "known-locations" : "",
+              hint: knownLocations().length ? "打幾個字會從用過的地點裡挑" : "" })}
+        ${knownLocations().length ? `<datalist id="known-locations">${
+          knownLocations().map((n) => `<option value="${esc(n)}"></option>`).join("")}</datalist>` : ""}`
+      : ""}
       ${fieldText("notes", "備註", l.notes)}
 
       ${existing ? `
@@ -4136,7 +4187,9 @@ function lessonSheet(existing, presetKind = "lesson") {
       const minutes = readDuration(form);
       const end = timeOf(minutesOf(start) + minutes);
       const kind = existing ? kindOf(l) : (form.elements.kind?.value || "lesson");
-      const location = form.elements.location.value.trim();
+      // 一般教練的表單沒有這一格，讀不到就沿用原本的值（換身份不該把地點清掉）
+      const location = form.elements.location
+        ? form.elements.location.value.trim() : (l.location || "");
       const notes = form.elements.notes.value;
       const color = form.elements.color ? form.elements.color.value : (l.color || "");
 
@@ -4175,9 +4228,12 @@ function lessonSheet(existing, presetKind = "lesson") {
           const newOutcome = form.elements.outcome?.value;
           if (newOutcome && newOutcome !== outcomeOf(l)) applyOutcome(l, newOutcome);
         } else {
+          // 時段已經過了就直接記成已上課（檢測不扣堂數，但要從「待回報成交」
+          // 那一列冒出來問你成交了沒）
           S.lessons.push({ ...l, id: uid(), kind: "assessment", outcome: "pending",
                            date, start, end, location, notes, leadId, color,
-                           studentId: "", partnerId: "" });
+                           studentId: "", partnerId: "",
+                           status: isPastSlot(date, end, start) ? "attended" : "scheduled" });
         }
         save(); render();
         toast(existing ? "已更新檢測" : `已排檢測．${leadById(leadId)?.name || ""}`);
@@ -4210,16 +4266,50 @@ function lessonSheet(existing, presetKind = "lesson") {
         const newStatus = form.elements.status.value;
         if (newStatus !== l.status) setLessonStatus(l, newStatus);
       } else {
+        // 補以前的課時，時段已經過了就直接記成「已上課」（並扣堂數）；
+        // 未來的課維持「已排定」。以前一律建成已排定，補歷史的人每一堂都要
+        // 再手動改一次，不然要等下次開 App 的自動補標才會對。
+        // 重複排課時逐堂判斷 —— 第一堂可能已經過了，後面幾堂還沒。
         for (const d of made) {
-          S.lessons.push({ ...l, id: uid(), kind: "lesson", date: d, start, end,
-                           location, notes, studentId, partnerId, color });
+          const lesson = { ...l, id: uid(), kind: "lesson", date: d, start, end,
+                           location, notes, studentId, partnerId, color,
+                           status: "scheduled", consumed: false, partnerConsumed: false,
+                           owed: false, partnerOwed: false };
+          S.lessons.push(lesson);
+          // 走 setLessonStatus 才會正確扣堂數／記欠課，不能直接寫 status
+          if (isPastSlot(d, end, start)) setLessonStatus(lesson, "attended");
         }
       }
       save(); render();
-      toast(existing ? "已更新課程" : `已排 ${made.length} 堂課`);
+      const done = made.filter((d) => isPastSlot(d, end, start)).length;
+      toast(existing ? "已更新課程"
+        : done ? `已排 ${made.length} 堂課，其中 ${done} 堂時段已過，記成已上課`
+               : `已排 ${made.length} 堂課`);
     },
     onMount: (root) => {
       wireDurationPicker(root);
+
+      // 已經過去的時段會直接記成「已上課」並扣堂數 —— 在按下確認之前就要講，
+      // 不然補歷史的人會以為只是排了一堂，回頭才發現堂數少了。
+      const pastHint = root.querySelector("[data-past-hint]");
+      const dateEl = root.querySelector('[name="date"]');
+      const startEl = root.querySelector('[name="start"]');
+      const kindEl = root.querySelector('[name="kind"]');
+      const refreshPastHint = () => {
+        const form = root.querySelector("#sheet-form");
+        if (!pastHint || !dateEl || !startEl || !form) return;
+        const end = timeOf(minutesOf(startEl.value || "09:00") + readDuration(form));
+        const past = isPastSlot(dateEl.value || today(), end, startEl.value || "09:00");
+        const isAssess = kindEl ? kindEl.value === "assessment" : assessing;
+        pastHint.textContent = past
+          ? (isAssess
+              ? "這個時段已經過了，會直接記成「已上課」，並在待回報那裡問你成交了沒。"
+              : "這個時段已經過了，會直接記成「已上課」並扣一堂。補以前的課就是要這樣。")
+          : "還沒到的時段會是「已排定」，時間過了自己會變成已上課。";
+      };
+      root.addEventListener("input", refreshPastHint);
+      root.addEventListener("change", refreshPastHint);
+      refreshPastHint();
 
       // 切換正課／檢測時換掉對應的欄位
       const kindSelect = root.querySelector('[name="kind"]');
@@ -5073,6 +5163,16 @@ function viewSettings() {
         <p class="row-sub" style="margin-top:9px">${st.employment === "company"
           ? "收入先進公司，畫面會顯示抽成後的「實拿」。"
           : "學生繳的錢直接進自己口袋，不做抽成計算。"}</p>
+
+        <div class="divider" style="margin:14px 0"></div>
+        <p class="sec-sub" style="margin:0 0 9px">身份</p>
+        <div class="seg" style="max-width:340px">
+          ${[["coach", "教練"], ["contractor", "承攬教練"]].map(([v, t]) =>
+            `<button type="button" data-action="set-role" data-value="${v}" aria-pressed="${roleOf() === v}">${t}</button>`).join("")}
+        </div>
+        <p class="row-sub" style="margin-top:9px">${isContractor()
+          ? "在健身房或場館授課，排課時要登記上課地點。"
+          : "獨立授課，不需區分上課地點（排課表單就不會出現那一格）。"}</p>
       </section>
 
       <section class="card">
@@ -5496,6 +5596,8 @@ function buildBackup() {
     locations: [],
     settings: {
       employmentType: S.settings.employment,
+      // 身份。iOS 用同一個鍵（一般教練／承攬教練），兩邊搬得過去。
+      userRole: roleOf(),
       defaultLessonDurationMinutes: String(S.settings.defaultDuration),
       // iOS 還沒有這個設定。讀到不認得的鍵會直接忽略，不會壞。
       lowSessionsThreshold: String(Math.max(1, +S.settings.lowSessions || 3)),
@@ -5667,6 +5769,9 @@ function parseBackup(raw) {
   const rawSettings = raw.settings || {};
   const settings = clone(DEFAULT_SETTINGS);
   if (rawSettings.employmentType) settings.employment = rawSettings.employmentType;
+  if (rawSettings.userRole) {
+    settings.role = rawSettings.userRole === "contractor" ? "contractor" : "coach";
+  }
   if (rawSettings.defaultLessonDurationMinutes) {
     settings.defaultDuration = clampDuration(+rawSettings.defaultLessonDurationMinutes);
   }
@@ -5972,6 +6077,11 @@ document.addEventListener("click", (e) => {
     }
 
     case "set-employment": S.settings.employment = value; save(); render(); break;
+    case "set-role":
+      S.settings.role = value === "contractor" ? "contractor" : "coach";
+      save(); render();
+      toast(value === "contractor" ? "排課時會出現上課地點" : "排課時不再問上課地點");
+      break;
     case "set-theme": S.settings.theme = value; save(); render(); break;
     case "set-basis": S.settings.salary.payoutBasisRaw = value; save(); render(); break;
     case "edit-duration": durationSheet(); break;
