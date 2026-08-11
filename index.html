@@ -768,7 +768,7 @@ const NOTICE_KEY = "coach-mate-web-notice-dismissed";
  * 版本標記。顯示在設定頁最下面，教練唸得出來就知道他手上是哪一版，
  * 不用再猜是不是拿到舊的快取。每次改版就把這個字串往上加。
  */
-const BUILD = "2026-08-12 · v54";
+const BUILD = "2026-08-12 · v55";
 
 /** 開發者署名，顯示在設定頁的「關於」 */
 const DEVELOPER = "杯子蛋糕好好吃";
@@ -5256,7 +5256,9 @@ function batchContractSheet() {
     confirmLabel: "全部套用",
     body: `
       <p class="hint" style="margin-top:0">
-        ${dateStuck ? `<strong>${dateStuck} 筆的日期停在補登那天</strong>，業績會全算到那個月。` : ""}
+        ${dateStuck ? `<strong>${dateStuck} 筆的日期停在補登那天</strong>，業績會全算到那個月。
+          <strong style="color:var(--warn)">這幾筆的日期 App 猜不出來，要你自己填</strong>——
+          底下每一列都附了那位學生的到期日與最早上課日，照著回想。` : ""}
         ${noAmount ? `<strong>${noAmount} 筆還沒填金額</strong>，銷售金額會少算。` : ""}
         改成實際簽約的日期與金額，沒動到的那幾列不會被存。
         <strong>金額留 0 也可以</strong>（贈課、補課），套用之後就不會再問同一筆。
@@ -5280,16 +5282,22 @@ function batchContractSheet() {
             ${sameDay ? '<span class="pill pill-warn">日期</span>' : ""}
             ${noAmount ? '<span class="pill pill-warn">金額</span>' : ""}
           </div>
-          ${clues ? `<div class="muted" style="font-size:11.5px">${esc(clues)}</div>` : ""}
+          ${(sameDay || clues) ? `<div class="muted" style="font-size:11.5px">${
+            [sameDay ? `現在是 ${esc(renewal.date || "")}（補登那天）` : "", esc(clues)]
+              .filter(Boolean).join("・")}</div>` : ""}
           <div class="field-row" style="margin-top:5px">
-            ${fieldText(`d_${renewal.id}`, "合約日期", renewal.date || "", { type: "date" })}
+            ${// 日期停在補登那天的那幾列**留空**。預填成現在那個（錯的）日期，
+              // 看起來就像已經填好了、沒事要做 —— 使用者按了「全部套用」什麼都
+              // 沒發生，還被回一句「已處理 N 筆」（2026-08-12 回報）。
+              fieldText(`d_${renewal.id}`, sameDay ? "合約日期（要填）" : "合約日期",
+                        sameDay ? "" : (renewal.date || ""), { type: "date" })}
             ${fieldText(`a_${renewal.id}`, "金額", renewal.amount || "", { type: "number" })}
           </div>
         </div>`;
       }).join("")}`,
     onConfirm: (form) => {
       const makePayments = !!(form.elements.makePayments && form.elements.makePayments.checked);
-      let changed = 0, made = 0, linked = 0;
+      let changed = 0, made = 0, linked = 0, realEdits = 0;
       for (const { student, renewal } of rows) {
         const d = form.elements[`d_${renewal.id}`];
         const a = form.elements[`a_${renewal.id}`];
@@ -5309,6 +5317,7 @@ function batchContractSheet() {
           touched = true;
         }
         if (newAmount !== (renewal.amount || 0)) { renewal.amount = newAmount; touched = true; }
+        if (touched) realEdits++;
         // 看過了就是看過了 —— 留 0 是他的決定，不要下次再問一次
         if (!renewal.amountOk) { renewal.amountOk = true; touched = true; }
 
@@ -5341,11 +5350,13 @@ function batchContractSheet() {
         student.updatedAt = new Date().toISOString();
       }
       save(); render();
-      toast(changed
-        ? `已處理 ${changed} 筆合約`
+      // 只有「確認過 0 元」不算真的改了什麼 —— 回一句「已處理」會讓人以為
+      // 日期也修好了，然後回頭發現提示還在
+      toast(realEdits
+        ? `已修正 ${realEdits} 筆`
           + (linked ? `，接回 ${linked} 筆已經記過的收費` : "")
           + (made ? `，補上 ${made} 筆收費` : "")
-        : "沒有任何變動");
+        : "日期還沒填，所以沒有東西被改 —— 那幾格要你自己輸入");
     },
   });
 }
