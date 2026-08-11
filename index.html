@@ -765,7 +765,7 @@ const NOTICE_KEY = "coach-mate-web-notice-dismissed";
  * 版本標記。顯示在設定頁最下面，教練唸得出來就知道他手上是哪一版，
  * 不用再猜是不是拿到舊的快取。每次改版就把這個字串往上加。
  */
-const BUILD = "2026-08-11 · v45";
+const BUILD = "2026-08-11 · v46";
 
 /** 開發者署名，顯示在設定頁的「關於」 */
 const DEVELOPER = "杯子蛋糕好好吃";
@@ -1001,9 +1001,12 @@ function load() {
           Array.isArray(s.payments) ? s.payments : [],
           Array.isArray(s.renewals) ? s.renewals : []),
       })),
-      // 課程種類、檢測結果、單堂顏色也是後來才加的，舊課一律當正課
+      // 課程種類、檢測結果、單堂顏色也是後來才加的，舊課一律當正課。
+      // owed／partnerOwed 一律清掉：2026-08-11 起網頁版沒有「欠課」這個概念，
+      // 留著只是讓舊資料在畫面上冒出一個沒人處理得了的紅字。
       lessons: (Array.isArray(parsed.lessons) ? parsed.lessons : []).map((l) => ({
         ...l,
+        owed: false, partnerOwed: false,
         kind: l.kind === "assessment" ? "assessment" : "lesson",
         outcome: OUTCOME[l.outcome] ? l.outcome : "pending",
         color: typeof l.color === "string" ? l.color : "",
@@ -1201,12 +1204,14 @@ const SESSION_SLOTS = [
 
 /**
  * 換課程狀態時同步扣還堂數。
- * consumed 旗標讓狀態改來改去也不會重複扣；
- * 沒堂數卻上了課則記成「欠一堂」，不能只是靜靜不扣——
- * 否則之後續約補了堂數，狀態改一改就會在莫名其妙的時間點被扣掉一堂。
+ * consumed 旗標讓狀態改來改去也不會重複扣。
+ *
+ * **沒有「欠課」這件事**（2026-08-11 起）：剩餘是 0 就不扣，課照樣記成已上，
+ * 不會留下一筆之後要還的帳。owed 那兩個欄位只為了備份格式跟 iOS 對齊而保留，
+ * 網頁版一律寫 false。
  */
 function setLessonStatus(lesson, status) {
-  // 檢測的對象還沒買課，沒有堂數可扣，也不該記成欠課
+  // 檢測的對象還沒買課，沒有堂數可扣
   if (!LESSON_KIND[kindOf(lesson)].consumes) {
     lesson.status = status;
     return;
@@ -1216,13 +1221,15 @@ function setLessonStatus(lesson, status) {
     const st = studentById(lesson[idKey]);
     if (!st) continue;
     if (shouldConsume && !lesson[consumedKey]) {
+      // **沒有「欠課」這件事**（2026-08-11）。以前剩餘是 0 卻標了已出席，
+      // 會記一筆「欠一堂」，之後加堂數再自動還回去 —— 但實際上教練不是這樣
+      // 記帳的，那個紅字只會讓人以為資料壞了。現在扣到 0 就停：課照樣是
+      // 已上課，只是沒有堂數可扣。
       if (st.remaining > 0) {
         st.remaining -= 1;
         lesson[consumedKey] = true;
-        lesson[owedKey] = false;
-      } else {
-        lesson[owedKey] = true;
       }
+      lesson[owedKey] = false;
     } else if (!shouldConsume) {
       if (lesson[consumedKey]) {
         st.remaining += 1;
@@ -1291,12 +1298,6 @@ function releaseLesson(lesson) {
 }
 
 /** 這位學生有幾堂「上了但沒堂數可扣」的課 */
-function owedCount(studentId) {
-  return S.lessons.filter((l) =>
-    (l.studentId === studentId && l.owed) ||
-    (l.partnerId === studentId && l.partnerOwed)
-  ).length;
-}
 
 /** 結束時間已過卻還停在「已排定」的課，補標成已出席 */
 /**
@@ -1322,10 +1323,23 @@ function autoMarkPastLessons() {
   for (const l of S.lessons) {
     if (l.status !== "scheduled") continue;
     if (!isPastSlot(l.date, l.end, l.start)) continue;
-    setLessonStatus(l, "attended");
+    // 上完課忘了按 → 補標並扣一堂（那堂課真的用掉了）。
+    // 但**事後才補進來的紀錄不扣**（建立時間晚於課程結束）——那是在補歷史，
+    // 剩餘堂數早就反映過了。不分這兩種的話，每次開 App 都會再犯一次。
+    if (isBackfilledRecord(l)) l.status = "attended";
+    else setLessonStatus(l, "attended");
     changed++;
   }
   return changed;
+}
+
+/** 這筆課是不是「事後才補進來的」——建立時間晚於課程結束 */
+function isBackfilledRecord(l) {
+  if (!l.createdAt || !l.date || !l.end) return false;
+  const slotEnd = new Date(`${l.date}T${l.end}:00`);
+  const created = new Date(l.createdAt);
+  if (isNaN(slotEnd.getTime()) || isNaN(created.getTime())) return false;
+  return created > slotEnd;
 }
 
 function lessonsOf(studentId) {
@@ -2408,7 +2422,7 @@ function lessonRow(l) {
     <div class="row">
       <span class="dot" style="background:${esc(st?.color || "var(--muted)")}"></span>
       <div class="row-main">
-        <div class="row-title">${esc(names)} <span class="pill ${meta.pill}">${meta.label}</span>${(l.owed || l.partnerOwed) ? '<span class="pill pill-crit">欠一堂</span>' : ""}</div>
+        <div class="row-title">${esc(names)} <span class="pill ${meta.pill}">${meta.label}</span></div>
         <div class="row-sub mono">${esc(l.start)}–${esc(l.end)}　${durationLabel(durationOf(l))}${l.location ? "　" + esc(l.location) : ""}</div>
       </div>
       <div class="row-end">
@@ -2484,7 +2498,6 @@ function viewStudents() {
                         style="font:inherit;color:inherit;cursor:pointer;text-align:left">${esc(s.name || "（未命名）")}</button>
                 ${s.status === "archived" ? '<span class="pill pill-mute">封存</span>' : ""}
                 ${s.mayNotRenew ? '<span class="pill pill-warn">可能不續約</span>' : ""}
-                ${owedCount(s.id) > 0 ? `<span class="pill pill-crit">欠 ${owedCount(s.id)} 堂</span>` : ""}
               </div>
               <div class="row-sub">${used.estimated
                   ? `已上 ${used.count} 堂（依剩餘推算）`
@@ -2543,7 +2556,6 @@ function studentDetailSheet(student) {
     renewalsOf(student).length ? unlinkedPayments(student).map((p) => p.id) : []);
   const paid = pays.reduce((a, p) => a + (p.amount || 0), 0);
   const fields = Object.entries(student.custom || {}).filter(([, v]) => v);
-  const owed = owedCount(student.id);
 
   const byMonth = {};
   for (const l of ls) {
@@ -2571,7 +2583,6 @@ function studentDetailSheet(student) {
             ${student.status === "archived" ? '<span class="pill pill-mute">封存</span>' : ""}
             ${student.status === "paused" ? '<span class="pill pill-mute">暫停</span>' : ""}
             ${student.mayNotRenew ? '<span class="pill pill-warn">可能不續約</span>' : ""}
-            ${owed > 0 ? `<span class="pill pill-crit">欠 ${owed} 堂</span>` : ""}
           </div>
           <div class="row-sub">
             ${student.phone ? esc(student.phone) + "　" : ""}${student.rate ? "每堂 " + money(student.rate) : ""}
@@ -2611,7 +2622,7 @@ function studentDetailSheet(student) {
                 <div class="row-title" style="font-size:14px">
                   ${esc(l.date)} <span class="pill ${meta.pill}">${meta.label}</span>
                   ${isPartner ? '<span class="pill pill-mute">雙人課</span>' : ""}
-                  ${(isPartner ? l.partnerOwed : l.owed) ? '<span class="pill pill-crit">欠一堂</span>' : ""}
+                  
                 </div>
                 <div class="row-sub mono">${esc(l.start)}–${esc(l.end)}　${durationLabel(durationOf(l))}${l.location ? "　" + esc(l.location) : ""}</div>
               </div>
@@ -3595,9 +3606,6 @@ function adjustSessionsSheet(student) {
           <button type="button" class="btn btn-sm" data-step="${n}">${n > 0 ? "+" + n : n}</button>`).join("")}
       </div>
       ${fieldText("reason", "原因（選填）", "", { placeholder: "例如：線下補一堂、系統算錯" })}
-      ${owedCount(student.id) > 0
-        ? `<p class="hint" style="color:var(--warn)">目前欠 ${owedCount(student.id)} 堂（上了課但當時沒堂數可扣）。</p>`
-        : ""}
       <p class="hint">只改剩餘堂數，已購 ${student.totalPurchased || 0} 堂不變，銷售統計不受影響。要記錄新買的堂數請用「續約」。</p>`,
     onConfirm: (form) => {
       const target = Math.max(0, +form.elements.remaining.value || 0);
@@ -4086,7 +4094,7 @@ function viewCalendar() {
                 ${assess ? `<span class="pill" style="background:${LESSON_KIND.assessment.color}22;color:${LESSON_KIND.assessment.color}">檢測</span>` : ""}
                 <span class="pill ${meta.pill}">${meta.label}</span>
                 ${assess && outcomeOf(l) !== "pending" ? `<span class="pill ${oc.pill}">${oc.label}</span>` : ""}
-                ${(l.owed || l.partnerOwed) ? '<span class="pill pill-crit">欠一堂</span>' : ""}</div>
+                </div>
               <div class="row-sub mono">${esc(l.start)}–${esc(l.end)}　${durationLabel(durationOf(l))}${l.location ? "　" + esc(l.location) : ""}</div>
               ${assess && needsOutcome(l) ? `<div class="row-sub" style="color:var(--warn)">還沒回報成交與否</div>` : ""}
               ${l.notes ? `<div class="row-sub">${esc(l.notes)}</div>` : ""}
@@ -5246,11 +5254,7 @@ function backfilledConsumedLessons() {
     // 堂數本來就上完了），每補一堂就多欠一堂，而且一堂都沒「被扣掉」，
     // 於是整個補救區塊連出現都不會出現（2026-08-11 回報「為什麼會有欠幾堂」）。
     if (!l.consumed && !l.partnerConsumed && !l.owed && !l.partnerOwed) return false;
-    if (!l.createdAt || !l.date || !l.end) return false;
-    const slotEnd = new Date(`${l.date}T${l.end}:00`);
-    const created = new Date(l.createdAt);
-    if (isNaN(slotEnd.getTime()) || isNaN(created.getTime())) return false;
-    return created > slotEnd;
+    return isBackfilledRecord(l);
   });
 }
 
@@ -6758,8 +6762,17 @@ function stripCacheBuster() {
 // 這是要給不同教練各自試用的，別人的假學生混在裡面只會擋路。
 // 想先看看長什麼樣子，總覽頁與設定頁都有「載入示範資料」。
 const loaded = load();
+let startupRefund = null;
 if (loaded) {
   S = loaded;
+  // 一次性補救：2026-08-11 有一版把「補登的課」也扣了堂數（剩餘是 0 的還會
+  // 記成欠課）。那是錯的——補的是歷史，剩餘堂數早就反映過了。
+  // 自動跑，不要求使用者自己去設定裡找按鈕；跑過就記一個旗標，不會跑第二次。
+  if (!S.settings.backfillRefundDone) {
+    const r = refundBackfilledLessons();
+    S.settings.backfillRefundDone = true;
+    if (r.refunded || r.cleared) startupRefund = r;
+  }
   autoMarkPastLessons();
   save();
 } else {
@@ -6767,6 +6780,12 @@ if (loaded) {
 }
 
 render();
+
+// 補回來了要講一聲，不然堂數自己變多也很嚇人
+if (startupRefund) {
+  toast(`已把補登時誤扣的堂數還回去：${startupRefund.refunded} 堂`
+    + (startupRefund.cleared ? `，並清掉 ${startupRefund.cleared} 筆欠課` : ""));
+}
 
 // 網址裡如果帶著資料（從瀏覽器加到主畫面時放進去的），把它撈出來。
 // 放在 render() 之後：解壓縮是非同步的，不要為了它讓畫面空白著。
