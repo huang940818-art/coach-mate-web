@@ -765,7 +765,7 @@ const NOTICE_KEY = "coach-mate-web-notice-dismissed";
  * 版本標記。顯示在設定頁最下面，教練唸得出來就知道他手上是哪一版，
  * 不用再猜是不是拿到舊的快取。每次改版就把這個字串往上加。
  */
-const BUILD = "2026-08-11 · v47";
+const BUILD = "2026-08-11 · v48";
 
 /** 開發者署名，顯示在設定頁的「關於」 */
 const DEVELOPER = "杯子蛋糕好好吃";
@@ -986,7 +986,9 @@ function load() {
         // 分母會拿它去加，undefined 會讓整個數字變成 NaN。
         renewals: (Array.isArray(s.renewals) ? s.renewals : [])
           .map((r) => ({ ...r, carryOver: Math.max(0, +r.carryOver || 0) })),
-        custom: (s.custom && typeof s.custom === "object") ? s.custom : {},
+        // 「魔羯座」是常見的另一種寫法，但同一群人被拆成兩堆客群分析就沒意義。
+        // 統一成「摩羯座」（iOS 版與教育部字典的寫法）。
+        custom: normalizeCustom((s.custom && typeof s.custom === "object") ? s.custom : {}),
         // 續約時自動產生的收費備註原本會寫死「續約 N 堂」，但那個數字在
         // 建立當下就凍住了：之後回頭改續約紀錄的堂數，這行不會跟著動，
         // 於是好幾筆收費全都停在同一個數字，看起來像堂數沒存進去。
@@ -1032,6 +1034,12 @@ function load() {
  * 堂數會從續約紀錄即時讀出來，備註再留一份只會互相矛盾。
  * 只洗完全符合自動格式的，自己打的不動。
  */
+/** 自訂欄位的值要正規化的地方（目前只有星座的兩種寫法） */
+function normalizeCustom(custom) {
+  if (custom["星座"] === "魔羯座") return { ...custom, 星座: "摩羯座" };
+  return custom;
+}
+
 function linkLegacyPayments(payments, renewals) {
   const ids = new Set(renewals.map((r) => r.id));
   return payments.map((p) => {
@@ -1799,8 +1807,41 @@ const FIELD_TYPES = [["text", "文字"], ["number", "數字"], ["date", "日期"
  * 原本只有「生日」被寫死成日期欄位，其他一律純文字 —— 想要一個「日期」欄位
  * 就只能取名叫生日。現在型別是自己設的，寫死的特例拿掉了。
  */
+/** 十二星座。寫法統一用「摩羯座」（教育部字典的寫法，iOS 版也是這個）。 */
+const ZODIAC = ["牡羊座", "金牛座", "雙子座", "巨蟹座", "獅子座", "處女座",
+                "天秤座", "天蠍座", "射手座", "摩羯座", "水瓶座", "雙魚座"];
+
+/** 各星座的起始日（月, 日）。在 1/20 之前的一律是摩羯座。 */
+const ZODIAC_START = [[1, 20, "水瓶座"], [2, 19, "雙魚座"], [3, 21, "牡羊座"], [4, 20, "金牛座"],
+                      [5, 21, "雙子座"], [6, 22, "巨蟹座"], [7, 23, "獅子座"], [8, 23, "處女座"],
+                      [9, 23, "天秤座"], [10, 24, "天蠍座"], [11, 22, "射手座"], [12, 22, "摩羯座"]];
+
+/** 生日（YYYY-MM-DD）換成星座。認不出來就回空字串。 */
+function zodiacOf(birthday) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(birthday || "");
+  if (!m) return "";
+  const mm = +m[2], dd = +m[3];
+  let cur = "摩羯座";
+  for (const [cm, cd, name] of ZODIAC_START) {
+    if (mm > cm || (mm === cm && dd >= cd)) cur = name;
+  }
+  return cur;
+}
+
+/**
+ * 「星座」與「生日」有內建的型別，不用自己去設定裡指定。
+ *
+ * 星座本來是純文字，於是同一個星座會有兩種寫法（實例：37 位學生裡有
+ * 「摩羯座」也有「魔羯座」），客群分析就把同一群人拆成兩堆
+ * （2026-08-11 回報）。改成下拉之後打不出第二種寫法。
+ */
+const BUILTIN_SPECS = {
+  星座: { type: "select", options: ZODIAC },
+  生日: { type: "date", options: [] },
+};
+
 function fieldSpec(name) {
-  const raw = (S.settings.customFieldSpecs || {})[name] || {};
+  const raw = (S.settings.customFieldSpecs || {})[name] || BUILTIN_SPECS[name] || {};
   const type = FIELD_TYPES.some(([v]) => v === raw.type) ? raw.type : "text";
   const options = Array.isArray(raw.options)
     ? raw.options.map((o) => String(o).trim()).filter(Boolean) : [];
@@ -4901,6 +4942,46 @@ function fixRenewalDatesFromPayments() {
   return rows.length;
 }
 
+/**
+ * 需要人看一眼的合約：日期停在補登那天、或金額還沒填。
+ *
+ * 為什麼不能自動修：真正的簽約日期在資料裡沒有第二個來源。補歷史時收費日期
+ * 往往也跟著填成同一天（實測 37 位教練資料：23 筆合約與它們的收費全部
+ * 落在補登當天），所以「用收費日期推回去」在真實資料上一筆都救不到。
+ * 能做的是**把要改的攤在同一張表上一次改完**，而不是叫人一筆一筆點進去。
+ */
+/** 一天之內有這麼多位不同學生的合約，就不是真的同一天簽的，是補登 */
+const BULK_ENTRY_MIN = 5;
+
+function contractsNeedingReview() {
+  // 「日期等於建立那天」不能單獨當證據 —— 當天簽約當天輸入本來就是這樣，
+  // 那是最正常的一筆。真正的特徵是**一整批擠在同一天**：
+  // 正常一天不會有五位不同的學生同時簽約，那是補歷史時日期沒改。
+  const sameDayByDate = new Map();
+  for (const s of S.students) {
+    for (const r of s.renewals || []) {
+      const created = r.createdAt ? new Date(r.createdAt) : null;
+      if (!created || isNaN(created.getTime()) || r.date !== dayStr(created)) continue;
+      if (!sameDayByDate.has(r.date)) sameDayByDate.set(r.date, new Set());
+      sameDayByDate.get(r.date).add(s.id);
+    }
+  }
+  const bulkDates = new Set([...sameDayByDate.entries()]
+    .filter(([, ids]) => ids.size >= BULK_ENTRY_MIN).map(([d]) => d));
+
+  const rows = [];
+  for (const s of S.students) {
+    for (const r of s.renewals || []) {
+      const created = r.createdAt ? new Date(r.createdAt) : null;
+      const sameDay = !!(created && !isNaN(created.getTime()) && r.date === dayStr(created)
+                         && bulkDates.has(r.date));
+      const noAmount = !(r.amount > 0);
+      if (sameDay || noAmount) rows.push({ student: s, renewal: r, sameDay, noAmount });
+    }
+  }
+  return rows.sort((a, b) => (a.student.name || "").localeCompare(b.student.name || "", "zh-Hant"));
+}
+
 /** 用底下收費的金額補上合約金額 */
 function fillRenewalAmountsFromPayments() {
   const rows = renewalsMissingAmount();
@@ -4909,6 +4990,60 @@ function fillRenewalAmountsFromPayments() {
     student.updatedAt = new Date().toISOString();
   }
   return rows.length;
+}
+
+/**
+ * 一次改完所有要修的合約。
+ *
+ * 一筆一筆點進去改 23 筆不現實 —— 補完歷史的人正是需要這張表。
+ * 只改日期與金額：堂數改了會連動累計已購，那要走續約紀錄那邊的編輯。
+ */
+function batchContractSheet() {
+  const rows = contractsNeedingReview();
+  if (!rows.length) { toast("沒有需要修正的合約"); return; }
+  const dateStuck = rows.filter((r) => r.sameDay).length;
+  const noAmount = rows.filter((r) => r.noAmount).length;
+
+  openSheet({
+    title: `批次修正合約（${rows.length} 筆）`,
+    confirmLabel: "全部套用",
+    body: `
+      <p class="hint" style="margin-top:0">
+        ${dateStuck ? `<strong>${dateStuck} 筆的日期停在補登那天</strong>，業績會全算到那個月。` : ""}
+        ${noAmount ? `<strong>${noAmount} 筆還沒填金額</strong>，銷售金額會少算。` : ""}
+        改成實際簽約的日期與金額，沒動到的那幾列不會被存。
+      </p>
+      ${rows.map(({ student, renewal, sameDay, noAmount }) => `
+        <div class="row" style="display:block;padding:9px 0">
+          <div class="row-title" style="font-size:14px">
+            ${esc(student.name || "（未命名）")}
+            <span class="muted" style="font-weight:400;font-size:12px">　${renewal.sessions || 0} 堂</span>
+            ${sameDay ? '<span class="pill pill-warn">日期</span>' : ""}
+            ${noAmount ? '<span class="pill pill-warn">金額</span>' : ""}
+          </div>
+          <div class="field-row" style="margin-top:5px">
+            ${fieldText(`d_${renewal.id}`, "合約日期", renewal.date || "", { type: "date" })}
+            ${fieldText(`a_${renewal.id}`, "金額", renewal.amount || "", { type: "number" })}
+          </div>
+        </div>`).join("")}`,
+    onConfirm: (form) => {
+      let changed = 0;
+      for (const { student, renewal } of rows) {
+        const d = form.elements[`d_${renewal.id}`];
+        const a = form.elements[`a_${renewal.id}`];
+        const newDate = d ? d.value : renewal.date;
+        const newAmount = a ? Math.max(0, +a.value || 0) : (renewal.amount || 0);
+        let touched = false;
+        if (newDate && newDate !== renewal.date) { renewal.date = newDate; touched = true; }
+        if (newAmount !== (renewal.amount || 0)) { renewal.amount = newAmount; touched = true; }
+        if (!touched) continue;
+        changed++;
+        student.updatedAt = new Date().toISOString();
+      }
+      save(); render();
+      toast(changed ? `已修正 ${changed} 筆合約` : "沒有任何變動");
+    },
+  });
 }
 
 function salesSection() {
@@ -4968,17 +5103,21 @@ function salesSection() {
 
       ${(() => {
         // 日期比金額更根本：日期錯了，連「這個月賣多少」都是假的。
-        const wrong = renewalsWithDefaultDate();
-        if (!wrong.length) return "";
-        const earliest = wrong.map((r) => r.to).sort()[0];
+        // 真正的簽約日在資料裡沒有第二個來源（補歷史時收費日期往往也填成同一天），
+        // 所以不自動改，改成把要修的攤在同一張表上一次改完。
+        const rows = contractsNeedingReview();
+        if (!rows.length) return "";
+        const dateStuck = rows.filter((r) => r.sameDay).length;
+        const noAmount = rows.filter((r) => r.noAmount).length;
         return `
           <div class="note-box" style="margin-top:12px">
-            <strong>有 ${wrong.length} 筆合約的日期停在補登那天</strong>，所以那幾筆的業績
-            全算到了這個月。底下掛著的收費最早是 ${esc(earliest)}——
-            按一下就用收費的日期把合約日期修正回去。
+            <strong>有 ${rows.length} 筆合約需要看一下</strong>：
+            ${[dateStuck ? `${dateStuck} 筆的日期停在補登那天（業績會全算到那個月）` : "",
+               noAmount ? `${noAmount} 筆沒填金額（銷售金額會少算）` : ""]
+              .filter(Boolean).join("、")}。
             <div style="margin-top:9px">
-              <button class="btn btn-sm btn-primary" type="button" data-action="fix-renewal-dates">
-                用收費日期修正</button>
+              <button class="btn btn-sm btn-primary" type="button" data-action="batch-contracts">
+                一次修正</button>
             </div>
           </div>`;
       })()}
@@ -5948,7 +6087,8 @@ function parseBackup(raw) {
     notes: d.notes || "",
     color: d.color || STUDENT_COLORS[i % STUDENT_COLORS.length],
     expiry: dayOf(d.packageExpiryDate),
-    custom: parseJSON(d.customFieldsJSON, {}) || {},
+    // 匯入這條路也要正規化，不然從 App 搬過來的「魔羯座」還是兩種寫法
+    custom: normalizeCustom(parseJSON(d.customFieldsJSON, {}) || {}),
     renewalCount: d.renewalCount || 0,
     mayNotRenew: !!d.mayNotRenew,
     acquisition: ACQUISITION[d.acquisitionRaw] ? d.acquisitionRaw : "selfDeveloped",
@@ -6267,6 +6407,7 @@ document.addEventListener("click", (e) => {
       if (p) paymentSheet(st, p);
       break;
     }
+    case "batch-contracts": batchContractSheet(); break;
     case "fix-renewal-dates": {
       const n = fixRenewalDatesFromPayments();
       save(); render();
