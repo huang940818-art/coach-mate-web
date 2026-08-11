@@ -765,7 +765,7 @@ const NOTICE_KEY = "coach-mate-web-notice-dismissed";
  * 版本標記。顯示在設定頁最下面，教練唸得出來就知道他手上是哪一版，
  * 不用再猜是不是拿到舊的快取。每次改版就把這個字串往上加。
  */
-const BUILD = "2026-08-11 · v46";
+const BUILD = "2026-08-11 · v47";
 
 /** 開發者署名，顯示在設定頁的「關於」 */
 const DEVELOPER = "杯子蛋糕好好吃";
@@ -2437,6 +2437,8 @@ let studentFilter = "active";
 /** 學生名單上選了哪些標籤要篩選（空的＝不篩） */
 let activeTagFilter = new Set();
 /** 銷售統計目前選的期間 */
+// 期間選擇記在設定裡。每次進來都跳回「本月」，剛補完兩年歷史的人會以為
+// 資料不見了（2026-08-11）。
 let salesPeriod = "thisMonth";
 let salesFrom = "";
 let salesTo = "";
@@ -4861,6 +4863,44 @@ function renewalsMissingAmount() {
   return rows;
 }
 
+/**
+ * 合約日期還停在「補登那天」的續約。
+ *
+ * 補歷史時「新增一筆」的日期預設是今天，沒改到的話那筆合約就掛在今天 ——
+ * 於是兩年的業績全堆進這個月，銷售的月份完全失真
+ * （2026-08-11 回報「銷售金額的時間也不對」）。
+ *
+ * 認定條件抓得很緊，避免把正常的今日成交也搬走：
+ *   1. 合約日期**剛好等於建立那一天**（沒動過預設值）
+ *   2. 底下掛著的收費是**更早的日期**
+ * 今天簽約、下個月才收錢的那種收費日在後面，不會被動到。
+ */
+function renewalsWithDefaultDate() {
+  const rows = [];
+  for (const s of S.students) {
+    for (const r of s.renewals || []) {
+      if (!r.createdAt || !r.date) continue;
+      const created = new Date(r.createdAt);
+      if (isNaN(created.getTime()) || r.date !== dayStr(created)) continue;
+      const dates = paymentsOfRenewal(s, r.id).map((p) => p.date).filter(Boolean).sort();
+      const earliest = dates[0];
+      if (!earliest || earliest >= r.date) continue;   // 只往前搬，不往後
+      rows.push({ student: s, renewal: r, to: earliest });
+    }
+  }
+  return rows;
+}
+
+/** 把合約日期改成底下收費的日期 */
+function fixRenewalDatesFromPayments() {
+  const rows = renewalsWithDefaultDate();
+  for (const { student, renewal, to } of rows) {
+    renewal.date = to;
+    student.updatedAt = new Date().toISOString();
+  }
+  return rows.length;
+}
+
 /** 用底下收費的金額補上合約金額 */
 function fillRenewalAmountsFromPayments() {
   const rows = renewalsMissingAmount();
@@ -4925,6 +4965,23 @@ function salesSection() {
         <div><span class="sales-stat-value">${sum.dealSize === null ? "—" : money(sum.dealSize)}</span>
           <div class="sales-stat-label">每筆均額</div></div>
       </div>
+
+      ${(() => {
+        // 日期比金額更根本：日期錯了，連「這個月賣多少」都是假的。
+        const wrong = renewalsWithDefaultDate();
+        if (!wrong.length) return "";
+        const earliest = wrong.map((r) => r.to).sort()[0];
+        return `
+          <div class="note-box" style="margin-top:12px">
+            <strong>有 ${wrong.length} 筆合約的日期停在補登那天</strong>，所以那幾筆的業績
+            全算到了這個月。底下掛著的收費最早是 ${esc(earliest)}——
+            按一下就用收費的日期把合約日期修正回去。
+            <div style="margin-top:9px">
+              <button class="btn btn-sm btn-primary" type="button" data-action="fix-renewal-dates">
+                用收費日期修正</button>
+            </div>
+          </div>`;
+      })()}
 
       ${(() => {
         // 合約沒填金額的話，這一區的數字全部會少算。講出來，並且能一鍵補。
@@ -6176,6 +6233,7 @@ document.addEventListener("click", (e) => {
     case "add-to-home": addToHomeSheet(); break;
     case "sales-period":
       salesPeriod = value;
+      S.settings.salesPeriod = value; save();
       if (value === "custom" && !salesFrom) {
         const b = periodBounds("thisMonth");
         salesFrom = b.from; salesTo = b.to;
@@ -6207,6 +6265,12 @@ document.addEventListener("click", (e) => {
       const st = studentById(el.dataset.student);
       const p = st && (st.payments || []).find((x) => x.id === id);
       if (p) paymentSheet(st, p);
+      break;
+    }
+    case "fix-renewal-dates": {
+      const n = fixRenewalDatesFromPayments();
+      save(); render();
+      toast(n ? `已用收費日期修正 ${n} 筆合約日期` : "沒有需要修正的日期");
       break;
     }
     case "fill-renewal-amounts": {
@@ -6774,6 +6838,7 @@ if (loaded) {
     if (r.refunded || r.cleared) startupRefund = r;
   }
   autoMarkPastLessons();
+  if (S.settings.salesPeriod) salesPeriod = S.settings.salesPeriod;
   save();
 } else {
   S = blankState();
