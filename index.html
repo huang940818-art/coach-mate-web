@@ -737,7 +737,7 @@ const NOTICE_KEY = "coach-mate-web-notice-dismissed";
  * 版本標記。顯示在設定頁最下面，教練唸得出來就知道他手上是哪一版，
  * 不用再猜是不是拿到舊的快取。每次改版就把這個字串往上加。
  */
-const BUILD = "2026-08-11 · v39";
+const BUILD = "2026-08-11 · v40";
 
 /** 開發者署名，顯示在設定頁的「關於」 */
 const DEVELOPER = "杯子蛋糕好好吃";
@@ -2214,7 +2214,13 @@ function viewDashboard() {
                        note: conv.addedThisMonth ? `${conv.convertedThisMonth} / ${conv.addedThisMonth} 筆` : "本月沒有新名單" })}
             </div>
             <p class="row-sub" style="margin-top:10px">還有 ${conv.open} 位待追蹤，明細在「分析」頁。</p>
-          ` : `<p class="empty">到「分析」頁新增潛在客群，成交率就會自動算出來。</p>`}
+          ` : `<p class="empty" style="padding-bottom:6px">潛在客群是還沒買課的人。記下來之後，成交率會自動算出來。</p>`}
+          <!-- 原本只有一句「到分析頁新增」。要換一頁才做得到的事，等於沒有入口——
+               使用者的說法是「網頁版沒有檢測跟潛客」，其實兩個功能一直都在。 -->
+          <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:${conv.total ? "8px" : "0"}">
+            <button class="btn btn-sm" type="button" data-action="new-lead">${icon("plus", 14)}新增潛在客群</button>
+            <button class="btn btn-sm" type="button" data-action="new-assessment">${icon("plus", 14)}排檢測</button>
+          </div>
         </section>
       </div>
     </div>`;
@@ -3880,6 +3886,7 @@ function viewCalendar() {
       </div>
       <div class="head-actions">
         <button class="btn" type="button" data-action="cal-refresh">${icon("refresh", 15)}刷新</button>
+        <button class="btn" type="button" data-action="new-assessment">${icon("plus", 15)}排檢測</button>
         <button class="btn btn-primary" type="button" data-action="new-lesson">${icon("plus", 15)}排課</button>
       </div>
     </div>
@@ -3948,13 +3955,20 @@ function viewCalendar() {
     </div>`;
 }
 
-function lessonSheet(existing) {
+/**
+ * 排課／排檢測。
+ *
+ * `presetKind` 是給「排檢測」那顆按鈕用的。檢測本來只能從這張表單的
+ * 「種類」下拉點出來 —— 沒點開表單的人根本不知道有這個功能，
+ * 使用者的說法是「網頁版沒有檢測」（2026-08-11）。功能一直都在，是入口沒有。
+ */
+function lessonSheet(existing, presetKind = "lesson") {
   const l = existing || {
     id: uid(), date: selectedDate, start: "09:00",
     end: timeOf(minutesOf("09:00") + S.settings.defaultDuration),
     status: "scheduled", notes: "", location: "",
     studentId: activeStudents()[0]?.id || "", partnerId: "",
-    kind: "lesson", outcome: "pending", color: "", leadId: "",
+    kind: presetKind, outcome: "pending", color: "", leadId: "",
     consumed: false, partnerConsumed: false, owed: false, partnerOwed: false,
     createdAt: new Date().toISOString(),
   };
@@ -3971,7 +3985,8 @@ function lessonSheet(existing) {
     x.status !== "converted" && x.status !== "lost");
 
   openSheet({
-    title: existing ? (assessing ? "檢測詳情" : "課程詳情") : "新增課程",
+    title: existing ? (assessing ? "檢測詳情" : "課程詳情")
+                    : (assessing ? "新增檢測" : "新增課程"),
     body: `
       ${existing ? "" : `
         ${fieldSelect("kind", "種類", [["lesson", "正課"], ["assessment", "檢測（對還沒買課的人）"]], l.kind)}
@@ -5796,6 +5811,8 @@ document.addEventListener("click", (e) => {
       S.settings.salary.baseSalaryMode = value; save(); render(); break;
 
     case "new-lesson": lessonSheet(null); break;
+    // 檢測本來只藏在排課表單的「種類」下拉裡，畫面上完全看不到這個功能
+    case "new-assessment": lessonSheet(null, "assessment"); break;
     case "edit-lesson": lessonSheet(S.lessons.find((l) => l.id === id)); break;
     case "pick-day": selectedDate = value; render(); break;
     case "week": {
