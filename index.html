@@ -768,7 +768,7 @@ const NOTICE_KEY = "coach-mate-web-notice-dismissed";
  * 版本標記。顯示在設定頁最下面，教練唸得出來就知道他手上是哪一版，
  * 不用再猜是不是拿到舊的快取。每次改版就把這個字串往上加。
  */
-const BUILD = "2026-08-12 · v55";
+const BUILD = "2026-08-12 · v56";
 
 /** 開發者署名，顯示在設定頁的「關於」 */
 const DEVELOPER = "杯子蛋糕好好吃";
@@ -2844,6 +2844,7 @@ function applyRenewalEdit(student, record, patch) {
   record.notes = patch.notes ?? record.notes;
   // 結轉只是說明「這一期有幾堂是上次留下來的」，不動剩餘堂數也不動累計已購
   if (patch.carryOver !== undefined) record.carryOver = Math.max(0, +patch.carryOver || 0);
+  applyRenewalExpiry(student, record, patch.expiry);
   applyPaymentLink(student, record, patch, prevDate);
   student.updatedAt = new Date().toISOString();
   return record;
@@ -2861,6 +2862,19 @@ function applyRenewalEdit(student, record, patch) {
  * 同步是**選擇性**的：接起來多半只是要把兩筆對上，金額本來就可能不同
  * （分期、訂金），無條件蓋掉會把真的收到多少改壞。
  */
+/**
+ * 到期日記在那筆合約上；如果那是**最新的一筆**，學生現在的方案到期日也跟著改。
+ *
+ * 「方案到期日」是學生層級的（只有一個，代表他現在那份方案），但補歷史時每一份
+ * 舊合約都有自己的到期日 —— 記在合約上才不會互相蓋掉。補一筆很舊的約不該把
+ * 他現在的到期日改掉。
+ */
+function applyRenewalExpiry(student, record, expiry) {
+  if (expiry === undefined || expiry === null || expiry === "") return;
+  record.expiry = expiry;
+  if (renewalsOf(student)[0] === record) student.expiry = expiry;
+}
+
 function applyPaymentLink(student, record, patch, prevDate = record.date || "") {
   if (patch.linkPaymentId) {
     // 只從「還沒對應的」裡面找 —— 已經掛在別筆續約底下的不搶，
@@ -2925,6 +2939,7 @@ function addRenewalRecord(student, patch) {
   student.totalPurchased = Math.max(0, (student.totalPurchased || 0) + sessions);
   // 補登只補歷史，不動現況。理由同 renewSheet：三個月前買的 10 堂早就上完了。
   if (!patch.backfill) student.remaining = Math.max(0, (student.remaining || 0) + sessions);
+  applyRenewalExpiry(student, record, patch.expiry);
   applyPaymentLink(student, record, patch);
   student.updatedAt = new Date().toISOString();
   return record;
@@ -2958,6 +2973,7 @@ function applyOpenRenewalRow(student, scope) {
     priceMode: val("r_priceMode"),
     // 欄位不在就整個不傳 —— 傳空字串會被當成 0，把既有的結轉抹掉
     ...(row.querySelector('[name="r_carryOver"]') ? { carryOver: val("r_carryOver") } : {}),
+    ...(row.querySelector('[name="r_expiry"]') ? { expiry: val("r_expiry") } : {}),
     syncPayment: on("r_syncPayment"),
     addPayment: on("r_addPayment"),
     linkPaymentId: val("r_linkPayment"),
@@ -3121,8 +3137,14 @@ function renewalHistoryBlock(student) {
             { type: "date", required: adding })}
         ${fieldText("r_sessions", "堂數", r.sessions || 0, { type: "number" })}
       </div>
-      ${fieldText("r_carryOver", "上一期剩下的堂數", r.carryOver || 0, { type: "number",
-        hint: "這一期有幾堂是上次沒上完結轉過來的。只影響顯示，不會加到剩餘堂數。" })}
+      <div class="field-row">
+        ${fieldText("r_carryOver", "上一期剩下的堂數", r.carryOver || 0, { type: "number",
+          hint: "這一期有幾堂是上次結轉的。只影響顯示，不加到剩餘堂數。" })}
+        ${// 補登舊合約時也要記得下那份合約的到期日 ——「續約」按鈕那張表一直都有
+          // 「新的到期日」，這裡卻沒有，補登的人等於少了一格（2026-08-12 回報）。
+          fieldText("r_expiry", "到期日", r.expiry || (adding ? "" : (student.expiry || "")),
+            { type: "date", hint: adding ? "留白就不改學生目前的到期日" : "" })}
+      </div>
       <div class="seg" style="max-width:260px;margin-bottom:8px">
         ${[["total", "輸入總額"], ["unit", "輸入單價"]].map(([v, t], i) =>
           `<button type="button" data-r-price-mode="${v}" aria-pressed="${i === 0}">${t}</button>`).join("")}
@@ -5349,11 +5371,15 @@ function batchContractSheet() {
         changed++;
         student.updatedAt = new Date().toISOString();
       }
+      // 合約日期改完，還卡在補登那天的收費一起收乾淨 —— 不然「本月收到」
+      // 完全沒變，使用者會以為整件事沒發生（2026-08-12 回報）。
+      const movedPayments = fixPaymentDatesFromRenewals();
       save(); render();
       // 只有「確認過 0 元」不算真的改了什麼 —— 回一句「已處理」會讓人以為
       // 日期也修好了，然後回頭發現提示還在
       toast(realEdits
         ? `已修正 ${realEdits} 筆`
+          + (movedPayments ? `，${movedPayments} 筆收費日期跟著搬` : "")
           + (linked ? `，接回 ${linked} 筆已經記過的收費` : "")
           + (made ? `，補上 ${made} 筆收費` : "")
         : "日期還沒填，所以沒有東西被改 —— 那幾格要你自己輸入");
