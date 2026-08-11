@@ -768,7 +768,7 @@ const NOTICE_KEY = "coach-mate-web-notice-dismissed";
  * 版本標記。顯示在設定頁最下面，教練唸得出來就知道他手上是哪一版，
  * 不用再猜是不是拿到舊的快取。每次改版就把這個字串往上加。
  */
-const BUILD = "2026-08-12 · v53";
+const BUILD = "2026-08-12 · v54";
 
 /** 開發者署名，顯示在設定頁的「關於」 */
 const DEVELOPER = "杯子蛋糕好好吃";
@@ -4648,6 +4648,21 @@ function viewPayments() {
     </div>
 
     <div class="stack">
+      ${(() => {
+        const stuck = paymentsStuckOnEntryDay();
+        if (!stuck.length) return "";
+        const sum = stuck.reduce((a, r) => a + (r.payment.amount || 0), 0);
+        return `
+          <div class="note-box">
+            <strong>有 ${stuck.length} 筆收費的日期停在補登那天</strong>（合計 ${money(sum)}），
+            所以那些錢全算進了這個月。它們對應的合約已經是別的日期了——
+            按一下就把收費日期改成跟合約同一天。
+            <div style="margin-top:9px">
+              <button class="btn btn-sm btn-primary" type="button" data-action="fix-payment-dates">
+                用合約日期修正</button>
+            </div>
+          </div>`;
+      })()}
       <div class="tiles">
         ${tile({ value: money(collectedThisMonth), label: "本月收到", iconName: "money", color: "var(--good)",
                  note: upcomingThisMonth
@@ -5184,6 +5199,52 @@ function duplicateSheet() {
  * 一筆一筆點進去改 23 筆不現實 —— 補完歷史的人正是需要這張表。
  * 只改日期與金額：堂數改了會連動累計已購，那要走續約紀錄那邊的編輯。
  */
+/**
+ * 日期卡在「補登那天」的收費。
+ *
+ * 合約日期修好了，收費卻還留在補登那天 —— 而「本月收到」與月營收看的是**收費
+ * 日期**，所以修完合約畫面上完全沒變（2026-08-12 實例：本月收到 $1,062,540，
+ * 而一輩子的累計才 $3,262,460）。
+ *
+ * 一樣用批次補登的特徵，而且抓得很緊：
+ *   1. 這筆收費**掛在某一筆續約**底下，而且日期跟那筆合約不同天
+ *   2. 收費日期落在「同一天有 5 位以上不同學生」的那種日子
+ *   3. 合約日期比它**早** —— 只往前搬，不動「這個月簽約、下個月才收錢」
+ */
+function paymentsStuckOnEntryDay() {
+  const byDate = new Map();
+  for (const s of S.students) {
+    for (const p of s.payments || []) {
+      if (!p.date) continue;
+      if (!byDate.has(p.date)) byDate.set(p.date, new Set());
+      byDate.get(p.date).add(s.id);
+    }
+  }
+  const bulk = new Set([...byDate.entries()]
+    .filter(([, ids]) => ids.size >= BULK_ENTRY_MIN).map(([d]) => d));
+
+  const rows = [];
+  for (const s of S.students) {
+    for (const p of s.payments || []) {
+      if (!p.renewalId || !bulk.has(p.date)) continue;
+      const r = renewalOfPayment(s, p);
+      if (!r || !r.date || r.date >= p.date) continue;
+      rows.push({ student: s, payment: p, to: r.date });
+    }
+  }
+  return rows;
+}
+
+/** 把那些收費的日期改成對應合約的日期 */
+function fixPaymentDatesFromRenewals() {
+  const rows = paymentsStuckOnEntryDay();
+  for (const { student, payment, to } of rows) {
+    payment.date = to;
+    student.updatedAt = new Date().toISOString();
+  }
+  return rows.length;
+}
+
 function batchContractSheet() {
   const rows = contractsNeedingReview();
   if (!rows.length) { toast("沒有需要修正的合約"); return; }
@@ -6679,6 +6740,12 @@ document.addEventListener("click", (e) => {
       break;
     }
     case "batch-contracts": batchContractSheet(); break;
+    case "fix-payment-dates": {
+      const n = fixPaymentDatesFromRenewals();
+      save(); render();
+      toast(n ? `已修正 ${n} 筆收費的日期` : "沒有需要修正的收費");
+      break;
+    }
     case "review-duplicates": duplicateSheet(); break;
     case "fix-renewal-dates": {
       const n = fixRenewalDatesFromPayments();
