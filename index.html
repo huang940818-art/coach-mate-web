@@ -765,7 +765,7 @@ const NOTICE_KEY = "coach-mate-web-notice-dismissed";
  * 版本標記。顯示在設定頁最下面，教練唸得出來就知道他手上是哪一版，
  * 不用再猜是不是拿到舊的快取。每次改版就把這個字串往上加。
  */
-const BUILD = "2026-08-12 · v50";
+const BUILD = "2026-08-12 · v51";
 
 /** 開發者署名，顯示在設定頁的「關於」 */
 const DEVELOPER = "杯子蛋糕好好吃";
@@ -5010,6 +5010,105 @@ function fillRenewalAmountsFromPayments() {
 }
 
 /**
+ * 看起來重複的紀錄。
+ *
+ * 補歷史的時候很容易同一筆記兩次（改了一半重來、匯入過兩次、批次表補了一筆
+ * 但錢其實早就記過）。判斷抓得很緊：**同一位學生、同一天、金額與堂數都一樣**
+ * 才算同一筆。
+ *
+ * 刻意**不自動刪** —— 分期付款真的會出現同一天兩筆同額的收費。列出來讓人看過
+ * 再決定，比自作主張刪掉安全得多。
+ */
+function duplicateRecords() {
+  const groups = [];
+  for (const s of S.students) {
+    const seen = new Map();
+    for (const r of s.renewals || []) {
+      const key = `${r.date || ""}|${r.sessions || 0}|${r.amount || 0}`;
+      if (!seen.has(key)) seen.set(key, []);
+      seen.get(key).push(r);
+    }
+    for (const [, list] of seen) {
+      if (list.length > 1) groups.push({ kind: "renewal", student: s, list });
+    }
+
+    const pseen = new Map();
+    for (const p of s.payments || []) {
+      const key = `${p.date || ""}|${p.amount || 0}`;
+      if (!pseen.has(key)) pseen.set(key, []);
+      pseen.get(key).push(p);
+    }
+    for (const [, list] of pseen) {
+      if (list.length > 1) groups.push({ kind: "payment", student: s, list });
+    }
+  }
+  return groups;
+}
+
+/**
+ * 每一組留一筆、其餘刪掉。
+ *
+ * 留哪一筆有講究：**留底下掛著收費的那筆續約**（刪掉有關聯的那筆會讓收費變孤兒），
+ * 收費則留已經接上續約的那筆（孤兒收費才是後來多出來的那個）。
+ */
+function removeDuplicates(groups) {
+  let removed = 0;
+  for (const g of groups) {
+    if (g.kind === "renewal") {
+      const keep = g.list.find((r) => paymentsOfRenewal(g.student, r.id).length) || g.list[0];
+      for (const r of g.list) {
+        if (r === keep) continue;
+        removeRenewalRecord(g.student, r);
+        removed++;
+      }
+    } else {
+      const keep = g.list.find((p) => p.renewalId) || g.list[0];
+      const drop = new Set(g.list.filter((p) => p !== keep).map((p) => p.id));
+      g.student.payments = g.student.payments.filter((p) => !drop.has(p.id));
+      removed += drop.size;
+    }
+    g.student.updatedAt = new Date().toISOString();
+  }
+  return removed;
+}
+
+function duplicateSheet() {
+  const groups = duplicateRecords();
+  if (!groups.length) { toast("沒有看起來重複的紀錄"); return; }
+  const extra = groups.reduce((a, g) => a + g.list.length - 1, 0);
+
+  openSheet({
+    title: `看起來重複的紀錄（${extra} 筆多的）`,
+    confirmLabel: `刪掉多的 ${extra} 筆`,
+    body: `
+      <p class="hint" style="margin-top:0">
+        同一位學生、同一天、金額（與堂數）都一樣的紀錄。<strong>每一組會留下一筆</strong>——
+        續約留底下有掛收費的那筆，收費留已經接上續約的那筆。<br>
+        分期付款真的可能同一天收兩筆一樣的錢，<strong>不是你的情況就先關掉這張表</strong>，
+        不會自動刪。
+      </p>
+      ${groups.map((g) => `
+        <div class="row" style="display:block;padding:8px 0">
+          <div class="row-title" style="font-size:14px">
+            ${esc(g.student.name || "（未命名）")}
+            <span class="pill pill-mute">${g.kind === "renewal" ? "續約" : "收費"}</span>
+            <span class="muted" style="font-weight:400;font-size:12px">　${g.list.length} 筆一模一樣</span>
+          </div>
+          <div class="row-sub">
+            ${esc(g.list[0].date || "（無日期）")}
+            ${g.kind === "renewal" ? `・${g.list[0].sessions || 0} 堂` : ""}
+            ・${money(g.list[0].amount || 0)}
+          </div>
+        </div>`).join("")}`,
+    onConfirm: () => {
+      const n = removeDuplicates(duplicateRecords());
+      save(); render();
+      toast(n ? `已刪掉 ${n} 筆重複的紀錄` : "沒有刪掉任何東西");
+    },
+  });
+}
+
+/**
  * 一次改完所有要修的合約。
  *
  * 一筆一筆點進去改 23 筆不現實 —— 補完歷史的人正是需要這張表。
@@ -5059,7 +5158,7 @@ function batchContractSheet() {
       }).join("")}`,
     onConfirm: (form) => {
       const makePayments = !!(form.elements.makePayments && form.elements.makePayments.checked);
-      let changed = 0, made = 0;
+      let changed = 0, made = 0, linked = 0;
       for (const { student, renewal } of rows) {
         const d = form.elements[`d_${renewal.id}`];
         const a = form.elements[`a_${renewal.id}`];
@@ -5074,13 +5173,25 @@ function batchContractSheet() {
         // 以這張表為準把收費補齊。已經掛著收費的不動：那可能是分期或訂金，
         // 硬塞第二筆會讓累計收費憑空多一份。
         if (makePayments && !paymentsOfRenewal(student, renewal.id).length) {
-          student.payments = student.payments || [];
-          student.payments.push({
-            id: uid(), renewalId: renewal.id, amount: renewal.amount || 0,
-            date: renewal.date || today(), method: "cash", notes: "",
-            createdAt: new Date().toISOString(),
-          });
-          made++;
+          // **先找找看錢是不是早就記過了，只是沒接上**。
+          // 不找就直接補，同一筆錢會變成兩筆（實測：五位各有一筆孤兒收費，
+          // 補完之後累計收費從 6 萬變 12 萬）。金額一樣就當同一筆，
+          // 日期一樣的優先。
+          const loose = unlinkedPayments(student)
+            .filter((p) => (p.amount || 0) === (renewal.amount || 0));
+          const hit = loose.find((p) => p.date === renewal.date) || loose[0];
+          if (hit) {
+            hit.renewalId = renewal.id;
+            linked++;
+          } else {
+            student.payments = student.payments || [];
+            student.payments.push({
+              id: uid(), renewalId: renewal.id, amount: renewal.amount || 0,
+              date: renewal.date || today(), method: "cash", notes: "",
+              createdAt: new Date().toISOString(),
+            });
+            made++;
+          }
           touched = true;
         }
         if (!touched) continue;
@@ -5088,7 +5199,11 @@ function batchContractSheet() {
         student.updatedAt = new Date().toISOString();
       }
       save(); render();
-      toast(changed ? `已處理 ${changed} 筆合約${made ? `，補上 ${made} 筆收費` : ""}` : "沒有任何變動");
+      toast(changed
+        ? `已處理 ${changed} 筆合約`
+          + (linked ? `，接回 ${linked} 筆已經記過的收費` : "")
+          + (made ? `，補上 ${made} 筆收費` : "")
+        : "沒有任何變動");
     },
   });
 }
@@ -5147,6 +5262,22 @@ function salesSection() {
         <div><span class="sales-stat-value">${sum.dealSize === null ? "—" : money(sum.dealSize)}</span>
           <div class="sales-stat-label">每筆均額</div></div>
       </div>
+
+      ${(() => {
+        // 同一筆記兩次在補歷史時很常見，而且錢會直接翻倍
+        const dups = duplicateRecords();
+        if (!dups.length) return "";
+        const extra = dups.reduce((a, g) => a + g.list.length - 1, 0);
+        return `
+          <div class="note-box" style="margin-top:12px">
+            <strong>有 ${extra} 筆看起來是重複的</strong>（同一位學生、同一天、金額一樣）。
+            重複的收費會讓累計收費與月營收多算一份。
+            <div style="margin-top:9px">
+              <button class="btn btn-sm btn-primary" type="button" data-action="review-duplicates">
+                看一下</button>
+            </div>
+          </div>`;
+      })()}
 
       ${(() => {
         // 日期比金額更根本：日期錯了，連「這個月賣多少」都是假的。
@@ -6301,9 +6432,18 @@ function applyImport(parsed, mode) {
         remap.set(s.id, s.id);
       }
     }
+    // 課也要比對「是不是同一堂」。學生早就有「同名同電話視為同一人」，
+    // 課卻完全沒有 —— 重匯一次、或匯入一份跟這台有共同歷史的備份，
+    // 那些課會整批再長一次（iOS 那邊 2026-08-11 修過同一條）。
+    // 同一位、同一天、同一個開始時間就是同一堂：本來就擋掉時段重疊的課。
+    const lessonKey = (l) => `${l.studentId || "-"}@${l.date} ${l.start}`;
+    const seenLessons = new Set(S.lessons.map(lessonKey));
     for (const l of parsed.lessons) {
       l.studentId = remap.get(l.studentId) || "";
       l.partnerId = remap.get(l.partnerId) || "";
+      const key = lessonKey(l);
+      if (seenLessons.has(key)) continue;
+      seenLessons.add(key);
       S.lessons.push(l);
     }
     S.leads.push(...parsed.leads);
@@ -6458,6 +6598,7 @@ document.addEventListener("click", (e) => {
       break;
     }
     case "batch-contracts": batchContractSheet(); break;
+    case "review-duplicates": duplicateSheet(); break;
     case "fix-renewal-dates": {
       const n = fixRenewalDatesFromPayments();
       save(); render();
