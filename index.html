@@ -485,6 +485,34 @@ dialog.sheet {
 #toast.on { opacity: 1; transform: translate(-50%, 0); }
 
 /* 圖表：單一色相長條，類別靠列標籤辨識，不靠顏色 */
+/* 銷售：金額是主角，給它一整行；底下三個小數字平均分。
+   原本三個一樣大的方塊在手機上會變成「兩個一排、第三個落單」，
+   六位數的金額也塞不進 158px 的格子裡。 */
+.sales-hero {
+  display: flex; align-items: flex-end; justify-content: space-between;
+  flex-wrap: wrap; gap: 6px;
+  background: var(--surface); border: 1px solid var(--line);
+  border-radius: var(--r-in); padding: 13px 15px;
+}
+.sales-hero-label { font-size: 12px; color: var(--muted); margin-bottom: 2px; }
+.sales-hero-value {
+  font-family: var(--mono); font-variant-numeric: tabular-nums;
+  font-size: 27px; font-weight: 700; line-height: 1.1; color: var(--good);
+}
+.sales-hero-meta { font-size: 12px; color: var(--muted); padding-bottom: 3px; }
+.sales-stats {
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 1px;
+  margin-top: 10px; background: var(--line);
+  border: 1px solid var(--line); border-radius: var(--r-in); overflow: hidden;
+}
+.sales-stats > div { background: var(--surface); padding: 10px 8px; text-align: center; }
+.sales-stat-value {
+  font-family: var(--mono); font-variant-numeric: tabular-nums;
+  font-size: 16px; font-weight: 650; color: var(--ink);
+}
+.sales-stat-unit { font-size: 11.5px; color: var(--muted); }
+.sales-stat-label { font-size: 11px; color: var(--muted); margin-top: 2px; }
+
 .bars { display: flex; flex-direction: column; gap: 9px; }
 .bar-row { display: grid; grid-template-columns: 84px 1fr auto; gap: 10px; align-items: center; }
 .bar-track { display: block; height: 8px; background: var(--surface-2); border-radius: 4px; overflow: hidden; }
@@ -737,7 +765,7 @@ const NOTICE_KEY = "coach-mate-web-notice-dismissed";
  * 版本標記。顯示在設定頁最下面，教練唸得出來就知道他手上是哪一版，
  * 不用再猜是不是拿到舊的快取。每次改版就把這個字串往上加。
  */
-const BUILD = "2026-08-11 · v44";
+const BUILD = "2026-08-11 · v45";
 
 /** 開發者署名，顯示在設定頁的「關於」 */
 const DEVELOPER = "杯子蛋糕好好吃";
@@ -4790,6 +4818,51 @@ function paymentSheet(student = null, payment = null) {
  * 銷售統計：「這段期間總共賣了幾堂」。
  * 跟收費不同——收費看錢什麼時候進來（含預收），銷售看課什麼時候賣掉。
  */
+/**
+ * 沒填金額、但底下掛著收費的續約。
+ *
+ * 補歷史時很常見：續約紀錄只填了堂數與日期，錢另外記在收費那一頁。
+ * 但**銷售統計的資料來源是續約紀錄**，於是「銷售金額」只算得到有填金額的那幾筆
+ * ——實際收了 $190,800 卻只顯示 $43,200，每堂均價也跟著垮掉
+ * （2026-08-11 回報「銷售金額有問題」）。
+ *
+ * 這些是補得回來的：底下掛著的收費加起來就是這筆合約的金額。
+ * 沒有掛收費的那種猜不出來，不動它。
+ */
+/**
+ * 長條圖上的月份標籤。
+ *
+ * 原本寫 `month.slice(5) + "月"`，出來是「08月」——多一個 0 很醜，
+ * 而且跨年的區間看不出是哪一年（2025-08 與 2026-08 都印成「08月」）。
+ */
+function monthLabel(month, all) {
+  const spansYears = new Set(all.map((m) => m.month.slice(0, 4))).size > 1;
+  const [y, mm] = month.split("-");
+  return spansYears ? `${y.slice(2)}/${+mm} 月` : `${+mm} 月`;
+}
+
+function renewalsMissingAmount() {
+  const rows = [];
+  for (const s of S.students) {
+    for (const r of s.renewals || []) {
+      if ((r.amount || 0) > 0) continue;
+      const paid = paymentsOfRenewal(s, r.id).reduce((a, p) => a + (p.amount || 0), 0);
+      if (paid > 0) rows.push({ student: s, renewal: r, paid });
+    }
+  }
+  return rows;
+}
+
+/** 用底下收費的金額補上合約金額 */
+function fillRenewalAmountsFromPayments() {
+  const rows = renewalsMissingAmount();
+  for (const { student, renewal, paid } of rows) {
+    renewal.amount = paid;
+    student.updatedAt = new Date().toISOString();
+  }
+  return rows.length;
+}
+
 function salesSection() {
   const preset = periodBounds(salesPeriod);
   const from = preset ? preset.from : (salesFrom || today());
@@ -4824,15 +4897,43 @@ function salesSection() {
           </div>
         </div>` : ""}
 
-      <div class="tiles">
-        ${tile({ value: sum.sessions, unit: "堂", label: "總共賣出", iconName: "clock",
-                 color: "var(--gold)", note: `${sum.count} 筆合約` })}
-        ${tile({ value: money(sum.amount), label: "銷售金額", iconName: "money",
-                 color: "var(--good)", note: `${sum.students} 位客人` })}
-        ${tile({ value: sum.unitPrice === null ? "—" : money(sum.unitPrice), label: "每堂均價",
-                 iconName: "target", color: "var(--info)",
-                 note: sum.dealSize === null ? "" : `每筆均額 ${money(sum.dealSize)}` })}
+      <!-- 金額是這一區的主角，給它一整行；三個一樣大的方塊擠在手機上
+           會變成「兩個一排、第三個落單」，而且六位數的金額塞不下 -->
+      <div class="sales-hero">
+        <div>
+          <div class="sales-hero-label">銷售金額</div>
+          <div class="sales-hero-value">${money(sum.amount)}</div>
+        </div>
+        <div class="sales-hero-meta">
+          ${sum.count} 筆合約・${sum.students} 位客人
+        </div>
       </div>
+
+      <div class="sales-stats">
+        <div><span class="sales-stat-value">${sum.sessions}</span><span class="sales-stat-unit"> 堂</span>
+          <div class="sales-stat-label">總共賣出</div></div>
+        <div><span class="sales-stat-value">${sum.unitPrice === null ? "—" : money(sum.unitPrice)}</span>
+          <div class="sales-stat-label">每堂均價</div></div>
+        <div><span class="sales-stat-value">${sum.dealSize === null ? "—" : money(sum.dealSize)}</span>
+          <div class="sales-stat-label">每筆均額</div></div>
+      </div>
+
+      ${(() => {
+        // 合約沒填金額的話，這一區的數字全部會少算。講出來，並且能一鍵補。
+        const missing = renewalsMissingAmount();
+        if (!missing.length) return "";
+        const total = missing.reduce((a, r) => a + r.paid, 0);
+        return `
+          <div class="note-box" style="margin-top:12px">
+            <strong>有 ${missing.length} 筆合約沒有填金額</strong>，所以上面的銷售金額少算了
+            ——這幾筆底下掛著的收費加起來是 ${money(total)}。<br>
+            補歷史時常常只填堂數、錢記在「收費」那一頁，但銷售統計是看合約的。
+            <div style="margin-top:9px">
+              <button class="btn btn-sm btn-primary" type="button" data-action="fill-renewal-amounts">
+                用收費金額補上</button>
+            </div>
+          </div>`;
+      })()}
 
       ${sum.count === 0 ? `
         <p class="hint" style="margin-top:12px">
@@ -4841,14 +4942,15 @@ function salesSection() {
 
       ${months.length > 1 ? `
         <div style="margin-top:14px">
-          <p class="sec-sub" style="margin:0 0 9px">每個月賣了幾堂</p>
+          <p class="sec-sub" style="margin:0 0 9px">每個月賣了多少</p>
           <div class="bars">
             ${months.map((m) => `
               <div class="bar-row">
-                <span class="bar-label">${esc(m.month.slice(5))}月</span>
+                <span class="bar-label">${esc(monthLabel(m.month, months))}</span>
                 <span class="bar-track"><span class="bar-fill" style="width:${m.sessions / maxSessions * 100}%"></span></span>
-                <span class="bar-value">${m.sessions} 堂</span>
-                <span class="bar-value muted">${money(m.amount)}</span>
+                <span class="bar-value" style="text-align:right">
+                  ${money(m.amount)}<br><span class="muted">${m.sessions} 堂</span>
+                </span>
               </div>`).join("")}
           </div>
         </div>` : ""}
@@ -5124,11 +5226,6 @@ function baseModeHint(rule) {
  *
  * 封存的學生也一起檢查：業績與銷售統計本來就會算到他們。
  */
-function consistencyReport() {
-  return S.students
-    .map((s) => ({ student: s, issues: renewalIssues(s) }))
-    .filter((x) => x.issues.length);
-}
 
 /**
  * 事後才補、卻扣了堂數的課。
@@ -5217,36 +5314,6 @@ function backfillRefundSection() {
       </div>
       <p class="hint">如果其中有些是「剛上完才記、本來就該扣」的，補回來之後到那一堂
         把狀態切成別的再切回「已出席」，就會重新扣一堂。</p>
-    </section>`;
-}
-
-function consistencySection() {
-  const rows = consistencyReport();
-  const total = S.students.length;
-  if (!total) return "";
-  return `
-    <section class="card">
-      <div class="sec-head">
-        <h2 class="sec-title">紀錄檢查</h2>
-        <span class="sec-sub">${rows.length ? `${rows.length} 位對不上` : `${total} 位都對得上`}</span>
-      </div>
-      ${rows.length ? `
-        <p class="row-sub" style="margin:0 0 10px">
-          續約紀錄與收費紀錄兜不起來的地方。<strong>不是錯誤，也不會影響你已經記下的錢</strong>——
-          但收費那一列要顯示堂數、改續約時要能連動收費，都得先對起來。點「處理」直接開那位學生的編輯。
-        </p>
-        ${rows.map(({ student, issues }) => `
-          <div class="row">
-            <span class="dot" style="background:${esc(student.color || "var(--muted)")}"></span>
-            <div class="row-main">
-              <div class="row-title">${esc(student.name || "（未命名）")}</div>
-              <div class="row-sub">${issues.map((i) => esc(i.text)).join("<br>")}</div>
-            </div>
-            <div class="row-end">
-              <button class="btn btn-sm" type="button" data-action="fix-student" data-id="${student.id}">處理</button>
-            </div>
-          </div>`).join("")}`
-      : `<p class="row-sub" style="margin:0">每位學生的續約次數、續約紀錄與收費紀錄都對得起來。</p>`}
     </section>`;
 }
 
@@ -5531,7 +5598,6 @@ function viewSettings() {
       </section>
 
       ${backfillRefundSection()}
-      ${consistencySection()}
 
       <section class="card">
         <div class="sec-head">
@@ -6139,6 +6205,12 @@ document.addEventListener("click", (e) => {
       if (p) paymentSheet(st, p);
       break;
     }
+    case "fill-renewal-amounts": {
+      const n = fillRenewalAmountsFromPayments();
+      save(); render();
+      toast(n ? `已補上 ${n} 筆合約金額` : "沒有可以補的合約");
+      break;
+    }
     case "refund-backfilled": {
       const { lessons, refunded, cleared } = refundBackfilledLessons();
       save(); render();
@@ -6147,11 +6219,6 @@ document.addEventListener("click", (e) => {
           + (refunded ? `，補回 ${refunded} 堂` : "")
           + (cleared ? `，清掉 ${cleared} 筆欠課` : "")
         : "沒有需要補回的堂數");
-      break;
-    }
-    case "fix-student": {
-      const st = studentById(id);
-      if (st) studentSheet(st);
       break;
     }
     case "delete-payment": {
