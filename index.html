@@ -737,7 +737,7 @@ const NOTICE_KEY = "coach-mate-web-notice-dismissed";
  * 版本標記。顯示在設定頁最下面，教練唸得出來就知道他手上是哪一版，
  * 不用再猜是不是拿到舊的快取。每次改版就把這個字串往上加。
  */
-const BUILD = "2026-08-11 · v37";
+const BUILD = "2026-08-11 · v38";
 
 /** 開發者署名，顯示在設定頁的「關於」 */
 const DEVELOPER = "杯子蛋糕好好吃";
@@ -1199,6 +1199,49 @@ function setLessonStatus(lesson, status) {
     st.updatedAt = new Date().toISOString();
   }
   lesson.status = status;
+}
+
+/**
+ * 刪掉一位學生，連同他在課表上留下的痕跡。
+ *
+ * 原本是一行 `S.lessons.filter(l => l.studentId !== id && l.partnerId !== id)`，
+ * 兩個問題（2026-08-11 查出來）：
+ *
+ *  1. **共同課的另一位陪葬**。甲乙一起上的課，刪掉乙（他只是「第二位」）
+ *     會把整堂刪掉 —— 那是**甲的**課，甲的紀錄憑空少一堂。
+ *     現在只把乙從那堂課上拿掉，課留給甲。
+ *  2. **另一位已扣的堂數沒還回去**。刪掉主要學生時整堂會消失，但同一堂
+ *     也扣過對方一堂；課不見了、堂數卻沒還，對方等於平白少一堂課。
+ *     刪單一堂課本來就會 releaseLesson，這裡漏了。
+ *
+ * 回傳統計是為了講給使用者聽：刪了幾堂、幾堂只是拿掉共同上課的人、
+ * 還了幾堂給別人。
+ */
+function removeStudentEverywhere(student) {
+  const kept = [];
+  let removed = 0, detached = 0, refunded = 0;
+  for (const l of S.lessons) {
+    if (l.studentId === student.id) {
+      // 整堂要刪：同一堂如果也扣過共同上課那位的堂數，要還給他
+      if (l.partnerId && l.partnerId !== student.id && l.partnerConsumed) {
+        const p = studentById(l.partnerId);
+        if (p) { p.remaining += 1; p.updatedAt = new Date().toISOString(); refunded++; }
+      }
+      removed++;
+      continue;
+    }
+    if (l.partnerId === student.id) {
+      // 這是別人的課，他只是被找來一起上。課留著，人拿掉。
+      l.partnerId = "";
+      l.partnerConsumed = false;
+      l.partnerOwed = false;
+      detached++;
+    }
+    kept.push(l);
+  }
+  S.lessons = kept;
+  S.students = S.students.filter((x) => x.id !== student.id);
+  return { removed, detached, refunded };
 }
 
 /** 刪課要把已扣的堂數還回去；課都不存在了，欠課紀錄也跟著取消 */
@@ -3387,11 +3430,19 @@ function studentSheet(existing) {
         const del = e.target.closest('[data-action="delete-student"]');
         if (!del) return;
         closeSheet();
-        confirmSheet("刪除學生", `會一併刪掉 ${esc(s.name)} 的課程與收費紀錄，無法復原。`, () => {
-          S.lessons = S.lessons.filter((l) => l.studentId !== s.id && l.partnerId !== s.id);
-          S.students = S.students.filter((x) => x.id !== s.id);
-          save(); render(); toast("已刪除");
-        }, "刪除");
+        // 先數清楚會動到什麼，講出來再刪 —— 共同課會影響到別人
+        const own = S.lessons.filter((l) => l.studentId === s.id).length;
+        const shared = S.lessons.filter((l) => l.partnerId === s.id && l.studentId !== s.id).length;
+        confirmSheet("刪除學生",
+          `會一併刪掉 ${esc(s.name)} 的收費與續約紀錄${own ? `，以及他的 ${own} 堂課` : ""}。無法復原。`
+          + (shared ? `<br>另外有 ${shared} 堂是<strong>別人的共同課</strong>，那幾堂會留著，只把他從課上拿掉。` : ""),
+          () => {
+            const { removed, detached, refunded } = removeStudentEverywhere(s);
+            save(); render();
+            toast(`已刪除${removed ? `，含 ${removed} 堂課` : ""}`
+              + (detached ? `，${detached} 堂共同課留給對方` : "")
+              + (refunded ? `，退還對方 ${refunded} 堂` : ""));
+          }, "刪除");
       });
     },
   });
@@ -5771,18 +5822,48 @@ document.addEventListener("click", (e) => {
     case "delete-payment": {
       const st = studentById(el.dataset.student);
       if (!st) break;
-      confirmSheet("刪除收費紀錄", "這筆收費會從紀錄中移除。", () => {
-        st.payments = st.payments.filter((p) => p.id !== id);
-        save(); render(); toast("已刪除");
-      }, "刪除");
+      const p = (st.payments || []).find((x) => x.id === id);
+      if (!p) break;
+      // 跟收費表單裡那顆刪除講同一套話 —— 同一件事在兩個地方說法不同
+      // 只會讓人以為是兩件事
+      const r = renewalOfPayment(st, p);
+      confirmSheet("刪除收費紀錄",
+        `${esc(st.name || "")}　${esc(p.date || "")}　${money(p.amount || 0)}`
+        + (r ? `<br>這筆錢掛在 ${esc(r.date || "")} 的續約底下。<strong>續約紀錄不會跟著刪</strong>，那筆課還是賣出去了。`
+             : "<br>這筆沒有對應到任何續約，刪掉只影響收入統計。"),
+        () => {
+          st.payments = st.payments.filter((x) => x.id !== id);
+          st.updatedAt = new Date().toISOString();
+          save(); render(); toast("已刪除收費紀錄");
+        }, "刪除");
       break;
     }
 
     case "new-lead": leadSheet(); break;
-    case "delete-lead":
-      S.leads = S.leads.filter((l) => l.id !== id);
-      save(); render(); toast("已刪除名單");
+    case "delete-lead": {
+      // 以前是按一下就直接刪，連問都不問；而且掛在他身上的檢測會變成斷頭：
+      // leadId 指向不存在的人，回報「成交了」時 applyOutcome 會在
+      // `if (!lead) return null` 靜靜跳出 —— **不會幫你轉成正式學生**，
+      // 依來源的成交率也會少算那一場（總成交率卻還算著），兩個數字從此對不上。
+      const lead = leadById(id);
+      if (!lead) break;
+      const tried = S.lessons.filter((l) => isAssessment(l) && l.leadId === id);
+      confirmSheet("刪除名單",
+        `${esc(lead.name || "這筆名單")}`
+        + (tried.length
+            ? `<br>他身上掛著 <strong>${tried.length} 堂檢測</strong>，會一起刪掉——檢測認不出是誰的話，
+               回報成交時轉不了正式學生，成交率也會算錯。<br>
+               只是想讓他離開追蹤名單的話，把狀態改成「流失」就好，紀錄會留著。`
+            : "<br>無法復原。"),
+        () => {
+          const ids = new Set(tried.map((l) => l.id));
+          S.lessons = S.lessons.filter((l) => !ids.has(l.id));
+          S.leads = S.leads.filter((l) => l.id !== id);
+          save(); render();
+          toast(tried.length ? `已刪除名單與 ${tried.length} 堂檢測` : "已刪除名單");
+        }, "刪除");
       break;
+    }
 
     case "set-employment": S.settings.employment = value; save(); render(); break;
     case "set-theme": S.settings.theme = value; save(); render(); break;
@@ -5791,18 +5872,34 @@ document.addEventListener("click", (e) => {
     case "move-field":
       if (moveCustomField(value, el.dataset.dir)) { save(); render(); }
       break;
-    case "del-field":
-      S.settings.customFields = S.settings.customFields.filter((f) => f !== value);
-      if (S.settings.customFieldSpecs) delete S.settings.customFieldSpecs[value];
-      save(); render(); toast(`已刪除欄位「${value}」`);
+    // 這三個以前都是按一下就沒了。設定頁的刪除鈕排在一起，手機上很好誤觸，
+    // 而自訂欄位一刪，所有學生填在那一格的內容就整批從畫面上消失。
+    case "del-field": {
+      const used = S.students.filter((s) => (s.custom || {})[value]).length;
+      confirmSheet("刪除自訂欄位", `「${esc(value)}」會從表單與客群分析裡拿掉。`
+        + (used ? `目前有 <strong>${used} 位學生</strong>填了這一格，內容會跟著看不到
+                   （資料還留著，重新新增同名欄位就會回來）。` : ""),
+        () => {
+          S.settings.customFields = S.settings.customFields.filter((f) => f !== value);
+          if (S.settings.customFieldSpecs) delete S.settings.customFieldSpecs[value];
+          save(); render(); toast(`已刪除欄位「${value}」`);
+        }, "刪除");
       break;
-    case "del-package":
-      S.settings.packages = S.settings.packages.filter((p) => p.id !== id);
-      save(); render();
+    }
+    case "del-package": {
+      const p = S.settings.packages.find((x) => x.id === id);
+      confirmSheet("刪除方案", p ? `「${esc(p.name)}」以後不會出現在續約的選單裡。已經賣出去的續約紀錄不受影響。` : "",
+        () => {
+          S.settings.packages = S.settings.packages.filter((x) => x.id !== id);
+          save(); render(); toast("已刪除方案");
+        }, "刪除");
       break;
+    }
     case "del-tier":
-      S.settings.salary.tiers = S.settings.salary.tiers.filter((t) => String(t.minSessions) !== value);
-      save(); render();
+      confirmSheet("刪除抽成級距", `滿 ${esc(value)} 堂那一級會拿掉，薪資會改用剩下的級距重算。`, () => {
+        S.settings.salary.tiers = S.settings.salary.tiers.filter((t) => String(t.minSessions) !== value);
+        save(); render(); toast("已刪除級距");
+      }, "刪除");
       break;
 
     case "export": exportData(); break;
