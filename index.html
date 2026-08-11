@@ -737,7 +737,7 @@ const NOTICE_KEY = "coach-mate-web-notice-dismissed";
  * 版本標記。顯示在設定頁最下面，教練唸得出來就知道他手上是哪一版，
  * 不用再猜是不是拿到舊的快取。每次改版就把這個字串往上加。
  */
-const BUILD = "2026-08-11 · v38";
+const BUILD = "2026-08-11 · v39";
 
 /** 開發者署名，顯示在設定頁的「關於」 */
 const DEVELOPER = "杯子蛋糕好好吃";
@@ -2072,7 +2072,11 @@ async function saveFile(filename, text) {
     }
   }
   try {
-    const blob = new Blob([text], { type: "application/octet-stream" });
+    // **型別一定要是 application/json**。原本寫 application/octet-stream，
+    // iPhone 存下來的檔案在「檔案」App 裡不會被認成 JSON，而 iOS 版的匯入是
+    // `allowedContentTypes: [.json]` —— 那個檔在選擇器裡是灰的、根本點不下去，
+    // 症狀就是「網頁的資料沒辦法匯入 App」（2026-08-11 回報）。
+    const blob = new Blob([text], { type: "application/json" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
