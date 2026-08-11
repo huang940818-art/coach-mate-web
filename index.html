@@ -737,7 +737,7 @@ const NOTICE_KEY = "coach-mate-web-notice-dismissed";
  * 版本標記。顯示在設定頁最下面，教練唸得出來就知道他手上是哪一版，
  * 不用再猜是不是拿到舊的快取。每次改版就把這個字串往上加。
  */
-const BUILD = "2026-08-11 · v43";
+const BUILD = "2026-08-11 · v44";
 
 /** 開發者署名，顯示在設定頁的「關於」 */
 const DEVELOPER = "杯子蛋糕好好吃";
@@ -5144,7 +5144,11 @@ function consistencyReport() {
 function backfilledConsumedLessons() {
   return S.lessons.filter((l) => {
     if (kindOf(l) !== "lesson") return false;              // 檢測本來就不扣
-    if (!l.consumed && !l.partnerConsumed) return false;
+    // 扣掉了、或**因為沒堂數可扣而被記成欠課**，兩種都要撈出來。
+    // 只看 consumed 會漏掉最慘的那一種：剩餘已經是 0 的學生（補歷史時很常見，
+    // 堂數本來就上完了），每補一堂就多欠一堂，而且一堂都沒「被扣掉」，
+    // 於是整個補救區塊連出現都不會出現（2026-08-11 回報「為什麼會有欠幾堂」）。
+    if (!l.consumed && !l.partnerConsumed && !l.owed && !l.partnerOwed) return false;
     if (!l.createdAt || !l.date || !l.end) return false;
     const slotEnd = new Date(`${l.date}T${l.end}:00`);
     const created = new Date(l.createdAt);
@@ -5156,49 +5160,60 @@ function backfilledConsumedLessons() {
 /** 把那些課扣掉的堂數還回去（紀錄留著，狀態也留著，只是不再扣） */
 function refundBackfilledLessons() {
   const rows = backfilledConsumedLessons();
-  let refunded = 0;
+  let refunded = 0, cleared = 0;
   for (const l of rows) {
     for (const [idKey, consumedKey, owedKey] of SESSION_SLOTS) {
-      if (!l[consumedKey]) continue;
-      const st = studentById(l[idKey]);
-      if (st) { st.remaining += 1; st.updatedAt = new Date().toISOString(); refunded++; }
-      l[consumedKey] = false;
-      l[owedKey] = false;
+      if (l[consumedKey]) {
+        const st = studentById(l[idKey]);
+        if (st) { st.remaining += 1; st.updatedAt = new Date().toISOString(); refunded++; }
+        l[consumedKey] = false;
+      }
+      // 欠課也是同一件事的另一面：剩餘是 0 的時候扣不動，就被記成「欠一堂」。
+      // 補歷史本來就不該扣，那個欠也不該存在。
+      if (l[owedKey]) { l[owedKey] = false; cleared++; }
     }
   }
-  return { lessons: rows.length, refunded };
+  return { lessons: rows.length, refunded, cleared };
 }
 
 function backfillRefundSection() {
   const rows = backfilledConsumedLessons();
   if (!rows.length) return "";
+  // 每位受影響的學生：要補回幾堂、要清掉幾筆欠課
   const byStudent = new Map();
   for (const l of rows) {
-    for (const [idKey, consumedKey] of SESSION_SLOTS) {
-      if (!l[consumedKey]) continue;
+    for (const [idKey, consumedKey, owedKey] of SESSION_SLOTS) {
+      if (!l[consumedKey] && !l[owedKey]) continue;
       const st = studentById(l[idKey]);
       const name = st ? (st.name || "（未命名）") : "（已刪除的學生）";
-      byStudent.set(name, (byStudent.get(name) || 0) + 1);
+      const row = byStudent.get(name) || { back: 0, owed: 0 };
+      if (l[consumedKey]) row.back += 1;
+      if (l[owedKey]) row.owed += 1;
+      byStudent.set(name, row);
     }
   }
+  const totalOwed = [...byStudent.values()].reduce((a, r) => a + r.owed, 0);
   return `
     <section class="card">
       <div class="sec-head">
-        <h2 class="sec-title">補回被扣掉的堂數</h2>
-        <span class="sec-sub">${rows.length} 堂事後補的課扣了堂數</span>
+        <h2 class="sec-title">修正補登造成的堂數</h2>
+        <span class="sec-sub">${rows.length} 堂事後補的課動到了堂數</span>
       </div>
       <p class="row-sub" style="margin:0 0 10px">
         這些課是<strong>上完之後才回來記的</strong>（建立時間晚於課程結束），
-        但當時被扣了一堂。補以前的課不該扣——那些課早就上完了，剩餘堂數多半已經
-        反映過。按下面的按鈕會把堂數還回去，<strong>課程紀錄與「已上課」的狀態都留著</strong>。
+        但當時扣了一堂${totalOwed ? "、或因為當下沒堂數可扣而被記成「欠一堂」" : ""}。
+        補以前的課不該扣——那些課早就上完了，剩餘堂數多半已經反映過。
+        按下面的按鈕會把堂數還回去${totalOwed ? "、並清掉那些欠課" : ""}，
+        <strong>課程紀錄與「已上課」的狀態都留著</strong>。
       </p>
-      ${[...byStudent.entries()].map(([name, n]) => `
+      ${[...byStudent.entries()].map(([name, r]) => `
         <div class="row">
           <div class="row-main"><div class="row-title">${esc(name)}</div></div>
-          <div class="row-end mono">＋${n} 堂</div>
+          <div class="row-end mono">${[r.back ? `＋${r.back} 堂` : "", r.owed ? `清掉欠 ${r.owed} 堂` : ""]
+            .filter(Boolean).join("・")}</div>
         </div>`).join("")}
       <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">
-        <button class="btn btn-primary" type="button" data-action="refund-backfilled">把堂數補回來</button>
+        <button class="btn btn-primary" type="button" data-action="refund-backfilled">${totalOwed ? "補回堂數並清掉欠課" : "把堂數補回來"}</button>
       </div>
       <p class="hint">如果其中有些是「剛上完才記、本來就該扣」的，補回來之後到那一堂
         把狀態切成別的再切回「已出席」，就會重新扣一堂。</p>
@@ -6125,9 +6140,13 @@ document.addEventListener("click", (e) => {
       break;
     }
     case "refund-backfilled": {
-      const { lessons, refunded } = refundBackfilledLessons();
+      const { lessons, refunded, cleared } = refundBackfilledLessons();
       save(); render();
-      toast(refunded ? `已把 ${refunded} 堂補回給學生（${lessons} 筆紀錄）` : "沒有需要補回的堂數");
+      toast(refunded || cleared
+        ? `已處理 ${lessons} 筆紀錄`
+          + (refunded ? `，補回 ${refunded} 堂` : "")
+          + (cleared ? `，清掉 ${cleared} 筆欠課` : "")
+        : "沒有需要補回的堂數");
       break;
     }
     case "fix-student": {
