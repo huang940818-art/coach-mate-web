@@ -535,8 +535,11 @@ dialog.sheet {
 .day-name { font-size: 10.5px; color: var(--muted); }
 .day-num { font-family: var(--mono); font-size: 15px; font-variant-numeric: tabular-nums; }
 .day.today .day-num { background: var(--gold); color: var(--on-gold); border-radius: 50%; width: 26px; height: 26px; display: grid; place-items: center; }
-.day-dot { width: 5px; height: 5px; border-radius: 50%; background: var(--gold); opacity: .55; }
-.day-dot.hidden { visibility: hidden; }
+/* 每堂一個色點（跟 iOS 一致）。原本只有一個灰點「有課就亮」，
+   看不出那天是正課還是檢測，也看不出幾堂。 */
+.day-dots { display: flex; gap: 2px; align-items: center; height: 6px; }
+.day-dot { width: 5px; height: 5px; border-radius: 50%; background: var(--gold); }
+.day-more { font-size: 8px; font-weight: 600; color: var(--muted); line-height: 1; }
 
 .chips { display: flex; flex-wrap: wrap; gap: 6px; }
 .chip {
@@ -765,7 +768,7 @@ const NOTICE_KEY = "coach-mate-web-notice-dismissed";
  * 版本標記。顯示在設定頁最下面，教練唸得出來就知道他手上是哪一版，
  * 不用再猜是不是拿到舊的快取。每次改版就把這個字串往上加。
  */
-const BUILD = "2026-08-12 · v51";
+const BUILD = "2026-08-12 · v52";
 
 /** 開發者署名，顯示在設定頁的「關於」 */
 const DEVELOPER = "杯子蛋糕好好吃";
@@ -1446,6 +1449,24 @@ function currentPackageSessions(student) {
  * 續約當下學生的 `remaining` 就是結轉的數字，所以 renewSheet 會自動帶入；
  * 補歷史時算不出來，就在續約紀錄那邊自己填。
  */
+/**
+ * 這位學生的每堂單價。
+ *
+ * 優先用他自己的「每堂費用」；沒填就從**最近一筆有金額的合約**換算
+ * （總額 ÷ 堂數）。補歷史的人多半只填了合約，沒有一位一位去補鐘點費，
+ * 而這個數字撐著「已上 N 堂值多少」「未上課的預收」與公司教練的鐘點抽成 ——
+ * 拿 0 去乘，那幾個數字全部是 0（2026-08-12 回報「價格有問題」）。
+ */
+function sessionPrice(student) {
+  if (student.rate > 0) return student.rate;
+  for (const r of renewalsOf(student)) {
+    if ((r.sessions || 0) > 0 && (r.amount || 0) > 0) {
+      return Math.round(r.amount / r.sessions);
+    }
+  }
+  return 0;
+}
+
 function carryOverOf(student) {
   const latest = renewalsOf(student)[0];
   return latest ? Math.max(0, +latest.carryOver || 0) : 0;
@@ -1534,7 +1555,7 @@ function salaryFor(ym) {
         const st = studentById(id);
         if (!st) continue;
         sessions += 1;
-        lessonRevenue += rule.useStudentRate ? (st.rate || 0) : (rule.perLessonRate || 0);
+        lessonRevenue += rule.useStudentRate ? sessionPrice(st) : (rule.perLessonRate || 0);
       }
     }
   }
@@ -2533,7 +2554,7 @@ function viewStudents() {
           const paid = s.payments.reduce((a, p) => a + p.amount, 0);
           // 上掉的課值多少錢。公司教練的鐘點抽成就是拿這個去算的，
           // 所以「上了幾堂」旁邊直接把金額寫出來，不用自己乘。
-          const usedValue = used.count * (s.rate || 0);
+          const usedValue = used.count * sessionPrice(s);
           return `
           <div class="row">
             <span class="dot" style="background:${esc(s.color)}"></span>
@@ -2630,7 +2651,7 @@ function studentDetailSheet(student) {
             ${student.mayNotRenew ? '<span class="pill pill-warn">可能不續約</span>' : ""}
           </div>
           <div class="row-sub">
-            ${student.phone ? esc(student.phone) + "　" : ""}${student.rate ? "每堂 " + money(student.rate) : ""}
+            ${student.phone ? esc(student.phone) + "　" : ""}${sessionPrice(student) ? `每堂 ${money(sessionPrice(student))}${student.rate > 0 ? "" : "（依合約換算）"}` : ""}
           </div>
         </div>
         <div class="row-end">
@@ -2714,7 +2735,7 @@ function studentDetailSheet(student) {
         : `<p class="hint">${(() => {
             const u = consumedSessions(student);
             return u.estimated
-              ? `這位學生還沒有課程紀錄，所以算不出出席率。<strong>依「已購 ${student.totalPurchased || 0} 堂 − 剩餘 ${student.remaining || 0} 堂」推算已經上掉 ${u.count} 堂</strong>${student.rate ? `，約 ${money(u.count * student.rate)}` : ""}。往後把課排進「課表」並標記出席，這裡就會換成實算的數字。`
+              ? `這位學生還沒有課程紀錄，所以算不出出席率。<strong>依「已購 ${student.totalPurchased || 0} 堂 − 剩餘 ${student.remaining || 0} 堂」推算已經上掉 ${u.count} 堂</strong>${sessionPrice(student) ? `，約 ${money(u.count * sessionPrice(student))}` : ""}。往後把課排進「課表」並標記出席，這裡就會換成實算的數字。`
               : "還沒有上過課，算不出出席率。";
           })()}</p>`}
 
@@ -4117,12 +4138,18 @@ function viewCalendar() {
         <div class="week">
           ${days.map((d) => {
             const ds = dayStr(d);
-            const count = S.lessons.filter((l) => l.date === ds && l.status !== "cancelled").length;
+            // 每堂一個色點，檢測是紫的 —— 一眼看得出那天有沒有檢測。
+            // 超過四堂就用「+N」收尾，跟 iOS 一樣。
+            const ofDay = S.lessons.filter((l) => l.date === ds && l.status !== "cancelled");
             return `<button class="day ${ds === today() ? "today" : ""}" type="button"
                       data-action="pick-day" data-value="${ds}" aria-pressed="${ds === selectedDate}">
               <span class="day-name">${weekdayName(d)}</span>
               <span class="day-num">${d.getDate()}</span>
-              <span class="day-dot ${count ? "" : "hidden"}"></span>
+              <span class="day-dots">
+                ${ofDay.slice(0, 4).map((l) =>
+                  `<span class="day-dot" style="background:${esc(lessonColor(l) || "var(--gold)")}"></span>`).join("")}
+                ${ofDay.length > 4 ? `<span class="day-more">+${ofDay.length - 4}</span>` : ""}
+              </span>
             </button>`;
           }).join("")}
         </div>
@@ -4153,6 +4180,14 @@ function viewCalendar() {
                 </div>
               <div class="row-sub mono">${esc(l.start)}–${esc(l.end)}　${durationLabel(durationOf(l))}${l.location ? "　" + esc(l.location) : ""}</div>
               ${assess && needsOutcome(l) ? `<div class="row-sub" style="color:var(--warn)">還沒回報成交與否</div>` : ""}
+              ${// 剩幾堂就寫在課上（跟 iOS 一致）——快用完的時候要在排課的地方看得到，
+                // 而不是等翻到學生頁才發現。檢測不扣堂數，不用寫。
+                assess ? "" : [st, partner].filter(Boolean).map((who) => {
+                  const low = (who.remaining || 0) <= (S.settings.lowSessions || 3);
+                  return `<div class="row-sub" style="${low ? "color:var(--warn)" : ""}">${
+                    partner ? esc(who.name) + " " : ""}${
+                    who.remaining > 0 ? `剩 ${who.remaining} 堂` : "堂數已用完"}</div>`;
+                }).join("")}
               ${l.notes ? `<div class="row-sub">${esc(l.notes)}</div>` : ""}
             </div>
             <div class="row-end" style="display:flex;align-items:center;gap:6px">
@@ -4588,7 +4623,7 @@ function viewPayments() {
         ${isCompany
           ? tile({ value: money(sal.total), label: "本月實拿", iconName: "target", color: "var(--info)",
                    note: `底薪 ${money(sal.baseSalary || S.settings.salary.baseSalary)}` })
-          : tile({ value: money(S.students.reduce((a, s) => a + s.remaining * (s.rate || 0), 0)),
+          : tile({ value: money(S.students.reduce((a, s) => a + s.remaining * sessionPrice(s), 0)),
                    label: "未上課的預收", iconName: "clock", color: "var(--info)", note: "剩餘堂數 × 鐘點" })}
       </div>
 
@@ -5165,7 +5200,18 @@ function batchContractSheet() {
         const newDate = d ? d.value : renewal.date;
         const newAmount = a ? Math.max(0, +a.value || 0) : (renewal.amount || 0);
         let touched = false;
-        if (newDate && newDate !== renewal.date) { renewal.date = newDate; touched = true; }
+        if (newDate && newDate !== renewal.date) {
+          // 掛在底下、而且**本來就跟合約同一天**的收費要跟著搬。
+          // 不搬的話「本月收到」與月營收全部留在補登那個月，改了合約日期
+          // 也看不出差別（2026-08-12 回報「本月收到那邊也是都沒有改過來」）。
+          // 刻意分開填過的收費日期不動 —— 那是「這個月簽約、下個月才轉帳」。
+          const wasDate = renewal.date;
+          for (const p of paymentsOfRenewal(student, renewal.id)) {
+            if ((p.date || "") === wasDate) p.date = newDate;
+          }
+          renewal.date = newDate;
+          touched = true;
+        }
         if (newAmount !== (renewal.amount || 0)) { renewal.amount = newAmount; touched = true; }
         // 看過了就是看過了 —— 留 0 是他的決定，不要下次再問一次
         if (!renewal.amountOk) { renewal.amountOk = true; touched = true; }
