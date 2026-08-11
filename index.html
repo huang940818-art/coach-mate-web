@@ -737,7 +737,7 @@ const NOTICE_KEY = "coach-mate-web-notice-dismissed";
  * 版本標記。顯示在設定頁最下面，教練唸得出來就知道他手上是哪一版，
  * 不用再猜是不是拿到舊的快取。每次改版就把這個字串往上加。
  */
-const BUILD = "2026-08-11 · v42";
+const BUILD = "2026-08-11 · v43";
 
 /** 開發者署名，顯示在設定頁的「關於」 */
 const DEVELOPER = "杯子蛋糕好好吃";
@@ -4144,7 +4144,16 @@ function lessonSheet(existing, presetKind = "lesson") {
         ${fieldText("start", "開始時間", l.start, { type: "time" })}
       </div>
       ${durationPicker(dur)}
-      ${existing ? "" : `<p class="hint" data-past-hint></p>`}
+      ${existing ? "" : `
+        <p class="hint" data-past-hint></p>
+        <div data-past-consume hidden>
+          <div class="switch">
+            <label for="f-consumePast">同時扣掉學生一堂課</label>
+            <input id="f-consumePast" name="consumePast" type="checkbox">
+          </div>
+          <p class="hint">補以前的課通常<strong>不用扣</strong>——那些課早就上完了，
+            剩餘堂數多半已經反映過。剛上完才回來記、堂數還沒扣的話再勾起來。</p>
+        </div>`}
       ${existing ? fieldSelect("status", "狀態", Object.entries(LESSON_STATUS).map(([k, v]) => [k, v.label]), l.status) : ""}
       ${existing && assessing
         ? fieldSelect("outcome", "成交結果",
@@ -4270,20 +4279,32 @@ function lessonSheet(existing, presetKind = "lesson") {
         // 未來的課維持「已排定」。以前一律建成已排定，補歷史的人每一堂都要
         // 再手動改一次，不然要等下次開 App 的自動補標才會對。
         // 重複排課時逐堂判斷 —— 第一堂可能已經過了，後面幾堂還沒。
+        // 時段已經過了就記成「已上課」，但**預設不扣堂數**：那些課早就上完了，
+        // 剩餘堂數多半已經反映過（跟續約的「補登」是同一個道理——補的是歷史，
+        // 不是現況）。硬扣下去就是憑空吃掉學生手上的課。
+        // 剛上完才回來記、堂數還沒扣的人可以勾「同時扣掉學生一堂課」。
+        const consumePast = !!(form.elements.consumePast && form.elements.consumePast.checked);
         for (const d of made) {
           const lesson = { ...l, id: uid(), kind: "lesson", date: d, start, end,
                            location, notes, studentId, partnerId, color,
                            status: "scheduled", consumed: false, partnerConsumed: false,
                            owed: false, partnerOwed: false };
           S.lessons.push(lesson);
-          // 走 setLessonStatus 才會正確扣堂數／記欠課，不能直接寫 status
-          if (isPastSlot(d, end, start)) setLessonStatus(lesson, "attended");
+          if (!isPastSlot(d, end, start)) continue;
+          if (consumePast) {
+            // 要扣就走 setLessonStatus，才會正確扣堂數／記欠課
+            setLessonStatus(lesson, "attended");
+          } else {
+            // 只記錄，不動堂數
+            lesson.status = "attended";
+          }
         }
       }
       save(); render();
       const done = made.filter((d) => isPastSlot(d, end, start)).length;
+      const consumed = done && form.elements.consumePast && form.elements.consumePast.checked;
       toast(existing ? "已更新課程"
-        : done ? `已排 ${made.length} 堂課，其中 ${done} 堂時段已過，記成已上課`
+        : done ? `已排 ${made.length} 堂課，其中 ${done} 堂記成已上課${consumed ? "（已扣堂數）" : "（未扣堂數）"}`
                : `已排 ${made.length} 堂課`);
     },
     onMount: (root) => {
@@ -4304,8 +4325,10 @@ function lessonSheet(existing, presetKind = "lesson") {
         pastHint.textContent = past
           ? (isAssess
               ? "這個時段已經過了，會直接記成「已上課」，並在待回報那裡問你成交了沒。"
-              : "這個時段已經過了，會直接記成「已上課」並扣一堂。補以前的課就是要這樣。")
+              : "這個時段已經過了，會記成「已上課」，但預設不扣堂數。")
           : "還沒到的時段會是「已排定」，時間過了自己會變成已上課。";
+        const consumeBox = root.querySelector("[data-past-consume]");
+        if (consumeBox) consumeBox.hidden = !past || isAssess;
       };
       root.addEventListener("input", refreshPastHint);
       root.addEventListener("change", refreshPastHint);
@@ -5107,6 +5130,81 @@ function consistencyReport() {
     .filter((x) => x.issues.length);
 }
 
+/**
+ * 事後才補、卻扣了堂數的課。
+ *
+ * v42 那一版把「時段已經過了」的新課直接記成已上課**並扣一堂**，但補以前的課
+ * 不該扣 —— 那些課早就上完了，剩餘堂數已經反映過（2026-08-11 回報：
+ * 「課後才補紀錄，幫我把我的補回來」）。這裡把被吃掉的找出來還回去。
+ *
+ * 判斷方式是 **建立時間晚於課程結束時間** ＝ 事後補的紀錄。
+ * 事先排好、時間到了才被自動標記的課不算（那種本來就該扣，
+ * 它的 createdAt 在上課之前）。
+ */
+function backfilledConsumedLessons() {
+  return S.lessons.filter((l) => {
+    if (kindOf(l) !== "lesson") return false;              // 檢測本來就不扣
+    if (!l.consumed && !l.partnerConsumed) return false;
+    if (!l.createdAt || !l.date || !l.end) return false;
+    const slotEnd = new Date(`${l.date}T${l.end}:00`);
+    const created = new Date(l.createdAt);
+    if (isNaN(slotEnd.getTime()) || isNaN(created.getTime())) return false;
+    return created > slotEnd;
+  });
+}
+
+/** 把那些課扣掉的堂數還回去（紀錄留著，狀態也留著，只是不再扣） */
+function refundBackfilledLessons() {
+  const rows = backfilledConsumedLessons();
+  let refunded = 0;
+  for (const l of rows) {
+    for (const [idKey, consumedKey, owedKey] of SESSION_SLOTS) {
+      if (!l[consumedKey]) continue;
+      const st = studentById(l[idKey]);
+      if (st) { st.remaining += 1; st.updatedAt = new Date().toISOString(); refunded++; }
+      l[consumedKey] = false;
+      l[owedKey] = false;
+    }
+  }
+  return { lessons: rows.length, refunded };
+}
+
+function backfillRefundSection() {
+  const rows = backfilledConsumedLessons();
+  if (!rows.length) return "";
+  const byStudent = new Map();
+  for (const l of rows) {
+    for (const [idKey, consumedKey] of SESSION_SLOTS) {
+      if (!l[consumedKey]) continue;
+      const st = studentById(l[idKey]);
+      const name = st ? (st.name || "（未命名）") : "（已刪除的學生）";
+      byStudent.set(name, (byStudent.get(name) || 0) + 1);
+    }
+  }
+  return `
+    <section class="card">
+      <div class="sec-head">
+        <h2 class="sec-title">補回被扣掉的堂數</h2>
+        <span class="sec-sub">${rows.length} 堂事後補的課扣了堂數</span>
+      </div>
+      <p class="row-sub" style="margin:0 0 10px">
+        這些課是<strong>上完之後才回來記的</strong>（建立時間晚於課程結束），
+        但當時被扣了一堂。補以前的課不該扣——那些課早就上完了，剩餘堂數多半已經
+        反映過。按下面的按鈕會把堂數還回去，<strong>課程紀錄與「已上課」的狀態都留著</strong>。
+      </p>
+      ${[...byStudent.entries()].map(([name, n]) => `
+        <div class="row">
+          <div class="row-main"><div class="row-title">${esc(name)}</div></div>
+          <div class="row-end mono">＋${n} 堂</div>
+        </div>`).join("")}
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">
+        <button class="btn btn-primary" type="button" data-action="refund-backfilled">把堂數補回來</button>
+      </div>
+      <p class="hint">如果其中有些是「剛上完才記、本來就該扣」的，補回來之後到那一堂
+        把狀態切成別的再切回「已出席」，就會重新扣一堂。</p>
+    </section>`;
+}
+
 function consistencySection() {
   const rows = consistencyReport();
   const total = S.students.length;
@@ -5417,6 +5515,7 @@ function viewSettings() {
         <button class="btn btn-sm" type="button" data-action="edit-tags">管理標籤</button>
       </section>
 
+      ${backfillRefundSection()}
       ${consistencySection()}
 
       <section class="card">
@@ -6023,6 +6122,12 @@ document.addEventListener("click", (e) => {
       const st = studentById(el.dataset.student);
       const p = st && (st.payments || []).find((x) => x.id === id);
       if (p) paymentSheet(st, p);
+      break;
+    }
+    case "refund-backfilled": {
+      const { lessons, refunded } = refundBackfilledLessons();
+      save(); render();
+      toast(refunded ? `已把 ${refunded} 堂補回給學生（${lessons} 筆紀錄）` : "沒有需要補回的堂數");
       break;
     }
     case "fix-student": {
