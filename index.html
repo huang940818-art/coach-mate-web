@@ -765,7 +765,7 @@ const NOTICE_KEY = "coach-mate-web-notice-dismissed";
  * 版本標記。顯示在設定頁最下面，教練唸得出來就知道他手上是哪一版，
  * 不用再猜是不是拿到舊的快取。每次改版就把這個字串往上加。
  */
-const BUILD = "2026-08-11 · v49";
+const BUILD = "2026-08-12 · v50";
 
 /** 開發者署名，顯示在設定頁的「關於」 */
 const DEVELOPER = "杯子蛋糕好好吃";
@@ -985,7 +985,8 @@ function load() {
         // carryOver（上一期結轉的堂數）是後來才加的，舊資料一律當 0 ——
         // 分母會拿它去加，undefined 會讓整個數字變成 NaN。
         renewals: (Array.isArray(s.renewals) ? s.renewals : [])
-          .map((r) => ({ ...r, carryOver: Math.max(0, +r.carryOver || 0) })),
+          .map((r) => ({ ...r, carryOver: Math.max(0, +r.carryOver || 0),
+                         amountOk: !!r.amountOk })),
         // 「魔羯座」是常見的另一種寫法，但同一群人被拆成兩堆客群分析就沒意義。
         // 統一成「摩羯座」（iOS 版與教育部字典的寫法）。
         custom: normalizeCustom((s.custom && typeof s.custom === "object") ? s.custom : {}),
@@ -4850,7 +4851,9 @@ function paymentSheet(student = null, payment = null) {
       const unit = form.elements.payPriceMode
                 && form.elements.payPriceMode.value === "unit" && n > 0;
       const amount = unit ? typed * n : typed;
-      if (amount <= 0) { toast("金額要大於 0"); return false; }
+      // **$0 是合法的**：贈課、補課、抵用、還沒收到錢，都是真的會發生的紀錄，
+      // 而且擋掉它只會逼人隨便填一個數字，那才真的把帳弄髒（2026-08-12）。
+      // 續約當下自動產生的收費本來就允許 0，這裡不該有第二套規矩。
 
       const fields = {
         amount, date: form.elements.date.value || today(),
@@ -4987,7 +4990,9 @@ function contractsNeedingReview() {
       const created = r.createdAt ? new Date(r.createdAt) : null;
       const sameDay = !!(created && !isNaN(created.getTime()) && r.date === dayStr(created)
                          && bulkDates.has(r.date));
-      const noAmount = !(r.amount > 0);
+      // $0 本身是合法的（贈課、補課）。只有「還沒確認過」的才提出來問一次，
+      // 在批次表按過套用就記 amountOk，不再一直標記同一筆。
+      const noAmount = !(r.amount > 0) && !r.amountOk;
       if (sameDay || noAmount) rows.push({ student: s, renewal: r, sameDay, noAmount });
     }
   }
@@ -5024,7 +5029,14 @@ function batchContractSheet() {
         ${dateStuck ? `<strong>${dateStuck} 筆的日期停在補登那天</strong>，業績會全算到那個月。` : ""}
         ${noAmount ? `<strong>${noAmount} 筆還沒填金額</strong>，銷售金額會少算。` : ""}
         改成實際簽約的日期與金額，沒動到的那幾列不會被存。
+        <strong>金額留 0 也可以</strong>（贈課、補課），套用之後就不會再問同一筆。
       </p>
+      <div class="switch">
+        <label for="f-makePayments">沒有收費紀錄的，照這裡的金額與日期補一筆</label>
+        <input id="f-makePayments" name="makePayments" type="checkbox" checked>
+      </div>
+      <p class="hint">以這張表為準把收費紀錄補齊——已經有收費的那幾筆不會被動到
+        （要讓它們跟著改，到那一筆續約的「編輯」裡勾「同時更新收費紀錄」）。</p>
       ${rows.map(({ student, renewal, sameDay, noAmount }) => {
         // 給一點線索幫忙回想：這位學生的方案到期日、以及最早的一堂課
         const dates = lessonsOf(student.id).map((l) => l.date).filter(Boolean).sort();
@@ -5046,7 +5058,8 @@ function batchContractSheet() {
         </div>`;
       }).join("")}`,
     onConfirm: (form) => {
-      let changed = 0;
+      const makePayments = !!(form.elements.makePayments && form.elements.makePayments.checked);
+      let changed = 0, made = 0;
       for (const { student, renewal } of rows) {
         const d = form.elements[`d_${renewal.id}`];
         const a = form.elements[`a_${renewal.id}`];
@@ -5055,12 +5068,27 @@ function batchContractSheet() {
         let touched = false;
         if (newDate && newDate !== renewal.date) { renewal.date = newDate; touched = true; }
         if (newAmount !== (renewal.amount || 0)) { renewal.amount = newAmount; touched = true; }
+        // 看過了就是看過了 —— 留 0 是他的決定，不要下次再問一次
+        if (!renewal.amountOk) { renewal.amountOk = true; touched = true; }
+
+        // 以這張表為準把收費補齊。已經掛著收費的不動：那可能是分期或訂金，
+        // 硬塞第二筆會讓累計收費憑空多一份。
+        if (makePayments && !paymentsOfRenewal(student, renewal.id).length) {
+          student.payments = student.payments || [];
+          student.payments.push({
+            id: uid(), renewalId: renewal.id, amount: renewal.amount || 0,
+            date: renewal.date || today(), method: "cash", notes: "",
+            createdAt: new Date().toISOString(),
+          });
+          made++;
+          touched = true;
+        }
         if (!touched) continue;
         changed++;
         student.updatedAt = new Date().toISOString();
       }
       save(); render();
-      toast(changed ? `已修正 ${changed} 筆合約` : "沒有任何變動");
+      toast(changed ? `已處理 ${changed} 筆合約${made ? `，補上 ${made} 筆收費` : ""}` : "沒有任何變動");
     },
   });
 }
@@ -5967,6 +5995,8 @@ function buildBackup() {
         date: r.date, sessionsPurchased: r.sessions, amount: r.amount,
         // 上一期結轉的堂數。iOS 還沒有這個欄位，讀到不認得的鍵會直接忽略。
         carryOverSessions: r.carryOver || 0,
+        // 「這筆就是 0 元，我確認過了」。iOS 讀到不認得的鍵會忽略。
+        amountConfirmed: !!r.amountOk,
         notes: r.notes || "", createdAt: iso(r.createdAt),
       })),
       inbody: [],
@@ -6118,6 +6148,7 @@ function parseBackup(raw) {
       const renewals = (d.renewals || []).map((r) => ({
         id: uid(), date: r.date || "", sessions: r.sessionsPurchased || 0,
         amount: r.amount || 0, carryOver: Math.max(0, +r.carryOverSessions || 0),
+        amountOk: !!r.amountConfirmed,
         notes: r.notes || "", createdAt: r.createdAt,
       }));
       const payments = (d.payments || []).map((p) => {
