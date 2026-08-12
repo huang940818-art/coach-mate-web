@@ -768,7 +768,7 @@ const NOTICE_KEY = "coach-mate-web-notice-dismissed";
  * 版本標記。顯示在設定頁最下面，教練唸得出來就知道他手上是哪一版，
  * 不用再猜是不是拿到舊的快取。每次改版就把這個字串往上加。
  */
-const BUILD = "2026-08-12 · v56";
+const BUILD = "2026-08-12 · v57";
 
 /** 開發者署名，顯示在設定頁的「關於」 */
 const DEVELOPER = "杯子蛋糕好好吃";
@@ -5072,8 +5072,25 @@ function fixRenewalDatesFromPayments() {
  * 落在補登當天），所以「用收費日期推回去」在真實資料上一筆都救不到。
  * 能做的是**把要改的攤在同一張表上一次改完**，而不是叫人一筆一筆點進去。
  */
-/** 一天之內有這麼多位不同學生的合約，就不是真的同一天簽的，是補登 */
-const BULK_ENTRY_MIN = 5;
+/**
+ * 一天之內有這麼多位不同學生的合約，就不是真的同一天簽的，是補登。
+ *
+ * 門檻本來是 5，結果實際資料裡 8/09 那批只有 4 位 —— 整批被漏掉，
+ * 使用者看到的是「工具只列出 13 筆，但明明有 20 筆要修」（2026-08-12）。
+ * 一天連三位不同學生同時簽約本來就不常見，3 已經夠保守。
+ */
+const BULK_ENTRY_MIN = 3;
+
+/** 所有合約，給「顯示全部」用 */
+function allContractRows() {
+  const rows = [];
+  for (const s of S.students) {
+    for (const r of s.renewals || []) {
+      rows.push({ student: s, renewal: r, sameDay: false, noAmount: !(r.amount > 0) });
+    }
+  }
+  return rows.sort((a, b) => (b.renewal.date || "").localeCompare(a.renewal.date || ""));
+}
 
 function contractsNeedingReview() {
   // 「日期等於建立那天」不能單獨當證據 —— 當天簽約當天輸入本來就是這樣，
@@ -5095,8 +5112,18 @@ function contractsNeedingReview() {
   for (const s of S.students) {
     for (const r of s.renewals || []) {
       const created = r.createdAt ? new Date(r.createdAt) : null;
-      const sameDay = !!(created && !isNaN(created.getTime()) && r.date === dayStr(created)
+      const bulkDay = !!(created && !isNaN(created.getTime()) && r.date === dayStr(created)
                          && bulkDates.has(r.date));
+      // 未來的日期幾乎一定是打錯或選錯的（實例：首購掛在 2027-01-26）。
+      // 這種不必等到湊成一批，單獨一筆就要問。
+      const future = !!(r.date && r.date > today());
+      // 「今天買的 36 堂，但他手上只剩 7 堂」—— 今天買的不可能已經上掉 29 堂。
+      // 這是最後一種漏網的：日期被改成今天（不等於建檔那天）、也還沒到未來，
+      // 但一看堂數就知道那份合約不是今天的。
+      const latest = renewalsOf(s)[0];
+      const usedAlready = !!(latest === r && r.date >= today() && (r.sessions || 0) > 0
+                             && (s.remaining || 0) < (r.sessions || 0));
+      const sameDay = bulkDay || future || usedAlready;
       // $0 本身是合法的（贈課、補課）。只有「還沒確認過」的才提出來問一次，
       // 在批次表按過套用就記 amountOk，不再一直標記同一筆。
       const noAmount = !(r.amount > 0) && !r.amountOk;
@@ -5267,14 +5294,16 @@ function fixPaymentDatesFromRenewals() {
   return rows.length;
 }
 
-function batchContractSheet() {
-  const rows = contractsNeedingReview();
+function batchContractSheet(showAll = false) {
+  // 我的判斷再怎麼修都會有漏網的（實際資料就漏過兩批），所以留一條退路：
+  // 「顯示全部合約」讓人自己看、自己改，不必跟我的啟發式規則吵架。
+  const rows = showAll ? allContractRows() : contractsNeedingReview();
   if (!rows.length) { toast("沒有需要修正的合約"); return; }
   const dateStuck = rows.filter((r) => r.sameDay).length;
   const noAmount = rows.filter((r) => r.noAmount).length;
 
   openSheet({
-    title: `批次修正合約（${rows.length} 筆）`,
+    title: showAll ? `所有合約（${rows.length} 筆）` : `批次修正合約（${rows.length} 筆）`,
     confirmLabel: "全部套用",
     body: `
       <p class="hint" style="margin-top:0">
@@ -5285,6 +5314,10 @@ function batchContractSheet() {
         改成實際簽約的日期與金額，沒動到的那幾列不會被存。
         <strong>金額留 0 也可以</strong>（贈課、補課），套用之後就不會再問同一筆。
       </p>
+      ${showAll ? "" : `<p class="hint" style="margin-top:0">
+        少列到的話按這裡 →
+        <button class="btn btn-sm" type="button" data-action="batch-contracts-all">顯示全部合約</button>
+      </p>`}
       <div class="switch">
         <label for="f-makePayments">沒有收費紀錄的，照這裡的金額與日期補一筆</label>
         <input id="f-makePayments" name="makePayments" type="checkbox" checked>
@@ -6777,6 +6810,7 @@ document.addEventListener("click", (e) => {
       break;
     }
     case "batch-contracts": batchContractSheet(); break;
+    case "batch-contracts-all": batchContractSheet(true); break;
     case "fix-payment-dates": {
       const n = fixPaymentDatesFromRenewals();
       save(); render();
