@@ -776,7 +776,7 @@ const NOTICE_KEY = "coach-mate-web-notice-dismissed";
  * 版本標記。顯示在設定頁最下面，教練唸得出來就知道他手上是哪一版，
  * 不用再猜是不是拿到舊的快取。每次改版就把這個字串往上加。
  */
-const BUILD = "2026-08-12 · v62";
+const BUILD = "2026-08-13 · v63";
 
 /** 開發者署名，顯示在設定頁的「關於」 */
 const DEVELOPER = "杯子蛋糕好好吃";
@@ -997,7 +997,7 @@ function load() {
         // 分母會拿它去加，undefined 會讓整個數字變成 NaN。
         renewals: (Array.isArray(s.renewals) ? s.renewals : [])
           .map((r) => ({ ...r, carryOver: Math.max(0, +r.carryOver || 0),
-                         amountOk: !!r.amountOk })),
+                         amountOk: !!r.amountOk, addOn: !!r.addOn })),
         // 「魔羯座」是常見的另一種寫法，但同一群人被拆成兩堆客群分析就沒意義。
         // 統一成「摩羯座」（iOS 版與教育部字典的寫法）。
         custom: normalizeCustom((s.custom && typeof s.custom === "object") ? s.custom : {}),
@@ -1448,8 +1448,9 @@ function paymentLabel(student, payment) {
  * 那筆購買本身就是他現在的合約，所以退回 totalPurchased。
  */
 function currentPackageSessions(student) {
-  const latest = renewalsOf(student)[0];
-  return latest ? (latest.sessions || 0) : (student.totalPurchased || 0);
+  // 加購不算「這一期買的主約」——它是綁在主約底下的小活動
+  const { main } = currentPackageParts(student);
+  return main ? (main.sessions || 0) : (student.totalPurchased || 0);
 }
 
 /**
@@ -1480,9 +1481,47 @@ function sessionPrice(student) {
   return 0;
 }
 
+/**
+ * 這一期的組成：主約 ＋ 綁在它底下的加購。
+ *
+ * 教練常常在主約底下再推小活動（36 堂的約底下再賣 4 堂、2 堂的便宜方案）。
+ * 那些是**同一期的加購**，不是新的一期。以前每一筆都是獨立的續約紀錄，
+ * 於是分母只認最新那一筆，畫面就變成「30 / 2 堂」——買了 2 堂的活動，
+ * 反而把 36 堂的主約蓋掉了（2026-08-12 回報）。
+ *
+ * 標成加購（`addOn`）之後：分母是主約＋加購，續約次數也不會被加購灌水
+ * （那不是又續一次約）。銷售統計照舊一筆一筆算，那些錢是真的收到的。
+ */
+function currentPackageParts(student) {
+  const rs = renewalsOf(student);              // 新的排前面
+  const mainIndex = rs.findIndex((r) => !r.addOn);
+  const main = mainIndex >= 0 ? rs[mainIndex] : null;
+  // 只算「比主約新」的那些加購 —— 更早的加購屬於上一期，早就結束了
+  const addOns = rs.slice(0, mainIndex < 0 ? rs.length : mainIndex).filter((r) => r.addOn);
+  return { main, addOns };
+}
+
+/**
+ * 分母那個數字是怎麼來的，寫成一行給人看。
+ * 只有一份主約、沒加購也沒結轉的時候回空字串 —— 那時候分母本身就講完了。
+ */
+function packageBreakdown(student) {
+  const add = addOnSessions(student), carry = carryOverOf(student);
+  if (!add && !carry) return "";
+  return [`本期 ${currentPackageSessions(student)}`,
+          add ? `加購 ${add}` : "",
+          carry ? `結轉 ${carry}` : ""].filter(Boolean).join("＋");
+}
+
+/** 這一期加購了幾堂 */
+function addOnSessions(student) {
+  return currentPackageParts(student).addOns.reduce((a, r) => a + (r.sessions || 0), 0);
+}
+
 function carryOverOf(student) {
-  const latest = renewalsOf(student)[0];
-  return latest ? Math.max(0, +latest.carryOver || 0) : 0;
+  // 結轉記在主約上（加購不是新的一期，不會有自己的結轉）
+  const { main } = currentPackageParts(student);
+  return main ? Math.max(0, +main.carryOver || 0) : 0;
 }
 
 /**
@@ -1496,7 +1535,7 @@ function carryOverOf(student) {
  * 再加一次就是憑空多出來。結轉是「說明這 19 堂怎麼來的」，不是一筆新的進帳。
  */
 function currentPackageTotal(student) {
-  return currentPackageSessions(student) + carryOverOf(student);
+  return currentPackageSessions(student) + addOnSessions(student) + carryOverOf(student);
 }
 // 註：**剩餘堂數比「這次買的」多是合理的，不要去「修正」它。**
 // 上一期結轉過來就會這樣（實例：最近買的是 4 堂補課，手上還有 19 堂是前一期
@@ -2634,7 +2673,7 @@ function viewStudents() {
                       title="調整剩餘堂數" style="font-weight:600">
                 ${s.remaining}<span class="muted" style="font-size:12px"> / ${currentPackageTotal(s)} 堂</span>
               </button>
-              ${carryOverOf(s) > 0 ? `<div class="muted" style="font-size:11px;text-align:right;margin-top:2px">本期 ${currentPackageSessions(s)}＋結轉 ${carryOverOf(s)}</div>` : ""}
+              ${packageBreakdown(s) ? `<div class="muted" style="font-size:11px;text-align:right;margin-top:2px">${packageBreakdown(s)}</div>` : ""}
               <div style="display:flex;gap:6px;justify-content:flex-end;margin-top:5px">
                 <button class="btn btn-sm" type="button" data-action="renew" data-id="${s.id}">續約</button>
                 <button class="btn btn-sm" type="button" data-action="edit-student" data-id="${s.id}">編輯</button>
@@ -2714,8 +2753,8 @@ function studentDetailSheet(student) {
         </div>
         <div class="row-end">
           <div class="mono" style="font-weight:600">${student.remaining}<span class="muted" style="font-size:12px"> / ${currentPackageTotal(student)} 堂</span></div>
-          ${carryOverOf(student) > 0
-            ? `<div class="muted" style="font-size:11px">本期買 ${currentPackageSessions(student)}＋上期結轉 ${carryOverOf(student)}</div>`
+          ${packageBreakdown(student)
+            ? `<div class="muted" style="font-size:11px">${packageBreakdown(student)}</div>`
             : ""}
           ${student.expiry ? `<div class="muted" style="font-size:12px">到期 ${esc(student.expiry)}</div>` : ""}
         </div>
@@ -2897,6 +2936,11 @@ function applyRenewalEdit(student, record, patch) {
   record.notes = patch.notes ?? record.notes;
   // 結轉只是說明「這一期有幾堂是上次留下來的」，不動剩餘堂數也不動累計已購
   if (patch.carryOver !== undefined) record.carryOver = Math.max(0, +patch.carryOver || 0);
+  // 改成／取消加購時，續約次數要跟著調 —— 那個數字的意思是「續約過幾次」
+  if (patch.addOn !== undefined && !!patch.addOn !== !!record.addOn) {
+    student.renewalCount = Math.max(0, (student.renewalCount || 0) + (patch.addOn ? -1 : 1));
+    record.addOn = !!patch.addOn;
+  }
   applyRenewalExpiry(student, record, patch.expiry);
   applyPaymentLink(student, record, patch, prevDate);
   student.updatedAt = new Date().toISOString();
@@ -2984,11 +3028,13 @@ function addRenewalRecord(student, patch) {
     amount: patch.priceMode === "unit" ? typed * sessions : typed,
     // 上一期沒上完、結轉到這一期的堂數。只影響顯示，不加進 remaining。
     carryOver: Math.max(0, +patch.carryOver || 0),
+    addOn: !!patch.addOn,
     notes: patch.notes || "", createdAt: new Date().toISOString(),
   };
   student.renewals = student.renewals || [];
   student.renewals.push(record);
-  if (hadAny) student.renewalCount = (student.renewalCount || 0) + 1;
+  // 加購不算又續一次約
+  if (hadAny && !patch.addOn) student.renewalCount = (student.renewalCount || 0) + 1;
   student.totalPurchased = Math.max(0, (student.totalPurchased || 0) + sessions);
   // 補登只補歷史，不動現況。理由同 renewSheet：三個月前買的 10 堂早就上完了。
   if (!patch.backfill) student.remaining = Math.max(0, (student.remaining || 0) + sessions);
@@ -3027,6 +3073,7 @@ function applyOpenRenewalRow(student, scope) {
     // 欄位不在就整個不傳 —— 傳空字串會被當成 0，把既有的結轉抹掉
     ...(row.querySelector('[name="r_carryOver"]') ? { carryOver: val("r_carryOver") } : {}),
     ...(row.querySelector('[name="r_expiry"]') ? { expiry: val("r_expiry") } : {}),
+    ...(row.querySelector('[name="r_addOn"]') ? { addOn: on("r_addOn") } : {}),
     syncPayment: on("r_syncPayment"),
     addPayment: on("r_addPayment"),
     linkPaymentId: val("r_linkPayment"),
@@ -3211,6 +3258,10 @@ function renewalHistoryBlock(student) {
       <p class="hint" data-r-price-hint>${
         r.sessions ? `${money(r.amount || 0)} ÷ ${r.sessions} 堂 ＝ 每堂 ${money(Math.round((r.amount || 0) / r.sessions))}` : "存進去的一律是總額。"
       }</p>
+      <div class="switch">
+        <label for="f-r_addOn">這是加購活動（綁在主約底下）</label>
+        <input id="f-r_addOn" name="r_addOn" type="checkbox" ${r.addOn ? "checked" : ""}>
+      </div>
       ${adding ? `
         <div class="switch">
           <label for="f-r_backfill">補登以前的續約（不加剩餘堂數）</label>
@@ -3302,6 +3353,7 @@ function renewalHistoryBlock(student) {
     <div class="row" style="padding:8px 0">
       <div class="row-main">
         <div class="row-title" style="font-size:14px">${esc(r.date || "（無日期）")}
+          ${r.addOn ? '<span class="pill pill-info">加購</span>' : ""}
           ${isFirstPurchase(student, r) ? '<span class="pill pill-mute">首購</span>' : ""}
           ${paymentsOfRenewal(student, r.id).length === 0 ? '<span class="pill pill-warn">沒有收費紀錄</span>' : ""}
         </div>
@@ -4039,6 +4091,12 @@ function renewSheet(student) {
       ${fieldText("notes", "備註", "")}
       <div class="divider"></div>
       <div class="switch">
+        <label for="f-addOn">這是加購活動（綁在目前的合約底下）</label>
+        <input id="f-addOn" name="addOn" type="checkbox">
+      </div>
+      <p class="hint">主約底下再加賣的小方案（4 堂、2 堂那種）。堂數一樣加給學生、
+        錢一樣算進銷售，但**不算又續一次約**，剩餘堂數的分母也會併進同一期。</p>
+      <div class="switch">
         <label for="f-backfill">補登以前的續約</label>
         <input id="f-backfill" name="backfill" type="checkbox">
       </div>
@@ -4069,12 +4127,14 @@ function renewSheet(student) {
       // 只是記下來（分母與說明要用），不會再加一次進 remaining ——
       // 那些課本來就已經在 remaining 裡了。
       const carryOver = Math.max(0, +form.elements.carryOver.value || 0);
+      // 加購是綁在主約底下的小活動，不是又續一次約 —— 次數不加
+      const addOn = !!(form.elements.addOn && form.elements.addOn.checked);
       student.totalPurchased += sessions;
       if (!backfill) student.remaining += sessions;
-      student.renewalCount += 1;
+      if (!addOn) student.renewalCount += 1;
       if (form.elements.expiry.value) student.expiry = form.elements.expiry.value;
       const renewalId = uid();
-      student.renewals.push({ id: renewalId, date, sessions, amount, carryOver,
+      student.renewals.push({ id: renewalId, date, sessions, amount, carryOver, addOn,
                               notes: form.elements.notes.value, createdAt: new Date().toISOString() });
       // 舊的錢常常已經記過了，再記一次會讓營收憑空翻倍，所以能關掉。
       // 但**金額 0 也要記**：不記的話續約紀錄與收費紀錄的筆數就對不起來，
@@ -6449,6 +6509,8 @@ function buildBackup() {
         carryOverSessions: r.carryOver || 0,
         // 「這筆就是 0 元，我確認過了」。iOS 讀到不認得的鍵會忽略。
         amountConfirmed: !!r.amountOk,
+        // 綁在主約底下的加購活動（4 堂、2 堂那種小方案）
+        isAddOn: !!r.addOn,
         notes: r.notes || "", createdAt: iso(r.createdAt),
       })),
       inbody: [],
@@ -6624,7 +6686,7 @@ function parseBackup(raw) {
       const renewals = (d.renewals || []).map((r) => ({
         id: uid(), date: r.date || "", sessions: r.sessionsPurchased || 0,
         amount: r.amount || 0, carryOver: Math.max(0, +r.carryOverSessions || 0),
-        amountOk: !!r.amountConfirmed,
+        amountOk: !!r.amountConfirmed, addOn: !!r.isAddOn,
         notes: r.notes || "", createdAt: r.createdAt,
       }));
       const payments = (d.payments || []).map((p) => {
