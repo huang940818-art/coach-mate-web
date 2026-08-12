@@ -768,7 +768,7 @@ const NOTICE_KEY = "coach-mate-web-notice-dismissed";
  * 版本標記。顯示在設定頁最下面，教練唸得出來就知道他手上是哪一版，
  * 不用再猜是不是拿到舊的快取。每次改版就把這個字串往上加。
  */
-const BUILD = "2026-08-12 · v57";
+const BUILD = "2026-08-12 · v58";
 
 /** 開發者署名，顯示在設定頁的「關於」 */
 const DEVELOPER = "杯子蛋糕好好吃";
@@ -2503,6 +2503,19 @@ function lessonRow(l) {
 /* ── 學生 ───────────────────────────────────── */
 
 let studentFilter = "active";
+/**
+ * 學生頁的搜尋字串。
+ *
+ * 帶 60 位學生的教練要找某一位，只能一路捲 —— 名字、電話都搜得到才實用
+ * （2026-08-12 假裝老教練跑一遍時撞到的）。刻意不存進設定：
+ * 這是「現在要找誰」，不是偏好。
+ */
+let studentSearch = "";
+/**
+ * 收費紀錄要看哪一段。預設本月 —— 一次把幾年份、幾百筆全列出來，
+ * 在手機上就是一條捲不完的長條（實測 60 位學生會有 480 筆）。
+ */
+let paymentRange = "thisMonth";
 /** 學生名單上選了哪些標籤要篩選（空的＝不篩） */
 let activeTagFilter = new Set();
 /** 銷售統計目前選的期間 */
@@ -2516,9 +2529,12 @@ function viewStudents() {
   const all = S.students;
   const tags = allTags();
   const counts = tagCounts();
+  const q = studentSearch.trim().toLowerCase();
   const list = all.filter((s) => {
     if (studentFilter === "active" && s.status !== "active") return false;
     if (studentFilter === "archived" && s.status !== "archived") return false;
+    // 名字或電話對得上就好。電話常常只記得後三碼，所以用「包含」不是「開頭」。
+    if (q && !`${s.name || ""} ${s.phone || ""}`.toLowerCase().includes(q)) return false;
     // 選了多個標籤是「任一符合」——想找的通常是「減脂或備賽的人」
     if (activeTagFilter.size && !(s.tags || []).some((t) => activeTagFilter.has(t))) return false;
     return true;
@@ -2536,6 +2552,11 @@ function viewStudents() {
     </div>
 
     <div class="stack">
+      <div class="field" style="margin-bottom:10px">
+        <input type="search" id="student-search" data-student-search value="${esc(studentSearch)}"
+               placeholder="找學生（姓名或電話）" aria-label="搜尋學生">
+        ${q ? `<span class="hint">找到 ${list.length} 位${list.length ? "" : "——換個關鍵字，或看看是不是在「封存」裡"}</span>` : ""}
+      </div>
       <div class="seg" style="max-width:320px">
         ${[["active", "在檔"], ["archived", "封存"], ["all", "全部"]].map(([v, t]) =>
           `<button type="button" data-action="student-filter" data-value="${v}" aria-pressed="${studentFilter === v}">${t}</button>`).join("")}
@@ -4655,6 +4676,11 @@ function viewPayments() {
     .filter((p) => (p.date || "") <= todayStr).reduce((a, p) => a + (p.amount || 0), 0);
   const upcomingThisMonth = monthRows
     .filter((p) => (p.date || "") > todayStr).reduce((a, p) => a + (p.amount || 0), 0);
+  // 列表只顯示選到的那一段。整月／累計的數字在上面的方塊，不受這裡影響。
+  const bounds = periodBounds(paymentRange);
+  const listed = bounds
+    ? rows.filter((p) => (p.date || "") >= bounds.from && (p.date || "") <= bounds.to)
+    : rows;
   const isCompany = S.settings.employment === "company";
   const sal = isCompany ? salaryFor(ym) : null;
 
@@ -4718,9 +4744,15 @@ function viewPayments() {
       <section class="card">
         <div class="sec-head">
           <h2 class="sec-title">收費紀錄</h2>
-          <span class="sec-sub">${rows.length} 筆</span>
+          <span class="sec-sub">${listed.length} 筆${
+            paymentRange !== "all" && rows.length > listed.length ? `（全部 ${rows.length} 筆）` : ""}</span>
         </div>
-        ${rows.length ? rows.map((p) => {
+        <div class="seg seg-wrap" style="margin-bottom:12px">
+          ${[["thisMonth", "本月"], ["lastMonth", "上月"], ["thisYear", "今年"], ["all", "全部"]].map(([v, t]) =>
+            `<button type="button" data-action="payment-range" data-value="${v}"
+                     aria-pressed="${paymentRange === v}">${t}</button>`).join("")}
+        </div>
+        ${listed.length ? listed.map((p) => {
           const st = studentById(p.studentId);
           const method = { cash: "現金", transfer: "轉帳", other: "其他" }[p.method] || "其他";
           return `
@@ -4740,7 +4772,7 @@ function viewPayments() {
               </div>
             </div>
           </div>`;
-        }).join("") : `<p class="empty">還沒有收費紀錄。</p>`}
+        }).join("") : `<p class="empty">${rows.length ? "這段期間沒有收費紀錄。" : "還沒有收費紀錄。"}</p>`}
       </section>
     </div>`;
 }
@@ -5080,6 +5112,51 @@ function fixRenewalDatesFromPayments() {
  * 一天連三位不同學生同時簽約本來就不常見，3 已經夠保守。
  */
 const BULK_ENTRY_MIN = 3;
+
+/**
+ * 刪掉一個自訂欄位時，學生填在那一格的內容怎麼辦。
+ *
+ * 以前一律留著：欄位從畫面上消失，值還躺在資料裡（重新新增同名欄位就會回來）。
+ * 那對「改錯名字想重來」的人是對的，但對「這欄不要了」的人來說，資料留著卻
+ * 看不到、也刪不掉，只會在匯出的備份裡陰魂不散 —— 所以改成問一句
+ * （2026-08-12 回報）。預設**留著**，因為刪掉救不回來。
+ */
+function deleteFieldSheet(name) {
+  const filled = S.students.filter((s) => (s.custom || {})[name]);
+  openSheet({
+    title: "刪除自訂欄位",
+    confirmLabel: "刪除",
+    body: `
+      <p style="margin-top:0">「${esc(name)}」會從學生表單與客群分析裡拿掉。</p>
+      ${filled.length ? `
+        <div class="note-box" style="margin:10px 0">
+          目前有 <strong>${filled.length} 位學生</strong>填了這一格，例如
+          ${filled.slice(0, 3).map((s) => `${esc(s.name || "（未命名）")}：${esc(s.custom[name])}`).join("、")}${filled.length > 3 ? " 等" : ""}。
+        </div>
+        <div class="switch">
+          <label for="f-wipeValues">連同他們填的內容一起刪掉</label>
+          <input id="f-wipeValues" name="wipeValues" type="checkbox">
+        </div>
+        <p class="hint">不勾的話內容會留在資料裡（畫面上看不到），之後**重新新增一個
+          同名欄位就會整批回來**——想改欄位型別或排序的話這樣最安全。
+          勾了就真的刪掉，救不回來。</p>`
+      : `<p class="hint">目前沒有人填過這一格。</p>`}`,
+    onConfirm: (form) => {
+      const wipe = !!(form.elements.wipeValues && form.elements.wipeValues.checked);
+      S.settings.customFields = S.settings.customFields.filter((f) => f !== name);
+      if (S.settings.customFieldSpecs) delete S.settings.customFieldSpecs[name];
+      if (wipe) {
+        for (const s of filled) {
+          delete s.custom[name];
+          s.updatedAt = new Date().toISOString();
+        }
+      }
+      save(); render();
+      toast(`已刪除欄位「${name}」`
+        + (filled.length ? (wipe ? `，並清掉 ${filled.length} 位學生填的內容` : "，內容留著") : ""));
+    },
+  });
+}
 
 /** 所有合約，給「顯示全部」用 */
 function allContractRows() {
@@ -6773,6 +6850,7 @@ document.addEventListener("click", (e) => {
     case "edit-tags": tagSettingsSheet(); break;
     case "report-issue": reportIssueSheet(); break;
     case "add-to-home": addToHomeSheet(); break;
+    case "payment-range": paymentRange = value; render(); break;
     case "sales-period":
       salesPeriod = value;
       S.settings.salesPeriod = value; save();
@@ -6900,18 +6978,7 @@ document.addEventListener("click", (e) => {
       break;
     // 這三個以前都是按一下就沒了。設定頁的刪除鈕排在一起，手機上很好誤觸，
     // 而自訂欄位一刪，所有學生填在那一格的內容就整批從畫面上消失。
-    case "del-field": {
-      const used = S.students.filter((s) => (s.custom || {})[value]).length;
-      confirmSheet("刪除自訂欄位", `「${esc(value)}」會從表單與客群分析裡拿掉。`
-        + (used ? `目前有 <strong>${used} 位學生</strong>填了這一格，內容會跟著看不到
-                   （資料還留著，重新新增同名欄位就會回來）。` : ""),
-        () => {
-          S.settings.customFields = S.settings.customFields.filter((f) => f !== value);
-          if (S.settings.customFieldSpecs) delete S.settings.customFieldSpecs[value];
-          save(); render(); toast(`已刪除欄位「${value}」`);
-        }, "刪除");
-      break;
-    }
+    case "del-field": deleteFieldSheet(value); break;
     case "del-package": {
       const p = S.settings.packages.find((x) => x.id === id);
       confirmSheet("刪除方案", p ? `「${esc(p.name)}」以後不會出現在續約的選單裡。已經賣出去的續約紀錄不受影響。` : "",
@@ -6940,6 +7007,19 @@ document.addEventListener("click", (e) => {
       confirmSheet("清除所有資料", "所有學生、課程、收費與名單都會被刪除，無法復原。建議先匯出備份。",
         () => { S = blankState(); save(); render(); toast("已清除所有資料"); }, "清除");
       break;
+  }
+});
+
+/* 學生搜尋：邊打邊篩。重畫之後要把游標與字串還原，不然打第二個字就跳掉了。 */
+document.addEventListener("input", (e) => {
+  if (!e.target.matches("[data-student-search]")) return;
+  studentSearch = e.target.value;
+  const pos = e.target.selectionStart;
+  render();
+  const again = $("[data-student-search]");
+  if (again) {
+    again.focus();
+    try { again.setSelectionRange(pos, pos); } catch (err) { /* search 型別不一定支援 */ }
   }
 });
 
