@@ -272,6 +272,14 @@ main {
 .sec-sub { font-size: 12px; color: var(--muted); }
 
 /* 統計格：一律等高，這是 App 版本最常被抱怨的地方 */
+/* **`hidden` 屬性一定要壓得過 display。**
+   瀏覽器預設的 `[hidden]{display:none}` 屬於 UA 樣式，任何作者樣式都贏得過它 ——
+   而這個專案裡 .row、.seg、.field、.tiles 全都設了 display，於是
+   `element.hidden = true` 完全沒作用。實例：學生搜尋寫著「找到 2 位」，
+   整排學生卻還好端端留在畫面上（2026-08-12 回報）。
+   影響的不只搜尋：單價切換、收費日期、詳情頁分頁那些也都是靠 hidden 收合的。 */
+[hidden] { display: none !important; }
+
 .tiles {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(158px, 1fr));
@@ -768,7 +776,7 @@ const NOTICE_KEY = "coach-mate-web-notice-dismissed";
  * 版本標記。顯示在設定頁最下面，教練唸得出來就知道他手上是哪一版，
  * 不用再猜是不是拿到舊的快取。每次改版就把這個字串往上加。
  */
-const BUILD = "2026-08-12 · v61";
+const BUILD = "2026-08-12 · v62";
 
 /** 開發者署名，顯示在設定頁的「關於」 */
 const DEVELOPER = "杯子蛋糕好好吃";
