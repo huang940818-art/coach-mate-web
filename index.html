@@ -776,7 +776,7 @@ const NOTICE_KEY = "coach-mate-web-notice-dismissed";
  * 版本標記。顯示在設定頁最下面，教練唸得出來就知道他手上是哪一版，
  * 不用再猜是不是拿到舊的快取。每次改版就把這個字串往上加。
  */
-const BUILD = "2026-08-13 · v63";
+const BUILD = "2026-08-13 · v64";
 
 /** 開發者署名，顯示在設定頁的「關於」 */
 const DEVELOPER = "杯子蛋糕好好吃";
@@ -2936,11 +2936,7 @@ function applyRenewalEdit(student, record, patch) {
   record.notes = patch.notes ?? record.notes;
   // 結轉只是說明「這一期有幾堂是上次留下來的」，不動剩餘堂數也不動累計已購
   if (patch.carryOver !== undefined) record.carryOver = Math.max(0, +patch.carryOver || 0);
-  // 改成／取消加購時，續約次數要跟著調 —— 那個數字的意思是「續約過幾次」
-  if (patch.addOn !== undefined && !!patch.addOn !== !!record.addOn) {
-    student.renewalCount = Math.max(0, (student.renewalCount || 0) + (patch.addOn ? -1 : 1));
-    record.addOn = !!patch.addOn;
-  }
+  if (patch.addOn !== undefined) setRenewalAddOn(student, record, patch.addOn);
   applyRenewalExpiry(student, record, patch.expiry);
   applyPaymentLink(student, record, patch, prevDate);
   student.updatedAt = new Date().toISOString();
@@ -2959,6 +2955,35 @@ function applyRenewalEdit(student, record, patch) {
  * 同步是**選擇性**的：接起來多半只是要把兩筆對上，金額本來就可能不同
  * （分期、訂金），無條件蓋掉會把真的收到多少改壞。
  */
+/**
+ * 把一筆續約紀錄改成加購（或改回主約）。
+ *
+ * 續約次數要跟著調 —— 那個數字的意思是「續約過幾次」，加購不是新的一期。
+ * 堂數、金額、收費都不動：加購本來就是真的賣出去的堂數與收到的錢，
+ * 只是它歸在主約底下，不另外算一期。
+ *
+ * 回傳有沒有真的變動過（沒變就不用跳提示）。
+ */
+function setRenewalAddOn(student, record, on) {
+  if (!!on === !!record.addOn) return false;
+  student.renewalCount = Math.max(0, (student.renewalCount || 0) + (on ? -1 : 1));
+  record.addOn = !!on;
+  student.updatedAt = new Date().toISOString();
+  return true;
+}
+
+/**
+ * 這筆能不能歸到主約底下？
+ *
+ * 加購是「掛在某一份主約下面」的，所以底下一定要先有一份主約。
+ * 最早的那筆（首購）底下沒有東西可掛，第一筆就是主約本身。
+ */
+function canBeAddOn(student, record) {
+  const rs = renewalsOf(student);                 // 新的排前面
+  const i = rs.indexOf(record);
+  return i >= 0 && rs.slice(i + 1).some((r) => !r.addOn);
+}
+
 /**
  * 到期日記在那筆合約上；如果那是**最新的一筆**，學生現在的方案到期日也跟著改。
  *
@@ -3367,6 +3392,13 @@ function renewalHistoryBlock(student) {
               : ""}</div>
           <div class="muted" style="font-size:12px">${money(r.amount || 0)}</div>
         </div>
+        ${r.addOn
+          ? `<button type="button" class="btn btn-sm" data-set-addon="${r.id}" data-on="0"
+                     title="改回獨立的一期合約，續約次數 +1">改回主約</button>`
+          : canBeAddOn(student, r)
+          ? `<button type="button" class="btn btn-sm" data-set-addon="${r.id}" data-on="1"
+                     title="這筆其實是綁在下面那份主約的小活動，堂數併進同一期算，續約次數 −1">歸到主約</button>`
+          : ""}
         <button type="button" class="btn btn-sm" data-edit-renewal="${r.id}"
                 title="修改這筆續約紀錄">編輯</button>
         <button type="button" class="btn btn-sm btn-danger" data-del-renewal="${r.id}"
@@ -3692,6 +3724,23 @@ function studentSheet(existing) {
             s.updatedAt = new Date().toISOString();
             save(); render(); redraw();
             toast(`續約次數改成 ${s.renewalCount} 次`);
+            return;
+          }
+
+          // 一鍵把分開建的那筆改成加購（或改回來）。以前只能進編輯列勾開關，
+          // 而要對付的正是「以前每個小活動都另外建一筆」的舊資料，一筆一筆
+          // 進編輯列太慢了。
+          const mark = e.target.closest("[data-set-addon]");
+          if (mark) {
+            e.preventDefault();
+            const r = (s.renewals || []).find((x) => x.id === mark.dataset.setAddon);
+            if (!r || !setRenewalAddOn(s, r, mark.dataset.on === "1")) return;
+            const cnt = root.querySelector('[name="renewalCount"]');
+            if (cnt) cnt.value = s.renewalCount || 0;
+            save(); render(); redraw(); syncCurrentField();
+            toast(r.addOn
+              ? `${r.date} 的 ${r.sessions || 0} 堂已歸到主約底下（續約 ${s.renewalCount || 0} 次）`
+              : `${r.date} 的 ${r.sessions || 0} 堂改回獨立一期（續約 ${s.renewalCount || 0} 次）`);
             return;
           }
 
