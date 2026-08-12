@@ -768,7 +768,7 @@ const NOTICE_KEY = "coach-mate-web-notice-dismissed";
  * 版本標記。顯示在設定頁最下面，教練唸得出來就知道他手上是哪一版，
  * 不用再猜是不是拿到舊的快取。每次改版就把這個字串往上加。
  */
-const BUILD = "2026-08-12 · v60";
+const BUILD = "2026-08-12 · v61";
 
 /** 開發者署名，顯示在設定頁的「關於」 */
 const DEVELOPER = "杯子蛋糕好好吃";
@@ -2322,6 +2322,8 @@ function render() {
     settings: viewSettings,
   })[tab]();
   view.scrollTop = 0;
+  // 重畫之後把搜尋條件套回去，不然編輯完一位學生，畫面會突然跳回全部
+  if (tab === "students") applyStudentSearch();
 }
 
 /* ── 總覽 ───────────────────────────────────── */
@@ -2548,12 +2550,14 @@ function viewStudents() {
   const all = S.students;
   const tags = allTags();
   const counts = tagCounts();
-  const q = studentSearch.trim().toLowerCase();
+  // **搜尋不在這裡篩。**
+  // 邊打邊 render() 會把 <input> 整個換掉 —— 焦點與游標可以補回來，但**中文
+  // 輸入法的組字狀態補不回來**，用注音根本打不出名字（2026-08-12 回報）。
+  // 所以這裡照舊畫出全部，打字時只是把不符合的那幾列 hidden 起來，
+  // 輸入框從頭到尾都是同一個元素。
   const list = all.filter((s) => {
     if (studentFilter === "active" && s.status !== "active") return false;
     if (studentFilter === "archived" && s.status !== "archived") return false;
-    // 名字或電話對得上就好。電話常常只記得後三碼，所以用「包含」不是「開頭」。
-    if (q && !`${s.name || ""} ${s.phone || ""}`.toLowerCase().includes(q)) return false;
     // 選了多個標籤是「任一符合」——想找的通常是「減脂或備賽的人」
     if (activeTagFilter.size && !(s.tags || []).some((t) => activeTagFilter.has(t))) return false;
     return true;
@@ -2574,7 +2578,7 @@ function viewStudents() {
       <div class="field" style="margin-bottom:10px">
         <input type="search" id="student-search" data-student-search value="${esc(studentSearch)}"
                placeholder="找學生（姓名或電話）" aria-label="搜尋學生">
-        ${q ? `<span class="hint">找到 ${list.length} 位${list.length ? "" : "——換個關鍵字，或看看是不是在「封存」裡"}</span>` : ""}
+        <span class="hint" data-search-count hidden></span>
       </div>
       <div class="seg" style="max-width:320px">
         ${[["active", "在檔"], ["archived", "封存"], ["all", "全部"]].map(([v, t]) =>
@@ -2601,7 +2605,8 @@ function viewStudents() {
           // 所以「上了幾堂」旁邊直接把金額寫出來，不用自己乘。
           const usedValue = used.count * sessionPrice(s);
           return `
-          <div class="row">
+          <div class="row" data-student-row
+               data-search-key="${esc(`${s.name || ""} ${s.phone || ""}`.toLowerCase())}">
             <span class="dot" style="background:${esc(s.color)}"></span>
             <div class="row-main">
               <div class="row-title">
@@ -7053,17 +7058,37 @@ document.addEventListener("click", (e) => {
   }
 });
 
-/* 學生搜尋：邊打邊篩。重畫之後要把游標與字串還原，不然打第二個字就跳掉了。 */
+/**
+ * 學生搜尋：**就地把不符合的列藏起來，不重畫**。
+ *
+ * 原本每打一個字就 render()，輸入框會被整個換掉。焦點與游標可以補回來，
+ * 但**中文輸入法的組字狀態補不回來** —— 用注音打「王」會在按下第一個鍵時
+ * 就被打斷，等於中文名字完全搜不了（2026-08-12 回報）。
+ * 現在輸入框從頭到尾是同一個元素，只有列在藏與現。
+ */
+function applyStudentSearch() {
+  const rows = $$("[data-student-row]");
+  if (!rows.length) return;
+  const q = studentSearch.trim().toLowerCase();
+  let shown = 0;
+  for (const row of rows) {
+    const hit = !q || (row.dataset.searchKey || "").includes(q);
+    row.hidden = !hit;
+    if (hit) shown++;
+  }
+  const note = $("[data-search-count]");
+  if (note) {
+    note.hidden = !q;
+    note.textContent = q
+      ? `找到 ${shown} 位${shown ? "" : "——換個關鍵字，或看看是不是在「封存」裡"}`
+      : "";
+  }
+}
+
 document.addEventListener("input", (e) => {
   if (!e.target.matches("[data-student-search]")) return;
   studentSearch = e.target.value;
-  const pos = e.target.selectionStart;
-  render();
-  const again = $("[data-student-search]");
-  if (again) {
-    again.focus();
-    try { again.setSelectionRange(pos, pos); } catch (err) { /* search 型別不一定支援 */ }
-  }
+  applyStudentSearch();
 });
 
 /* 下拉選單改狀態 */
