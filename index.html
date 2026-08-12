@@ -768,7 +768,7 @@ const NOTICE_KEY = "coach-mate-web-notice-dismissed";
  * 版本標記。顯示在設定頁最下面，教練唸得出來就知道他手上是哪一版，
  * 不用再猜是不是拿到舊的快取。每次改版就把這個字串往上加。
  */
-const BUILD = "2026-08-12 · v59";
+const BUILD = "2026-08-12 · v60";
 
 /** 開發者署名，顯示在設定頁的「關於」 */
 const DEVELOPER = "杯子蛋糕好好吃";
@@ -6504,20 +6504,44 @@ function copyBackupSheet() {
         要還原時用「貼上備份文字」貼回來就好。
       </p>
       <textarea id="backup-text" readonly style="min-height:150px;font-size:11px;font-family:var(--mono)">${esc(json)}</textarea>
-      <p class="hint" style="margin-top:8px">共 ${json.length.toLocaleString("en-US")} 個字，包含 ${S.students.length} 位學生、${S.lessons.length} 堂課。</p>`,
+      <p class="hint" style="margin-top:8px">共 ${json.length.toLocaleString("en-US")} 個字，包含 ${S.students.length} 位學生、${S.lessons.length} 堂課。</p>
+      <p class="hint" data-copy-status style="font-weight:600"></p>`,
     extraFoot: `<button class="btn btn-sm btn-primary" type="button" data-action="do-copy">全部複製</button>`,
     onMount: (root) => {
       root.addEventListener("click", async (e) => {
         if (!e.target.closest('[data-action="do-copy"]')) return;
         const box = $("#backup-text", root);
+        const status = $("[data-copy-status]", root);
+        const say = (html, ok) => {
+          if (!status) return;
+          status.innerHTML = html;
+          status.style.color = ok ? "var(--good)" : "var(--warn)";
+        };
         try {
           await navigator.clipboard.writeText(json);
-          toast("已複製，貼到記事本或傳給自己存起來");
+          // **複製完要驗一次**。iPhone 上這一步失敗過但畫面只飄過一則
+          // toast，使用者以為複製好了，到 App 一貼才發現剪貼簿是空的
+          // ——「又不行」的其中一種（2026-08-12）。讀回來比長度才算數。
+          let copied = -1;
+          try {
+            const back = await navigator.clipboard.readText();
+            copied = back.length;
+          } catch (readErr) { copied = -1; }   // 有些瀏覽器不給讀，那就當它成功
+          if (copied === -1 || copied === json.length) {
+            say(`✓ 已複製 ${json.length.toLocaleString("en-US")} 個字。`
+              + `現在打開「教練小幫手」App → 設定 → 貼上備份文字 → 按「貼上」。`, true);
+            toast("已複製");
+          } else {
+            say(`⚠ 只複製到 ${copied.toLocaleString("en-US")} 個字（應該有 ${json.length.toLocaleString("en-US")} 個）。`
+              + `請長按下面的文字 → 全選 → 複製。`, false);
+          }
         } catch (err) {
-          // 舊版 Safari 沒有 clipboard API，退回選取整段讓使用者自己按複製
+          // iOS 的獨立視窗、舊版 Safari 都可能不給寫剪貼簿。
+          // 退回選取整段讓使用者自己複製，而且把話講在畫面上（不是 toast）。
           box.focus();
           box.setSelectionRange(0, box.value.length);
-          toast("已全選，請長按畫面選「複製」");
+          say("⚠ 這個瀏覽器不讓程式直接複製。文字已經全選起來了，"
+            + "請長按畫面選「複製」。", false);
         }
       });
     },
