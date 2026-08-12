@@ -768,7 +768,7 @@ const NOTICE_KEY = "coach-mate-web-notice-dismissed";
  * 版本標記。顯示在設定頁最下面，教練唸得出來就知道他手上是哪一版，
  * 不用再猜是不是拿到舊的快取。每次改版就把這個字串往上加。
  */
-const BUILD = "2026-08-12 · v58";
+const BUILD = "2026-08-12 · v59";
 
 /** 開發者署名，顯示在設定頁的「關於」 */
 const DEVELOPER = "杯子蛋糕好好吃";
@@ -2256,6 +2256,25 @@ async function saveFile(filename, text) {
       // 其他情況（這個環境不支援之類的）就走下面的備援
     }
   }
+  // **iPhone 優先走分享面板**。
+  //
+  // 用 <a download> 存下來的檔案，iOS 有時候會掉副檔名或被認成 public.data，
+  // 於是在 App 的「檔案」選擇器裡是灰的、點不下去 —— 症狀就是使用者說的
+  // 「網頁輸出的還是沒辦法放入程式」（2026-08-11、08-12 各回報一次）。
+  // 分享面板送出去的是帶著正確型別的檔案，可以直接「儲存到檔案」或丟給
+  // 教練小幫手，不必經過那一層判斷。
+  try {
+    const file = new File([text], filename, { type: "application/json" });
+    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+      await navigator.share({ files: [file], title: filename });
+      toast("已送出檔案");
+      return;
+    }
+  } catch (err) {
+    // 使用者按取消也會走到這裡。取消就安靜結束，不要再彈一次下載。
+    if (err && err.name === "AbortError") { toast("已取消"); return; }
+  }
+
   try {
     // **型別一定要是 application/json**。原本寫 application/octet-stream，
     // iPhone 存下來的檔案在「檔案」App 裡不會被認成 JSON，而 iOS 版的匯入是
