@@ -234,6 +234,34 @@ main {
 .page-sub { color: var(--muted); font-size: 13px; margin: 2px 0 0; }
 .head-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 
+/* 區塊捷徑。分析頁一整頁疊下來有三千多 px，要看另一區得一路捲
+   （2026-08-14 回報：「要查另一個需要滑很久」）。黏在最上面，
+   一按就跳到那一區。 */
+.jumpbar {
+  position: sticky; top: 0; z-index: 5;
+  display: flex; gap: 6px;
+  margin: -6px -4px 14px;
+  padding: 8px 4px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  background: var(--bg);
+  border-bottom: 1px solid var(--line);
+}
+.jumpbar::-webkit-scrollbar { display: none; }
+.jumpbar button {
+  flex: none;
+  padding: 5px 11px;
+  font-size: 12.5px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--ink-2);
+  cursor: pointer;
+}
+.jumpbar button:hover { color: var(--ink); border-color: var(--gold-line); }
+/* 跳過去時要留出捷徑列本身的高度，不然標題正好被它蓋住 */
+[id^="sec-"] { scroll-margin-top: 58px; }
+
 /* 手機底部分頁 */
 .tabbar {
   display: none;
@@ -776,7 +804,7 @@ const NOTICE_KEY = "coach-mate-web-notice-dismissed";
  * 版本標記。顯示在設定頁最下面，教練唸得出來就知道他手上是哪一版，
  * 不用再猜是不是拿到舊的快取。每次改版就把這個字串往上加。
  */
-const BUILD = "2026-08-14 · v66";
+const BUILD = "2026-08-14 · v67";
 
 /** 開發者署名，顯示在設定頁的「關於」 */
 const DEVELOPER = "杯子蛋糕好好吃";
@@ -1848,7 +1876,9 @@ const RANK_METRICS = [
       // 出席率把遲到算成有到（人有來，只是晚了）—— 跟學生詳情、iOS 同一把尺
       const came = ls.filter((l) => CONSUMING.includes(l.status)).length;
       const pct = came / ls.length * 100;
-      return { student: s, value: pct, text: `${pct.toFixed(0)}%`, note: `${came}/${ls.length} 堂` };
+      // weight＝分母。同樣 100%，8/8 比 3/3 更站得住腳，要排在前面
+      return { student: s, value: pct, weight: ls.length,
+               text: `${pct.toFixed(0)}%`, note: `${came}/${ls.length} 堂` };
     }),
   },
   {
@@ -1880,7 +1910,9 @@ function rangeLessons(studentId, from, to) {
  */
 function rankingRows(metric, students, from, to, limit) {
   const rows = metric.rows(students, from, to)
-    .sort((a, b) => b.value - a.value || a.student.name.localeCompare(b.student.name));
+    .sort((a, b) => b.value - a.value
+                 || (b.weight || 0) - (a.weight || 0)
+                 || a.student.name.localeCompare(b.student.name));
   if (limit > 0) return rows.filter((r) => r.value > 0).slice(0, limit);
   return rows;
 }
@@ -2701,6 +2733,8 @@ let rankPeriod = "all";
 let rankFrom = "";
 let rankTo = "";
 let rankLimit = 5;
+/** 目前在看哪一張榜。一次只畫一張，四張疊起來要捲很久。 */
+let rankMetric = "attended";
 
 function viewStudents() {
   const all = S.students;
@@ -5757,7 +5791,7 @@ function salesSection() {
   const maxSessions = Math.max(1, ...months.map((m) => m.sessions));
 
   return `
-    <section class="card">
+    <section class="card" id="sec-sales">
       <div class="sec-head">
         <h2 class="sec-title">銷售</h2>
         <span class="sec-sub">${salesPeriod === "all" ? "所有時間" : `${esc(from)} ～ ${esc(to)}`}</span>
@@ -5878,7 +5912,9 @@ function salesSection() {
 
       ${top.length ? `
         <div style="margin-top:14px">
-          <p class="sec-sub" style="margin:0 0 9px">這段期間買最多的</p>
+          <p class="sec-sub" style="margin:0 0 9px">這段期間買最多的
+            <button class="btn btn-sm btn-ghost" type="button" data-action="jump" data-value="sec-ranking"
+                    style="margin-left:6px">看完整排行榜</button></p>
           ${top.map((r, i) => `
             <div class="row">
               <span class="muted mono" style="width:18px">${i + 1}</span>
@@ -5899,7 +5935,7 @@ function assessmentSection() {
   const color = LESSON_KIND.assessment.color;
 
   return `
-    <section class="card">
+    <section class="card" id="sec-assessment">
       <div class="sec-head">
         <h2 class="sec-title" style="color:${color}">檢測</h2>
         <span class="sec-sub">${s.rate === null ? "還沒有結論" : `本月成交率 ${s.rate.toFixed(0)}%`}</span>
@@ -5961,10 +5997,16 @@ function viewAnalysis() {
       </div>
     </div>
 
+    ${jumpBar([
+      ["sec-sales", "銷售"], ["sec-assessment", "檢測"], ["sec-conversion", "成交率"],
+      ["sec-leads", "名單"], ["sec-profile", "客群"], ["sec-ranking", "排行榜"],
+      ["sec-metrics", "指標"],
+    ])}
+
     <div class="stack">
       ${salesSection()}
       ${assessmentSection()}
-      <section class="card">
+      <section class="card" id="sec-conversion">
         <div class="sec-head">
           <h2 class="sec-title">成交率</h2>
           <span class="sec-sub">${conv.total ? `累計 ${conv.total} 筆名單・成交 ${conv.converted} 位` : "還沒有名單可以算"}</span>
@@ -5994,7 +6036,7 @@ function viewAnalysis() {
         ` : `<p class="empty">新增潛在客群後，成交率會自動算出來。</p>`}
       </section>
 
-      <section class="card">
+      <section class="card" id="sec-leads">
         <div class="sec-head">
           <h2 class="sec-title">潛在客群</h2>
           <span class="sec-sub">${openLeads.length ? `${openLeads.length} 位待追蹤` : "沒有待追蹤的名單"}</span>
@@ -6021,7 +6063,7 @@ function viewAnalysis() {
         }).join("") : `<p class="empty">還沒有名單。點右上角新增想追蹤的對象。</p>`}
       </section>
 
-      <div class="grid-2">
+      <div class="grid-2" id="sec-profile">
         ${ageRows.length ? `
         <section class="card">
           <div class="sec-head"><h2 class="sec-title">年齡分佈</h2>
@@ -6048,7 +6090,7 @@ function viewAnalysis() {
 
       ${rankingSection(students)}
 
-      <section class="card">
+      <section class="card" id="sec-metrics">
         <div class="sec-head"><h2 class="sec-title">關鍵指標</h2></div>
         <div class="row"><div class="row-main">總學生數</div><div class="row-end mono">${students.length} 位</div></div>
         <div class="row"><div class="row-main">總營收</div><div class="row-end mono">${money(totalRevenue)}</div></div>
@@ -6059,8 +6101,23 @@ function viewAnalysis() {
 }
 
 /**
+ * 區塊捷徑。分析頁疊下來有三千多 px（12 位學生就這樣了），要看另一區
+ * 得一路捲到底（2026-08-14 回報：「要查另一個需要滑很久」）。
+ * 黏在最上面，一按就跳過去。
+ */
+function jumpBar(items) {
+  return `<nav class="jumpbar" aria-label="跳到區塊">
+    ${items.map(([id, label]) =>
+      `<button type="button" data-action="jump" data-value="${id}">${esc(label)}</button>`).join("")}
+  </nav>`;
+}
+
+/**
  * 排行榜。四張榜共用同一段期間與同一個名次上限 —— 分開設定的話，
  * 「上課最多」看本月、「消費最多」看全部，兩張表擺在一起卻不是同一回事。
+ *
+ * **一次只畫一張榜**（2026-08-14）：四張疊起來的話，選「全部」＋幾十位學生
+ * 就是幾百列，要看第二張榜得先捲過第一張。榜之間用上面那排按鈕換。
  */
 function rankingSection(students) {
   const preset = periodBounds(rankPeriod);
@@ -6068,11 +6125,19 @@ function rankingSection(students) {
   const to = preset ? preset.to : (rankTo || today());
   const limit = RANK_LIMITS.some(([n]) => n === rankLimit) ? rankLimit : 5;
 
+  const metric = RANK_METRICS.find((m) => m.key === rankMetric) || RANK_METRICS[0];
+
   return `
-    <section class="card">
+    <section class="card" id="sec-ranking">
       <div class="sec-head">
         <h2 class="sec-title">排行榜</h2>
         <span class="sec-sub">${rankPeriod === "all" ? "所有時間" : `${esc(from)} ～ ${esc(to)}`}・在檔 ${students.length} 位</span>
+      </div>
+
+      <div class="seg seg-wrap" style="margin-bottom:8px">
+        ${RANK_METRICS.map((m) =>
+          `<button type="button" data-action="rank-metric" data-value="${m.key}"
+                   aria-pressed="${metric.key === m.key}">${m.title}</button>`).join("")}
       </div>
 
       <div class="seg seg-wrap" style="margin-bottom:8px">
@@ -6100,20 +6165,20 @@ function rankingSection(students) {
       </div>
       <p class="hint">選「全部」會把每一位學生都列出來，包含這段期間掛零的。</p>
 
-      ${students.length ? RANK_METRICS.map((m) => {
-        const rows = rankingRows(m, students, from, to, limit);
+      ${students.length ? (() => {
+        const rows = rankingRows(metric, students, from, to, limit);
         const shown = limit > 0 && rows.length === limit ? `前 ${rows.length} 位` : `${rows.length} 位`;
         return `
           <div style="margin-top:14px">
             <div class="sec-head" style="margin-bottom:4px">
-              <h3 class="sec-title" style="font-size:14px">${m.title}</h3>
-              <span class="sec-sub">${m.sub}・${shown}</span>
+              <h3 class="sec-title" style="font-size:14px">${metric.title}</h3>
+              <span class="sec-sub">${metric.sub}・${shown}</span>
             </div>
             ${rows.length
               ? rows.map((r, i) => rankRow(i, r.student, r.text, r.note, r.value > 0)).join("")
               : `<p class="empty">這段期間沒有資料。</p>`}
           </div>`;
-      }).join("") : `<p class="empty">還沒有學生，排行榜會在有資料之後自動出現。</p>`}
+      })() : `<p class="empty">還沒有學生，排行榜會在有資料之後自動出現。</p>`}
     </section>`;
 }
 
@@ -7195,6 +7260,17 @@ document.addEventListener("click", (e) => {
       rankLimit = parseInt(value, 10) || 0;
       S.settings.rankLimit = rankLimit; save();
       render(); break;
+    case "rank-metric":
+      rankMetric = value;
+      S.settings.rankMetric = value; save();
+      render(); break;
+    // 跳到分析頁的某一區。**不要 render()** —— 重畫會把捲動位置歸零，
+    // 那正是這顆按鈕要解決的事。
+    case "jump": {
+      const target = document.getElementById(value);
+      if (target) target.scrollIntoView({ behavior: "smooth", block: "start" });
+      break;
+    }
     case "set-base-mode":
       S.settings.salary.baseSalaryMode = value; save(); render(); break;
 
@@ -7831,6 +7907,7 @@ if (loaded) {
   if (S.settings.salesPeriod) salesPeriod = S.settings.salesPeriod;
   if (S.settings.rankPeriod) rankPeriod = S.settings.rankPeriod;
   if (Number.isFinite(S.settings.rankLimit)) rankLimit = S.settings.rankLimit;
+  if (S.settings.rankMetric) rankMetric = S.settings.rankMetric;
   save();
 } else {
   S = blankState();
