@@ -776,7 +776,7 @@ const NOTICE_KEY = "coach-mate-web-notice-dismissed";
  * 版本標記。顯示在設定頁最下面，教練唸得出來就知道他手上是哪一版，
  * 不用再猜是不是拿到舊的快取。每次改版就把這個字串往上加。
  */
-const BUILD = "2026-08-13 · v65";
+const BUILD = "2026-08-14 · v66";
 
 /** 開發者署名，顯示在設定頁的「關於」 */
 const DEVELOPER = "杯子蛋糕好好吃";
@@ -1792,6 +1792,99 @@ function salesTopStudents(from, to, limit = 5) {
     .slice(0, limit);
 }
 
+/* ── 排行榜 ───────────────────────────────── */
+/**
+ * 原本只有「上課最多」「消費最多」兩張寫死前五名的表（2026-08-13 試用回報：
+ * 「是不是能夠呈現更多的名次」「到課率最高、消費的金額、上課堂數等等」）。
+ * 兩件事一起解：**名次可以看更多**，而且**每一榜都吃期間**。
+ *
+ * 期間直接沿用銷售那組（本月／上月／今年／全部／自訂）—— 使用者說自己能設
+ * 時間區間很好用，那就讓整個分析頁都能這樣看，不要一頁一種規矩。
+ *
+ * 每一榜都吃 from/to，所以**同一個期間換不同榜，看的是同一批課／同一批錢**。
+ */
+/** 到課率要有幾堂紀錄才進榜 */
+const RANK_RATE_MIN = 3;
+
+/** 名次要看幾名。0 ＝ 全部。 */
+const RANK_LIMITS = [[5, "前 5 名"], [10, "前 10 名"], [0, "全部"]];
+
+const RANK_METRICS = [
+  {
+    key: "attended",
+    title: "上課最多",
+    sub: "已出席與遲到的堂數",
+    rows: (students, from, to) => students.map((s) => {
+      const n = rangeLessons(s.id, from, to).filter((l) => CONSUMING.includes(l.status)).length;
+      return { student: s, value: n, text: `${n} 堂` };
+    }),
+  },
+  {
+    key: "spent",
+    title: "消費最多",
+    sub: "收到的錢",
+    rows: (students, from, to) => students.map((s) => {
+      const n = (s.payments || [])
+        .filter((p) => (p.date || "") >= from && (p.date || "") <= to)
+        .reduce((a, p) => a + (p.amount || 0), 0);
+      return { student: s, value: n, text: money(n) };
+    }),
+  },
+  {
+    key: "rate",
+    title: "到課率最高",
+    // 只上過一堂的人是 100%，排在上了 40 堂 95% 的人前面 —— 那不是「到課率高」，
+    // 是「還看不出來」。所以要有紀錄下限，而且把分母印出來。
+    sub: `至少 ${RANK_RATE_MIN} 堂紀錄`,
+    rows: (students, from, to) => students.map((s) => {
+      const ls = rangeLessons(s.id, from, to)
+        .filter((l) => ["attended", "late", "absent"].includes(l.status));
+      // 紀錄不足的人在「全部」裡照樣列出來，只是沒有百分比可以印。
+      // value 給 -1：排在所有真的算得出來的人後面，前 5／前 10 也不會撈到他。
+      if (ls.length < RANK_RATE_MIN) {
+        return { student: s, value: -1, text: "—",
+                 note: ls.length ? `只有 ${ls.length} 堂紀錄` : "沒有課程紀錄" };
+      }
+      // 出席率把遲到算成有到（人有來，只是晚了）—— 跟學生詳情、iOS 同一把尺
+      const came = ls.filter((l) => CONSUMING.includes(l.status)).length;
+      const pct = came / ls.length * 100;
+      return { student: s, value: pct, text: `${pct.toFixed(0)}%`, note: `${came}/${ls.length} 堂` };
+    }),
+  },
+  {
+    key: "purchased",
+    title: "買最多堂",
+    sub: "續約買的堂數",
+    rows: (students, from, to) => students.map((s) => {
+      const rs = (s.renewals || []).filter((r) => (r.date || "") >= from && (r.date || "") <= to);
+      const n = rs.reduce((a, r) => a + (r.sessions || 0), 0);
+      const amt = rs.reduce((a, r) => a + (r.amount || 0), 0);
+      return { student: s, value: n, text: `${n} 堂`, note: amt ? money(amt) : "" };
+    }),
+  },
+];
+
+/** 某位學生在區間內的課（共同課的第二位也算他自己的），檢測不算 */
+function rangeLessons(studentId, from, to) {
+  return lessonsOf(studentId).filter((l) =>
+    !isAssessment(l) && (l.date || "") >= from && (l.date || "") <= to);
+}
+
+/**
+ * 一張榜。同分用姓名排，順序才不會每次 render 都跳。
+ *
+ * **選「全部」時連 0 的人都要列出來**（2026-08-13 小春：「學生都要寫出來」）——
+ * 這個月一堂都沒上、一毛都沒繳的那幾位，正是教練最需要看到的名字，
+ * 而榜單把他們濾掉就等於在說「沒這個人」。前 5／前 10 才只看有數字的
+ * （名次表上塞一排 0 沒有意義）。
+ */
+function rankingRows(metric, students, from, to, limit) {
+  const rows = metric.rows(students, from, to)
+    .sort((a, b) => b.value - a.value || a.student.name.localeCompare(b.student.name));
+  if (limit > 0) return rows.filter((r) => r.value > 0).slice(0, limit);
+  return rows;
+}
+
 /* ── 顏色標籤 ───────────────────────────────── */
 // 學生代表色一人只能一個顏色，回答不了「哪些人是減脂的」。
 // 標籤是另一層：教練自己定義一組有顏色的名字，一位學生可以貼好幾個。
@@ -2598,6 +2691,16 @@ let activeTagFilter = new Set();
 let salesPeriod = "thisMonth";
 let salesFrom = "";
 let salesTo = "";
+/**
+ * 排行榜目前選的期間與名次上限。
+ * 期間預設「全部」—— 這幾張榜以前就是累計的，一進來就跳成本月會讓人
+ * 以為排行榜壞了（跟銷售那邊預設本月是刻意不同的：銷售問的是「這個月賣多少」，
+ * 排行榜問的是「誰最常來」）。跟 salesPeriod 一樣記在設定裡。
+ */
+let rankPeriod = "all";
+let rankFrom = "";
+let rankTo = "";
+let rankLimit = 5;
 
 function viewStudents() {
   const all = S.students;
@@ -5842,11 +5945,6 @@ function viewAnalysis() {
     count: students.filter((s) => { const a = ageOf(s); return a !== null && a >= lo && a <= hi; }).length,
   })).filter((r) => r.count > 0);
 
-  const topAttend = students.map((s) => ({ s, v: attendedCount(s.id) }))
-    .filter((r) => r.v > 0).sort((a, b) => b.v - a.v).slice(0, 5);
-  const topSpend = students.map((s) => ({ s, v: s.payments.reduce((a, p) => a + p.amount, 0) }))
-    .filter((r) => r.v > 0).sort((a, b) => b.v - a.v).slice(0, 5);
-
   const openLeads = S.leads.filter((l) => l.status !== "converted");
   const totalRevenue = allPayments().reduce((a, p) => a + p.amount, 0);
   const avgSessions = students.length
@@ -5946,18 +6044,9 @@ function viewAnalysis() {
             : "到「設定」新增自訂欄位，填了學生資料後這裡會自動多一欄。"}</p>
         </section>`}
 
-        ${topAttend.length ? `
-        <section class="card">
-          <div class="sec-head"><h2 class="sec-title">上課最多</h2><span class="sec-sub">累計已出席</span></div>
-          ${topAttend.map((r, i) => rankRow(i, r.s, `${r.v} 堂`)).join("")}
-        </section>` : ""}
-
-        ${topSpend.length ? `
-        <section class="card">
-          <div class="sec-head"><h2 class="sec-title">消費最多</h2><span class="sec-sub">累計收費</span></div>
-          ${topSpend.map((r, i) => rankRow(i, r.s, money(r.v))).join("")}
-        </section>` : ""}
       </div>
+
+      ${rankingSection(students)}
 
       <section class="card">
         <div class="sec-head"><h2 class="sec-title">關鍵指標</h2></div>
@@ -5969,13 +6058,75 @@ function viewAnalysis() {
     </div>`;
 }
 
-function rankRow(i, s, value) {
+/**
+ * 排行榜。四張榜共用同一段期間與同一個名次上限 —— 分開設定的話，
+ * 「上課最多」看本月、「消費最多」看全部，兩張表擺在一起卻不是同一回事。
+ */
+function rankingSection(students) {
+  const preset = periodBounds(rankPeriod);
+  const from = preset ? preset.from : (rankFrom || today());
+  const to = preset ? preset.to : (rankTo || today());
+  const limit = RANK_LIMITS.some(([n]) => n === rankLimit) ? rankLimit : 5;
+
+  return `
+    <section class="card">
+      <div class="sec-head">
+        <h2 class="sec-title">排行榜</h2>
+        <span class="sec-sub">${rankPeriod === "all" ? "所有時間" : `${esc(from)} ～ ${esc(to)}`}・在檔 ${students.length} 位</span>
+      </div>
+
+      <div class="seg seg-wrap" style="margin-bottom:8px">
+        ${Object.entries(SALES_PERIODS).map(([k, label]) =>
+          `<button type="button" data-action="rank-period" data-value="${k}"
+                   aria-pressed="${rankPeriod === k}">${label}</button>`).join("")}
+      </div>
+
+      ${rankPeriod === "custom" ? `
+        <div class="field-row" style="margin-bottom:8px">
+          <div class="field">
+            <label for="rank-from">從</label>
+            <input id="rank-from" type="date" value="${esc(from)}" data-rank-from>
+          </div>
+          <div class="field">
+            <label for="rank-to">到</label>
+            <input id="rank-to" type="date" value="${esc(to)}" data-rank-to>
+          </div>
+        </div>` : ""}
+
+      <div class="seg seg-wrap" style="margin-bottom:4px">
+        ${RANK_LIMITS.map(([n, label]) =>
+          `<button type="button" data-action="rank-limit" data-value="${n}"
+                   aria-pressed="${limit === n}">${label}</button>`).join("")}
+      </div>
+      <p class="hint">選「全部」會把每一位學生都列出來，包含這段期間掛零的。</p>
+
+      ${students.length ? RANK_METRICS.map((m) => {
+        const rows = rankingRows(m, students, from, to, limit);
+        const shown = limit > 0 && rows.length === limit ? `前 ${rows.length} 位` : `${rows.length} 位`;
+        return `
+          <div style="margin-top:14px">
+            <div class="sec-head" style="margin-bottom:4px">
+              <h3 class="sec-title" style="font-size:14px">${m.title}</h3>
+              <span class="sec-sub">${m.sub}・${shown}</span>
+            </div>
+            ${rows.length
+              ? rows.map((r, i) => rankRow(i, r.student, r.text, r.note, r.value > 0)).join("")
+              : `<p class="empty">這段期間沒有資料。</p>`}
+          </div>`;
+      }).join("") : `<p class="empty">還沒有學生，排行榜會在有資料之後自動出現。</p>`}
+    </section>`;
+}
+
+// 掛零的那些（只有「全部」看得到）不編號 —— 印成「第 18 名」會讓人
+// 以為那是個成績，其實是「這段期間沒有」。
+function rankRow(i, s, value, note, ranked = true) {
   return `<div class="row">
     <span class="mono" style="width:20px;height:20px;border-radius:50%;display:grid;place-items:center;font-size:11px;font-weight:700;
-      background:${i === 0 ? "var(--gold)" : "var(--surface-2)"};color:${i === 0 ? "var(--on-gold)" : "var(--muted)"}">${i + 1}</span>
+      background:${i === 0 && ranked ? "var(--gold)" : "var(--surface-2)"};color:${i === 0 && ranked ? "var(--on-gold)" : "var(--muted)"}">${ranked ? i + 1 : "–"}</span>
     <span class="dot" style="background:${esc(s.color)}"></span>
     <div class="row-main"><div class="row-title">${esc(s.name)}</div></div>
-    <div class="row-end mono" style="font-weight:600">${esc(value)}</div>
+    <div class="row-end mono" style="font-weight:600">${esc(value)}${
+      note ? `<span class="row-sub mono" style="display:block;font-weight:400">${esc(note)}</span>` : ""}</div>
   </div>`;
 }
 
@@ -7032,6 +7183,18 @@ document.addEventListener("click", (e) => {
         salesFrom = b.from; salesTo = b.to;
       }
       render(); break;
+    case "rank-period":
+      rankPeriod = value;
+      S.settings.rankPeriod = value; save();
+      if (value === "custom" && !rankFrom) {
+        const b = periodBounds("thisMonth");
+        rankFrom = b.from; rankTo = b.to;
+      }
+      render(); break;
+    case "rank-limit":
+      rankLimit = parseInt(value, 10) || 0;
+      S.settings.rankLimit = rankLimit; save();
+      render(); break;
     case "set-base-mode":
       S.settings.salary.baseSalaryMode = value; save(); render(); break;
 
@@ -7221,6 +7384,9 @@ document.addEventListener("change", (e) => {
   // 銷售統計的自訂起訖日
   if (e.target.matches("[data-sales-from]")) { salesFrom = e.target.value; render(); return; }
   if (e.target.matches("[data-sales-to]")) { salesTo = e.target.value; render(); return; }
+  // 排行榜的自訂起訖日
+  if (e.target.matches("[data-rank-from]")) { rankFrom = e.target.value; render(); return; }
+  if (e.target.matches("[data-rank-to]")) { rankTo = e.target.value; render(); return; }
 
   const el = e.target.closest("[data-action]");
   if (el) {
@@ -7663,6 +7829,8 @@ if (loaded) {
   }
   autoMarkPastLessons();
   if (S.settings.salesPeriod) salesPeriod = S.settings.salesPeriod;
+  if (S.settings.rankPeriod) rankPeriod = S.settings.rankPeriod;
+  if (Number.isFinite(S.settings.rankLimit)) rankLimit = S.settings.rankLimit;
   save();
 } else {
   S = blankState();
