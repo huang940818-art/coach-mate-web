@@ -804,7 +804,7 @@ const NOTICE_KEY = "coach-mate-web-notice-dismissed";
  * 版本標記。顯示在設定頁最下面，教練唸得出來就知道他手上是哪一版，
  * 不用再猜是不是拿到舊的快取。每次改版就把這個字串往上加。
  */
-const BUILD = "2026-08-14 · v68";
+const BUILD = "2026-08-14 · v69";
 
 /** 開發者署名，顯示在設定頁的「關於」 */
 const DEVELOPER = "杯子蛋糕好好吃";
@@ -1701,7 +1701,7 @@ function salaryFor(ym) {
 function assessmentsInRange(from, to) {
   const [a, b] = from <= to ? [from, to] : [to, from];
   return S.lessons.filter((l) =>
-    isAssessment(l) && l.status !== "cancelled" && l.date >= a && l.date <= b);
+    isAssessment(l) && l.status !== "cancelled" && inPeriod(l.date, a, b));
 }
 
 function assessmentStats(from, to) {
@@ -1773,6 +1773,29 @@ function periodBounds(key, now = new Date()) {
   }
 }
 
+/**
+ * 這一段是不是「全部時間」（`periodBounds("all")` 那兩個哨兵值）。
+ */
+function isWholePeriod(from, to) {
+  const w = periodBounds("all");
+  return from <= w.from && to >= w.to;
+}
+
+/**
+ * 這筆紀錄算不算在這段期間裡。
+ *
+ * **「全部」要連沒有日期的紀錄一起算**（2026-08-14 撞出來的）：日期是字串比較，
+ * `"" >= "0000-01-01"` 是 false，所以日期空白的續約／收費**連選「全部」都會消失** ——
+ * 銷售金額短少、消費最多印 $0，而使用者只會看到「錢不見了」。
+ * 匯入時解不出來的日期就會變成空字串（`parseBackup` 的 `dayOf`）。
+ * 指定期間時當然還是要有日期才算得進去，沒有日期歸不到任何一個月。
+ */
+function inPeriod(date, from, to) {
+  if (isWholePeriod(from, to)) return true;
+  const d = date || "";
+  return d >= from && d <= to;
+}
+
 /** 所有續約紀錄（含首購），帶上是誰買的 */
 function allRenewals() {
   return S.students.flatMap((s) => s.renewals.map((r) => ({ ...r, studentId: s.id })));
@@ -1780,7 +1803,7 @@ function allRenewals() {
 
 function salesSummary(from, to) {
   const [a, b] = from <= to ? [from, to] : [to, from];
-  const rows = allRenewals().filter((r) => (r.date || "") >= a && (r.date || "") <= b);
+  const rows = allRenewals().filter((r) => inPeriod(r.date, a, b));
   const sessions = rows.reduce((n, r) => n + (r.sessions || 0), 0);
   const amount = rows.reduce((n, r) => n + (r.amount || 0), 0);
   const people = new Set(rows.map((r) => r.studentId).filter(Boolean));
@@ -1878,10 +1901,12 @@ const RANK_METRICS = [
   {
     key: "spent",
     title: "消費最多",
-    sub: "收到的錢",
+    // 「收到的錢」不精確：日期還沒到的預收也在收費紀錄裡（總覽的「本月收到」
+    // 刻意不含預收，兩邊講法要對得起來）
+    sub: "收費紀錄的金額，含預收",
     rows: (students, from, to) => students.map((s) => {
       const n = (s.payments || [])
-        .filter((p) => (p.date || "") >= from && (p.date || "") <= to)
+        .filter((p) => inPeriod(p.date, from, to))
         .reduce((a, p) => a + (p.amount || 0), 0);
       return { student: s, value: n, text: money(n) };
     }),
@@ -1928,7 +1953,7 @@ const RANK_METRICS = [
      */
     rows: (students, from, to, opts = {}) => students.map((s) => {
       const all = s.renewals || [];
-      const rs = all.filter((r) => (r.date || "") >= from && (r.date || "") <= to);
+      const rs = all.filter((r) => inPeriod(r.date, from, to));
       const recorded = rs.reduce((a, r) => a + (r.sessions || 0), 0);
       const amt = rs.reduce((a, r) => a + (r.amount || 0), 0);
       const purchased = Math.max(0, s.totalPurchased || 0);
@@ -1938,7 +1963,7 @@ const RANK_METRICS = [
           student: s, value: purchased, text: `${purchased} 堂`,
           note: recorded
             ? `有紀錄的 ${recorded} 堂・其餘依累計已購`
-            : (all.length ? "續約紀錄沒有堂數" : "沒有續約紀錄，依累計已購"),
+            : (all.length ? "續約紀錄對不上累計已購" : "沒有續約紀錄，依累計已購"),
         };
       }
       // 這個月沒續約是常態，不用特別講；**整份資料一筆續約都沒有**才是資料缺口。
@@ -1954,7 +1979,7 @@ const RANK_METRICS = [
 /** 某位學生在區間內的課（共同課的第二位也算他自己的），檢測不算 */
 function rangeLessons(studentId, from, to) {
   return lessonsOf(studentId).filter((l) =>
-    !isAssessment(l) && (l.date || "") >= from && (l.date || "") <= to);
+    !isAssessment(l) && inPeriod(l.date, from, to));
 }
 
 /**
@@ -1966,10 +1991,9 @@ function rangeLessons(studentId, from, to) {
  * （名次表上塞一排 0 沒有意義）。
  */
 function rankingRows(metric, students, from, to, limit) {
-  // 「全部」＝ periodBounds("all") 那兩個邊界。有些榜在看得到全部歷史時
-  // 可以補上沒有日期的資料（見「買最多堂」），指定期間就不行。
-  const whole = periodBounds("all");
-  const opts = { wholeTime: from <= whole.from && to >= whole.to };
+  // 有些榜在看得到全部歷史時可以補上沒有紀錄的部分（見「買最多堂」），
+  // 指定期間就不行。
+  const opts = { wholeTime: isWholePeriod(from, to) };
   const rows = metric.rows(students, from, to, opts)
     .sort((a, b) => b.value - a.value
                  || (b.weight || 0) - (a.weight || 0)
@@ -5024,7 +5048,7 @@ function viewPayments() {
   // 列表只顯示選到的那一段。整月／累計的數字在上面的方塊，不受這裡影響。
   const bounds = periodBounds(paymentRange);
   const listed = bounds
-    ? rows.filter((p) => (p.date || "") >= bounds.from && (p.date || "") <= bounds.to)
+    ? rows.filter((p) => inPeriod(p.date, bounds.from, bounds.to))
     : rows;
   const isCompany = S.settings.employment === "company";
   const sal = isCompany ? salaryFor(ym) : null;
@@ -6228,7 +6252,12 @@ function rankingSection(students) {
 
       ${students.length ? (() => {
         const rows = rankingRows(metric, students, from, to, limit);
-        const shown = limit > 0 && rows.length === limit ? `前 ${rows.length} 位` : `${rows.length} 位`;
+        // 「12 位」會讓人以為十二個人都有到課率，其實有幾位是算不出來的
+        const ranked = rows.filter((r) => r.value > 0).length;
+        const rest = rows.length - ranked;
+        const shown = limit > 0
+          ? (rows.length === limit ? `前 ${rows.length} 位` : `${rows.length} 位`)
+          : (rest ? `${ranked} 位有數字・另 ${rest} 位沒有` : `${rows.length} 位`);
         return `
           <div style="margin-top:14px">
             <div class="sec-head" style="margin-bottom:4px">
