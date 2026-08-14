@@ -804,7 +804,7 @@ const NOTICE_KEY = "coach-mate-web-notice-dismissed";
  * 版本標記。顯示在設定頁最下面，教練唸得出來就知道他手上是哪一版，
  * 不用再猜是不是拿到舊的快取。每次改版就把這個字串往上加。
  */
-const BUILD = "2026-08-14 · v67";
+const BUILD = "2026-08-14 · v68";
 
 /** 開發者署名，顯示在設定頁的「關於」 */
 const DEVELOPER = "杯子蛋糕好好吃";
@@ -1393,8 +1393,14 @@ function isBackfilledRecord(l) {
 function lessonsOf(studentId) {
   return S.lessons.filter((l) => l.studentId === studentId || l.partnerId === studentId);
 }
+/**
+ * 已上堂數。**檢測不算** —— 它佔時段但不扣堂數（`LESSON_KIND.assessment.consumes`
+ * 是 false），算進來的話「已上 N 堂」會比實際多，而那個數字還被拿去推算收入。
+ * 新排的檢測 studentId 是空的，但把一堂正課改成檢測時 studentId 會留著。
+ */
 function attendedCount(studentId) {
-  return lessonsOf(studentId).filter((l) => CONSUMING.includes(l.status)).length;
+  return lessonsOf(studentId)
+    .filter((l) => !isAssessment(l) && CONSUMING.includes(l.status)).length;
 }
 
 /**
@@ -1841,10 +1847,32 @@ const RANK_METRICS = [
   {
     key: "attended",
     title: "上課最多",
-    sub: "已出席與遲到的堂數",
-    rows: (students, from, to) => students.map((s) => {
+    sub: "已出席與遲到的堂數；沒有紀錄的依剩餘推算",
+    /**
+     * 跟「買最多堂」同一個坑，而且更嚴重（2026-08-14 拿真實名單驗出來的）：
+     * 補歷史進來的人**一筆課程紀錄都沒有**（堂數是照舊系統手填的），
+     * 於是整張榜都是 0 堂、畫面寫「這段期間沒有資料」——可是那八位都上了幾百堂。
+     *
+     * 「全部」期間改用 `consumedSessions`（課程紀錄與「已購 − 剩餘」取大的那個），
+     * 跟學生列表上「已上 N 堂」印的是同一個數字。是推算的就寫出來。
+     * **指定期間時只認課程紀錄** —— 推算出來的堂數沒有日期，分不到月份上。
+     */
+    rows: (students, from, to, opts = {}) => students.map((s) => {
       const n = rangeLessons(s.id, from, to).filter((l) => CONSUMING.includes(l.status)).length;
-      return { student: s, value: n, text: `${n} 堂` };
+      if (opts.wholeTime) {
+        const c = consumedSessions(s);
+        if (c.count > n) {
+          return { student: s, value: c.count, text: `${c.count} 堂`,
+                   note: c.recorded ? `有紀錄的 ${c.recorded} 堂・其餘依剩餘推算`
+                                    : "沒有課程紀錄，依剩餘推算" };
+        }
+      }
+      // 這個月沒上課是常態，不用特別講；**整份資料一堂紀錄都沒有**才是資料缺口，
+      // 那個 0 會被當成「他沒在上課」，一定要說出來。
+      const c = consumedSessions(s);
+      return { student: s, value: n, text: `${n} 堂`,
+               note: !lessonsOf(s.id).length && c.count
+                 ? `沒有課程紀錄（累計約 ${c.count} 堂）` : "" };
     }),
   },
   {
@@ -1884,12 +1912,41 @@ const RANK_METRICS = [
   {
     key: "purchased",
     title: "買最多堂",
-    sub: "續約買的堂數",
-    rows: (students, from, to) => students.map((s) => {
-      const rs = (s.renewals || []).filter((r) => (r.date || "") >= from && (r.date || "") <= to);
-      const n = rs.reduce((a, r) => a + (r.sessions || 0), 0);
+    sub: "續約買的堂數；沒有紀錄的用累計已購",
+    /**
+     * 這一榜踩過一個坑（2026-08-14 拿真實名單驗出來的）：只看續約紀錄的話，
+     * **買了 30 堂但沒有任何續約紀錄的人會顯示「0 堂」，看起來像沒買過課**。
+     * 真實的 8 位裡就有 1 位是這樣（直接在表單填購買堂數建的，不會產生續約紀錄），
+     * 另外 3 位的續約紀錄合計也比累計已購少（補歷史只補了一部分）。
+     *
+     * 所以「全部」期間改成**取兩者大的那個**，跟 `consumedSessions`（已上堂數）
+     * 同一個道理：續約紀錄是「我有憑據的那幾筆」，累計已購才是「他總共買了多少」。
+     * 差額會寫在旁邊，不會假裝那是有紀錄的數字。
+     *
+     * **指定期間時不能這樣補** —— 沒有日期的購買歸不到任何一個月，硬算就是造假。
+     * 那種情況印 0，但要說出來是「沒有續約紀錄」，不要讓人以為他沒買課。
+     */
+    rows: (students, from, to, opts = {}) => students.map((s) => {
+      const all = s.renewals || [];
+      const rs = all.filter((r) => (r.date || "") >= from && (r.date || "") <= to);
+      const recorded = rs.reduce((a, r) => a + (r.sessions || 0), 0);
       const amt = rs.reduce((a, r) => a + (r.amount || 0), 0);
-      return { student: s, value: n, text: `${n} 堂`, note: amt ? money(amt) : "" };
+      const purchased = Math.max(0, s.totalPurchased || 0);
+
+      if (opts.wholeTime && purchased > recorded) {
+        return {
+          student: s, value: purchased, text: `${purchased} 堂`,
+          note: recorded
+            ? `有紀錄的 ${recorded} 堂・其餘依累計已購`
+            : (all.length ? "續約紀錄沒有堂數" : "沒有續約紀錄，依累計已購"),
+        };
+      }
+      // 這個月沒續約是常態，不用特別講；**整份資料一筆續約都沒有**才是資料缺口。
+      return {
+        student: s, value: recorded, text: `${recorded} 堂`,
+        note: amt ? money(amt)
+                  : (!all.length && purchased ? `沒有續約紀錄（累計已購 ${purchased} 堂）` : ""),
+      };
     }),
   },
 ];
@@ -1909,7 +1966,11 @@ function rangeLessons(studentId, from, to) {
  * （名次表上塞一排 0 沒有意義）。
  */
 function rankingRows(metric, students, from, to, limit) {
-  const rows = metric.rows(students, from, to)
+  // 「全部」＝ periodBounds("all") 那兩個邊界。有些榜在看得到全部歷史時
+  // 可以補上沒有日期的資料（見「買最多堂」），指定期間就不行。
+  const whole = periodBounds("all");
+  const opts = { wholeTime: from <= whole.from && to >= whole.to };
+  const rows = metric.rows(students, from, to, opts)
     .sort((a, b) => b.value - a.value
                  || (b.weight || 0) - (a.weight || 0)
                  || a.student.name.localeCompare(b.student.name));
