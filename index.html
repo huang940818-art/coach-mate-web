@@ -804,7 +804,7 @@ const NOTICE_KEY = "coach-mate-web-notice-dismissed";
  * 版本標記。顯示在設定頁最下面，教練唸得出來就知道他手上是哪一版，
  * 不用再猜是不是拿到舊的快取。每次改版就把這個字串往上加。
  */
-const BUILD = "2026-08-15 · v70";
+const BUILD = "2026-08-15 · v71";
 
 /** 開發者署名，顯示在設定頁的「關於」 */
 const DEVELOPER = "杯子蛋糕好好吃";
@@ -1533,6 +1533,28 @@ function currentPackageParts(student) {
   // 只算「比主約新」的那些加購 —— 更早的加購屬於上一期，早就結束了
   const addOns = rs.slice(0, mainIndex < 0 ? rs.length : mainIndex).filter((r) => r.addOn);
   return { main, addOns };
+}
+
+/**
+ * 這一期（進行中）的那幾筆續約紀錄：主約＋掛在它底下的加購。
+ *
+ * 為什麼要分：續約紀錄把**還在上的這份合約**跟**早就上完的那幾份**混在一起列，
+ * 表頭的「170 堂・累計 $187,400」是全部加總 —— 想知道「已經完成的是多少」就得
+ * 自己減。試用者的做法是**把進行中那筆刪掉**，然後發現總購買堂數與金額少了一份
+ * （2026-08-15 回報）。刪資料是唯一的出路就代表畫面沒把話講完。
+ *
+ * 判斷：最近一筆主約（＋比它新的加購）就是這一期。學生手上還有剩餘堂數才算
+ * 「進行中」，剩 0 就是連這一期也上完了。
+ */
+function currentPackageRenewalIds(student) {
+  const { main, addOns } = currentPackageParts(student);
+  if (!main) return new Set();
+  return new Set([main.id, ...addOns.map((r) => r.id)]);
+}
+
+/** 這一期還在進行中嗎（手上還有課） */
+function isPackageInProgress(student) {
+  return (student.remaining || 0) > 0 && !!currentPackageParts(student).main;
 }
 
 /**
@@ -2892,9 +2914,12 @@ function viewStudents() {
                 ${s.status === "archived" ? '<span class="pill pill-mute">封存</span>' : ""}
                 ${s.mayNotRenew ? '<span class="pill pill-warn">可能不續約</span>' : ""}
               </div>
+              <!-- 兩個金額擺在一起，其中一個沒有標籤 —— 試用者直接問「那個另外一個
+                   數字是什麼含義」（2026-08-15）。上完的課值多少（推算）與實際收到多少
+                   是兩回事，兩個都要有名字。 -->
               <div class="row-sub">${used.estimated
                   ? `已上 ${used.count} 堂（依剩餘推算${used.recorded ? `，${used.recorded} 堂有紀錄` : ""}）`
-                  : `已上 ${used.count} 堂`}${usedValue > 0 ? `・${money(usedValue)}` : ""}${s.renewalCount > 0 ? `・續約 ${s.renewalCount} 次` : ""}・累計收費 ${money(paid)}${s.phone ? "・" + esc(s.phone) : ""}</div>
+                  : `已上 ${used.count} 堂`}${usedValue > 0 ? `・課程價值 ${money(usedValue)}` : ""}${s.renewalCount > 0 ? `・續約 ${s.renewalCount} 次` : ""}・累計收費 ${money(paid)}${s.phone ? "・" + esc(s.phone) : ""}</div>
               ${tagsOf(s).length ? `<div class="tag-row">${tagsOf(s).map((t) =>
                 `<span class="tag-chip tag-chip-sm" style="--tag:${esc(t.color)}"><span class="tag-dot"></span>${esc(t.name)}</span>`).join("")}</div>` : ""}
             </div>
@@ -3476,10 +3501,42 @@ function renewalMismatchNotes(student) {
     </div>`;
 }
 
+/**
+ * 「已完成」與「進行中」各是多少，寫在續約紀錄的表頭底下。
+ *
+ * 試用者的原話：填了堂數與金額之後，「他會歸類成續約的部分是已經全部完成的堂數
+ * 再加上這個合約的」；把進行中那筆刪掉，「已完成的課程數字和金額會正確，但是
+ * 總購買金額還有堂數會少當前這個進行中合約」（2026-08-15）。
+ * 兩個數本來就都要有 —— 缺的是把它們分開講，而不是逼人刪資料。
+ */
+function renewalSplitLine(student, rs) {
+  const current = currentPackageRenewalIds(student);
+  if (!rs.length || !current.size) return "";
+  const inProgress = isPackageInProgress(student);
+  const sum = (list) => ({
+    count: list.length,
+    sessions: list.reduce((a, r) => a + (r.sessions || 0), 0),
+    amount: list.reduce((a, r) => a + (r.amount || 0), 0),
+  });
+  const now = sum(rs.filter((r) => current.has(r.id)));
+  const done = sum(rs.filter((r) => !current.has(r.id)));
+  // 只有一份合約時沒什麼好拆的
+  if (!done.count) return "";
+  const part = (label, v) => `${label} ${v.count} 筆・${v.sessions} 堂・${money(v.amount)}`;
+  return `<p class="hint" style="margin:2px 0 8px">
+    ${part("已上完的合約", done)}<br>
+    ${part(inProgress ? "這一期（進行中）" : "這一期", now)}${
+      inProgress ? `・剩 ${student.remaining} 堂` : ""}
+  </p>`;
+}
+
 function renewalHistoryBlock(student) {
   const rs = renewalsOf(student);
   const sessions = rs.reduce((a, r) => a + (r.sessions || 0), 0);
   const amount = rs.reduce((a, r) => a + (r.amount || 0), 0);
+  // 哪幾筆屬於還在上的這一期 —— 混在一起列的話，看不出「已完成」是多少
+  const currentPackage = currentPackageRenewalIds(student);
+  const isInProgress = isPackageInProgress(student);
 
   // 編輯狀態的那一列。就地換成輸入框，不另外開 sheet ——
   // openSheet 會先關掉現有的那張，等於把使用者在編輯學生表單裡
@@ -3608,6 +3665,9 @@ function renewalHistoryBlock(student) {
     <div class="row" style="padding:8px 0">
       <div class="row-main">
         <div class="row-title" style="font-size:14px">${esc(r.date || "（無日期）")}
+          ${currentPackage.has(r.id)
+            ? `<span class="pill ${isInProgress ? "pill-good" : "pill-mute"}">${isInProgress ? "這一期・進行中" : "這一期"}</span>`
+            : ""}
           ${r.addOn ? '<span class="pill pill-info">加購</span>' : ""}
           ${isFirstPurchase(student, r) ? '<span class="pill pill-mute">首購</span>' : ""}
           ${paymentsOfRenewal(student, r.id).length === 0 ? '<span class="pill pill-warn">沒有收費紀錄</span>' : ""}
@@ -3651,6 +3711,7 @@ function renewalHistoryBlock(student) {
       })() : ""}
       ${adding ? "" : `<button type="button" class="btn btn-sm" data-add-renewal="1">新增一筆</button>`}
     </div>
+    ${renewalSplitLine(student, rs)}
     ${adding ? editRow(blankRenewal(), true) : ""}
     ${rs.length ? rs.map((r) => (r.id === confirmingDeleteId ? deleteRow(r)
                                 : r.id === editingRenewalId ? editRow(r) : showRow(r))).join("")
