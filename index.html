@@ -804,7 +804,7 @@ const NOTICE_KEY = "coach-mate-web-notice-dismissed";
  * 版本標記。顯示在設定頁最下面，教練唸得出來就知道他手上是哪一版，
  * 不用再猜是不是拿到舊的快取。每次改版就把這個字串往上加。
  */
-const BUILD = "2026-08-14 · v69";
+const BUILD = "2026-08-15 · v70";
 
 /** 開發者署名，顯示在設定頁的「關於」 */
 const DEVELOPER = "杯子蛋糕好好吃";
@@ -1885,7 +1885,9 @@ const RANK_METRICS = [
       if (opts.wholeTime) {
         const c = consumedSessions(s);
         if (c.count > n) {
-          return { student: s, value: c.count, text: `${c.count} 堂`,
+          // 推算值一樣時（買一樣多、剩一樣多），有紀錄的那位排前面：
+          // 那是有憑據的堂數，照姓名排等於把資訊丟掉
+          return { student: s, value: c.count, weight: c.recorded, text: `${c.count} 堂`,
                    note: c.recorded ? `有紀錄的 ${c.recorded} 堂・其餘依剩餘推算`
                                     : "沒有課程紀錄，依剩餘推算" };
         }
@@ -6071,6 +6073,10 @@ function viewAnalysis() {
   const avgSessions = students.length
     ? students.reduce((a, s) => a + s.totalPurchased, 0) / students.length : 0;
 
+  // 檢測那一區沒有資料時整段不畫，所以捷徑要**先看它在不在**再決定要不要放那顆按鈕
+  // —— 指向不存在的區塊時按了完全沒反應，那比沒有那顆按鈕更糟。
+  const assessment = assessmentSection();
+
   return `
     <div class="page-head">
       <div>
@@ -6083,14 +6089,16 @@ function viewAnalysis() {
     </div>
 
     ${jumpBar([
-      ["sec-sales", "銷售"], ["sec-assessment", "檢測"], ["sec-conversion", "成交率"],
+      ["sec-sales", "銷售"],
+      ...(assessment ? [["sec-assessment", "檢測"]] : []),
+      ["sec-conversion", "成交率"],
       ["sec-leads", "名單"], ["sec-profile", "客群"], ["sec-ranking", "排行榜"],
       ["sec-metrics", "指標"],
     ])}
 
     <div class="stack">
       ${salesSection()}
-      ${assessmentSection()}
+      ${assessment}
       <section class="card" id="sec-conversion">
         <div class="sec-head">
           <h2 class="sec-title">成交率</h2>
