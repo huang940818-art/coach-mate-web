@@ -804,7 +804,7 @@ const NOTICE_KEY = "coach-mate-web-notice-dismissed";
  * 版本標記。顯示在設定頁最下面，教練唸得出來就知道他手上是哪一版，
  * 不用再猜是不是拿到舊的快取。每次改版就把這個字串往上加。
  */
-const BUILD = "2026-08-15 · v71";
+const BUILD = "2026-08-17 · v72";
 
 /** 開發者署名，顯示在設定頁的「關於」 */
 const DEVELOPER = "杯子蛋糕好好吃";
@@ -2026,6 +2026,129 @@ function rankingRows(metric, students, from, to, limit) {
   return rows;
 }
 
+/* ── 批次貼上學生 ───────────────────────────── */
+/**
+ * 從試算表／記事本整片貼上，一次把幾十位學生建進來。
+ *
+ * 為什麼要做：以前只能一位一位開表單填，37 位就是 37 次
+ * （新教練上手、換手機以外的搬家，都卡在這一步）。
+ *
+ * 規矩刻意訂得死一點，**寧可看不懂就標出來，也不要猜錯**：
+ * 　- 一行一位，用 Tab、逗號或空白分欄（從試算表複製過來就是 Tab）
+ * 　- 第一個看起來不是數字的欄位＝姓名
+ * 　- 像電話的那欄（8 碼以上、只有數字與 -＋() ）＝電話，位置不拘
+ * 　- 剩下的數字**照順序**是 購買、剩餘、金額 —— 猜「哪個數字是金額」
+ * 　  一定會錯（36 堂 vs $36,000），所以照順序，然後把解讀結果攤在預覽表上
+ * 　- `30堂`、`$39,000`、`39,000` 都吃得下
+ */
+const PASTE_HEADER_WORDS = ["姓名", "名字", "學生", "電話", "手機", "堂數", "剩餘", "金額", "購買"];
+
+/**
+ * 一行拆成欄位。Tab／逗號／空白都算分隔（中文姓名不會有空白）。
+ *
+ * **逗號會跟千分位打架**：`$39,000` 用逗號一切就變成 `$39` 和 `000`，
+ * 金額直接少一個數量級（測試撞出來的）。所以先把數字中間的逗號拿掉再分欄。
+ * 用 `(\d),(\d{3})` 迴圈取代而不是 lookbehind —— 舊一點的 iPhone Safari
+ * 不支援 lookbehind，而那正是使用者手上的東西。
+ */
+function splitPasteLine(line) {
+  let s = String(line);
+  let prev;
+  do { prev = s; s = s.replace(/(\d),(\d{3})(?!\d)/g, "$1$2"); } while (s !== prev);
+  // 有 Tab 就只用 Tab 分（試算表複製過來的欄位裡可能有空白）
+  const parts = s.includes("\t") ? s.split("\t") : s.split(/,|，|\s+/);
+  return parts.map((t) => t.trim()).filter(Boolean);
+}
+
+/** "30堂" → 30；"$39,000" → 39000；認不出來回 null */
+function parsePasteNumber(token) {
+  const cleaned = String(token).replace(/[^\d.-]/g, "");
+  if (!cleaned || !/\d/.test(cleaned)) return null;
+  const n = Number(cleaned);
+  return Number.isFinite(n) ? n : null;
+}
+
+const looksLikePhone = (t) => /^[\d\-+()\s]{8,}$/.test(t) && (t.match(/\d/g) || []).length >= 8;
+const looksLikeDate = (t) => /^\d{4}[-/]\d{1,2}[-/]\d{1,2}$/.test(t);
+
+/**
+ * 把貼上的文字解析成一列一列。**不寫進資料**，只回傳解讀結果讓畫面先給人看。
+ * 每一列都帶 issues：認不出來的地方要說出來，不要靜靜略過。
+ */
+function parseStudentPaste(text) {
+  const lines = String(text || "").split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+  const rows = [];
+  lines.forEach((line, idx) => {
+    const cells = splitPasteLine(line);
+    if (!cells.length) return;
+    // 從試算表複製常常會把標題列一起帶上來
+    if (idx === 0 && cells.some((c) => PASTE_HEADER_WORDS.includes(c))) return;
+
+    const issues = [];
+    let name = "", phone = "", date = "";
+    const numbers = [];
+    for (const cell of cells) {
+      if (!name && parsePasteNumber(cell) === null && !looksLikePhone(cell)) { name = cell; continue; }
+      if (!phone && looksLikePhone(cell)) { phone = cell.replace(/\s/g, ""); continue; }
+      if (!date && looksLikeDate(cell)) { date = cell.replace(/\//g, "-"); continue; }
+      const n = parsePasteNumber(cell);
+      if (n !== null) numbers.push(n);
+      else issues.push(`看不懂「${cell}」`);
+    }
+    if (!name) { rows.push({ line, name: "", issues: ["這一行找不到姓名"], skip: true }); return; }
+
+    const [purchased = null, remaining = null, amount = null] = numbers;
+    if (numbers.length > 3) issues.push("數字超過三個，只取前三個當購買／剩餘／金額");
+    if (remaining !== null && purchased !== null && remaining > purchased) {
+      // 上一期結轉過來就會這樣，不是錯，但要讓人看一眼
+      issues.push("剩餘比購買多（上期結轉？）");
+    }
+    rows.push({
+      line, name, phone, date,
+      purchased: purchased === null ? 0 : Math.max(0, purchased),
+      remaining: remaining === null ? (purchased === null ? 0 : Math.max(0, purchased)) : Math.max(0, remaining),
+      amount: amount === null ? 0 : Math.max(0, amount),
+      // 同名同電話已經在檔的視為同一人，跟合併匯入同一條規則
+      duplicate: !!S.students.find((s) => s.name === name && (s.phone || "") === (phone || "")),
+      issues,
+    });
+  });
+  return rows;
+}
+
+/**
+ * 真的建進去。回傳 { created, skipped }。
+ *
+ * `purchaseDate` 是整批共用的購買日期，**留空就不建合約紀錄**：
+ * 補歷史的入口不能給「今天」當預設值（那正是「所有合約都掛在建檔那天」的來源），
+ * 而沒有日期的合約在銷售統計裡會落在錯的月份。留空時只寫累計已購，
+ * 排行榜與統計會照「沒有續約紀錄」的規則處理，畫面上也講得出來。
+ */
+function createStudentsFromPaste(rows, purchaseDate = "") {
+  let created = 0, skipped = 0;
+  for (const r of rows) {
+    if (r.skip || r.duplicate) { skipped++; continue; }
+    const s = newStudent({
+      name: r.name,
+      phone: r.phone || "",
+      remaining: r.remaining || 0,
+      totalPurchased: r.purchased || 0,
+      // 有金額與堂數才推得出鐘點費；沒有就留 0，sessionPrice() 會用合約價換算
+      rate: r.amount && r.purchased ? Math.round(r.amount / r.purchased) : 0,
+    });
+    if (purchaseDate && r.purchased > 0) {
+      s.renewals.push({
+        id: uid(), date: purchaseDate, sessions: r.purchased,
+        amount: r.amount || 0, carryOver: 0, notes: "", createdAt: new Date().toISOString(),
+      });
+    }
+    S.students.push(s);
+    created++;
+  }
+  if (created) save();
+  return { created, skipped };
+}
+
 /* ── 顏色標籤 ───────────────────────────────── */
 // 學生代表色一人只能一個顏色，回答不了「哪些人是減脂的」。
 // 標籤是另一層：教練自己定義一組有顏色的名字，一位學生可以貼好幾個。
@@ -2869,6 +2992,9 @@ function viewStudents() {
         <p class="page-sub">在檔 ${all.filter(onRoster).length} 位・封存 ${all.filter((s) => s.status === "archived").length} 位</p>
       </div>
       <div class="head-actions">
+        <!-- 批次貼上要跟「新增學生」擺在一起：要換一頁才做得到的事，
+             使用者會當成沒有這個功能（2026-08-11 那次的教訓） -->
+        <button class="btn" type="button" data-action="paste-students">批次貼上</button>
         <button class="btn btn-primary" type="button" data-action="new-student">${icon("plus", 15)}新增學生</button>
       </div>
     </div>
@@ -3725,6 +3851,89 @@ function renewalHistoryBlock(student) {
         <strong>剩餘堂數兩邊都不會動</strong>——看不出這筆當初是不是補登的，猜錯就是吃掉學生手上的課，要改請用「調整剩餘堂數」。
       </p>
     </details>`;
+}
+
+/**
+ * 批次貼上學生。
+ *
+ * 兩段式：貼上 → **先給預覽表**（看得到程式怎麼解讀每一格）→ 才建立。
+ * 不做「貼上就直接建」—— 欄位錯位一次就是幾十筆髒資料，而使用者根本
+ * 不會發現是哪一欄被當成什麼。
+ */
+function pasteStudentsSheet() {
+  let rows = [];
+
+  const previewTable = () => {
+    if (!rows.length) return `<p class="empty">還沒有可以建立的資料。</p>`;
+    const ok = rows.filter((r) => !r.skip && !r.duplicate).length;
+    return `
+      <p class="hint" style="margin:0 0 6px">
+        認得出 ${rows.length} 行，可以建立 <strong>${ok}</strong> 位${
+          rows.length - ok ? `，略過 ${rows.length - ok} 行` : ""}。
+      </p>
+      <div style="overflow-x:auto">
+        <table style="width:100%;border-collapse:collapse;font-size:12.5px">
+          <thead><tr>
+            ${["姓名", "電話", "購買", "剩餘", "金額", ""].map((h) =>
+              `<th style="text-align:left;padding:4px 6px;color:var(--muted);font-weight:550">${h}</th>`).join("")}
+          </tr></thead>
+          <tbody>
+            ${rows.map((r) => `
+              <tr style="border-top:1px solid var(--line);${r.skip || r.duplicate ? "opacity:.55" : ""}">
+                <td style="padding:4px 6px">${esc(r.name || "—")}</td>
+                <td style="padding:4px 6px" class="mono">${esc(r.phone || "")}</td>
+                <td style="padding:4px 6px" class="mono">${r.skip ? "" : r.purchased}</td>
+                <td style="padding:4px 6px" class="mono">${r.skip ? "" : r.remaining}</td>
+                <td style="padding:4px 6px" class="mono">${r.skip || !r.amount ? "" : money(r.amount)}</td>
+                <td style="padding:4px 6px" class="muted">${
+                  r.duplicate ? "已經在檔，略過"
+                  : r.issues.length ? esc(r.issues.join("・")) : ""}</td>
+              </tr>`).join("")}
+          </tbody>
+        </table>
+      </div>`;
+  };
+
+  openSheet({
+    title: "批次貼上學生",
+    confirmLabel: "建立",
+    body: `
+      <div class="field">
+        <label for="paste-students-text">一行一位，用 Tab、逗號或空白分開</label>
+        <textarea id="paste-students-text" data-paste-students style="min-height:130px;font-family:var(--mono);font-size:12.5px"
+                  placeholder="王小明 0912345678 30 12 39000&#10;陳美美 0922333444 36 5 43200"></textarea>
+        <p class="hint">順序是 <strong>姓名・電話・購買堂數・剩餘堂數・金額</strong>。
+          電話可以不填；數字照順序讀（猜「哪個數字是金額」一定會猜錯）。
+          從 Excel 或 Google 試算表整片複製過來就可以直接貼。</p>
+      </div>
+      <div class="field">
+        <label for="paste-students-date">這批的購買日期（可留空）</label>
+        <input type="date" id="paste-students-date" name="purchaseDate">
+        <p class="hint"><strong>留空就不建合約紀錄</strong>，只寫累計已購。
+          補以前的資料時，寧可留空也不要全部掛在今天 —— 那會讓這幾十筆變成
+          「今天的業績」。日期不同的人，建好之後各自到續約紀錄補。</p>
+      </div>
+      <div data-paste-preview style="margin-top:10px"></div>`,
+    onMount: (root) => {
+      const ta = root.querySelector("[data-paste-students]");
+      const box = root.querySelector("[data-paste-preview]");
+      const redraw = () => { rows = parseStudentPaste(ta.value); box.innerHTML = previewTable(); };
+      // 邊打邊重畫的是**旁邊那塊**，不是輸入框本身 —— 換掉 textarea 會讓
+      // 中文輸入法的組字狀態消失（v61 踩過）
+      ta.addEventListener("input", redraw);
+      redraw();
+    },
+    onConfirm: (form) => {
+      rows = parseStudentPaste(form.querySelector("[data-paste-students]").value);
+      const usable = rows.filter((r) => !r.skip && !r.duplicate);
+      if (!usable.length) { toast("沒有可以建立的資料"); return false; }
+      const date = form.elements.purchaseDate ? form.elements.purchaseDate.value : "";
+      const res = createStudentsFromPaste(rows, date);
+      render();
+      toast(`已建立 ${res.created} 位${res.skipped ? `，略過 ${res.skipped} 行` : ""}${
+        date ? "" : "（沒填日期，所以沒有建合約紀錄）"}`);
+    },
+  });
 }
 
 function studentSheet(existing) {
@@ -7385,6 +7594,7 @@ document.addEventListener("click", (e) => {
       render();
       break;
     case "new-student": studentSheet(null); break;
+    case "paste-students": pasteStudentsSheet(); break;
     case "view-student": studentDetailSheet(studentById(id)); break;
     case "edit-student": studentSheet(studentById(id)); break;
     case "renew": renewSheet(studentById(id)); break;
