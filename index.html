@@ -831,7 +831,7 @@ const NOTICE_KEY = "coach-mate-web-notice-dismissed";
  * 版本標記。顯示在設定頁最下面，教練唸得出來就知道他手上是哪一版，
  * 不用再猜是不是拿到舊的快取。每次改版就把這個字串往上加。
  */
-const BUILD = "2026-08-17 · v80";
+const BUILD = "2026-08-17 · v81";
 
 /** 開發者署名，顯示在設定頁的「關於」 */
 const DEVELOPER = "杯子蛋糕好好吃";
@@ -1260,6 +1260,17 @@ const STUDENT_COLORS = ["#A8721B", "#2563EB", "#15803D", "#BE123C", "#7C3AED", "
 const studentById = (id) => S.students.find((s) => s.id === id) || null;
 const onRoster = (s) => s.status !== "archived";
 const activeStudents = () => S.students.filter((s) => onRoster(s));
+
+/**
+ * 要追續約的人：**手動標記的「課程結束待續約」，加上堂數已經用完的**。
+ *
+ * 暫停中的不算（他自己說先停一陣子），封存的更不算。
+ * 跟 iOS 的 `Student.needsRenewal` 同一條規則 —— 標了之後要看得到人，
+ * 而「堂數用完」本來就是同一件事的自動版本。
+ */
+const needsRenewal = (s) =>
+  onRoster(s) && s.status !== "paused"
+  && (s.status === "awaiting" || (s.remaining || 0) <= 0);
 
 /**
  * 中文姓名照**筆畫**排。
@@ -2713,6 +2724,11 @@ function viewDashboard() {
     .sort((a, b) => a.remaining - b.remaining);
 
   const conv = conversionStats(ym);
+  // 要追續約的人。手動標的排前面（那是教練自己確認過的），再來才是堂數用完的
+  const dueList = students.filter(needsRenewal)
+    .sort((a, b) => (b.status === "awaiting") - (a.status === "awaiting")
+                 || (a.remaining || 0) - (b.remaining || 0)
+                 || byStudentName(a, b));
 
   return `
     <div class="page-head">
@@ -2749,6 +2765,30 @@ function viewDashboard() {
       </section>
 
       <div class="grid-2">
+        <section class="card">
+          <div class="sec-head">
+            <h2 class="sec-title">待續約</h2>
+            <span class="sec-sub">${dueList.length ? `${dueList.length} 位` : "沒有人在等續約"}</span>
+          </div>
+          ${dueList.length ? dueList.map((s) => `
+            <div class="row">
+              <span class="dot" style="background:${esc(s.color)}"></span>
+              <div class="row-main">
+                <div class="row-title">
+                  <button type="button" class="btn-plain" data-action="view-student" data-id="${s.id}"
+                          style="font:inherit;color:inherit;cursor:pointer;text-align:left">${esc(s.name)}</button>
+                  ${s.status === "awaiting" ? '<span class="pill pill-warn">課程結束</span>' : ""}
+                </div>
+                <div class="row-sub">已上 ${consumedSessions(s).count} 堂${
+                  s.expiry ? `・${esc(s.expiry)} 到期` : ""}</div>
+              </div>
+              <div class="row-end" style="display:flex;gap:6px;align-items:center">
+                <span class="pill ${s.remaining > 0 ? "pill-mute" : "pill-crit"}">剩 ${s.remaining} 堂</span>
+                <button class="btn btn-sm btn-primary" type="button" data-action="renew" data-id="${s.id}">續約</button>
+              </div>
+            </div>`).join("") : `<p class="empty">堂數用完、或你標記「課程結束待續約」的人會出現在這裡。</p>`}
+        </section>
+
         <section class="card">
           <div class="sec-head">
             <h2 class="sec-title">堂數快用完</h2>
@@ -2936,6 +2976,7 @@ function viewStudents() {
     // 兩個數字對不起來。課程結束待續約的人更不能藏起來，那正是要追的人。
     if (studentFilter === "active" && !onRoster(s)) return false;
     if (studentFilter === "archived" && s.status !== "archived") return false;
+    if (studentFilter === "awaiting" && !needsRenewal(s)) return false;
     // 選了多個標籤是「任一符合」——想找的通常是「減脂或備賽的人」
     if (activeTagFilter.size && !(s.tags || []).some((t) => activeTagFilter.has(t))) return false;
     return true;
@@ -2945,7 +2986,9 @@ function viewStudents() {
     <div class="page-head">
       <div>
         <h1 class="page-title">學生</h1>
-        <p class="page-sub">在檔 ${all.filter(onRoster).length} 位・封存 ${all.filter((s) => s.status === "archived").length} 位</p>
+        <p class="page-sub">在檔 ${all.filter(onRoster).length} 位${
+          all.filter(needsRenewal).length ? `・待續約 ${all.filter(needsRenewal).length} 位` : ""
+        }・封存 ${all.filter((s) => s.status === "archived").length} 位</p>
       </div>
       <div class="head-actions">
         <button class="btn btn-primary" type="button" data-action="new-student">${icon("plus", 15)}新增學生</button>
@@ -2958,9 +3001,15 @@ function viewStudents() {
                placeholder="找學生（姓名或電話）" aria-label="搜尋學生">
         <span class="hint" data-search-count hidden></span>
       </div>
-      <div class="seg" style="max-width:320px">
-        ${[["active", "在檔"], ["archived", "封存"], ["all", "全部"]].map(([v, t]) =>
-          `<button type="button" data-action="student-filter" data-value="${v}" aria-pressed="${studentFilter === v}">${t}</button>`).join("")}
+      <div class="seg seg-wrap" style="max-width:420px">
+        ${(() => {
+          // 標了「課程結束待續約」之後要有地方只看這些人 —— 不然標了等於沒標
+          // （2026-08-17：「課程結束待續約哪裡看」）
+          const due = all.filter(needsRenewal).length;
+          return [["active", "在檔"], ["awaiting", due ? `待續約 ${due}` : "待續約"],
+                  ["archived", "封存"], ["all", "全部"]].map(([v, t]) =>
+            `<button type="button" data-action="student-filter" data-value="${v}" aria-pressed="${studentFilter === v}">${t}</button>`).join("");
+        })()}
       </div>
 
       ${tags.length ? `
