@@ -831,7 +831,7 @@ const NOTICE_KEY = "coach-mate-web-notice-dismissed";
  * 版本標記。顯示在設定頁最下面，教練唸得出來就知道他手上是哪一版，
  * 不用再猜是不是拿到舊的快取。每次改版就把這個字串往上加。
  */
-const BUILD = "2026-08-17 · v78";
+const BUILD = "2026-08-17 · v79";
 
 /** 開發者署名，顯示在設定頁的「關於」 */
 const DEVELOPER = "杯子蛋糕好好吃";
@@ -2913,7 +2913,11 @@ function viewStudents() {
   // 所以這裡照舊畫出全部，打字時只是把不符合的那幾列 hidden 起來，
   // 輸入框從頭到尾都是同一個元素。
   const list = all.filter((s) => {
-    if (studentFilter === "active" && s.status !== "active") return false;
+    // 「在檔」＝**沒有被封存的都算**，跟表頭那個「在檔 N 位」用同一把尺
+    // （onRoster）。原本寫死 status === "active"，於是暫停的學生從在檔消失、
+    // 封存那頁也沒有，只有「全部」找得到，而表頭的數字還把他算進去 ——
+    // 兩個數字對不起來。課程結束待續約的人更不能藏起來，那正是要追的人。
+    if (studentFilter === "active" && !onRoster(s)) return false;
     if (studentFilter === "archived" && s.status !== "archived") return false;
     // 選了多個標籤是「任一符合」——想找的通常是「減脂或備賽的人」
     if (activeTagFilter.size && !(s.tags || []).some((t) => activeTagFilter.has(t))) return false;
@@ -2969,15 +2973,19 @@ function viewStudents() {
                 <button type="button" class="btn-plain" data-action="view-student" data-id="${s.id}"
                         style="font:inherit;color:inherit;cursor:pointer;text-align:left">${esc(s.name || "（未命名）")}</button>
                 ${s.status === "archived" ? '<span class="pill pill-mute">封存</span>' : ""}
+                ${s.status === "awaiting" ? '<span class="pill pill-warn">課程結束待續約</span>' : ""}
                 ${s.mayNotRenew ? '<span class="pill pill-warn">可能不續約</span>' : ""}
               </div>
               <!-- 這一行以前塞到三行：已上堂數＋課程價值＋續約次數＋累計收費＋電話
                    （2026-08-17 回報「看起來很亂」）。**累計收費與電話搬到詳情**：
                    電話在詳情表頭、累計收費在詳情的「統計」與「收費」分頁，都還看得到。
                    **搜尋仍然吃電話** —— 靠的是下面的 data-search-key，不是這一行。 -->
-              <div class="row-sub">${used.estimated
-                  ? `已上 ${used.count} 堂（依剩餘推算${used.recorded ? `，${used.recorded} 堂有紀錄` : ""}）`
-                  : `已上 ${used.count} 堂`}${usedValue > 0 ? `・課程價值 ${money(usedValue)}` : ""}${s.renewalCount > 0 ? `・續約 ${s.renewalCount} 次` : ""}</div>
+              <!-- 「（依剩餘推算，N 堂有紀錄）」拿掉了（2026-08-17：「沒必要」）。
+                   數字本身不變，只是不再每一列都解釋它怎麼來的 ——
+                   補歷史的人每一列都掛著那句話，整片看過去全是括號。 -->
+              <div class="row-sub">已上 ${used.count} 堂${
+                usedValue > 0 ? `・課程價值 ${money(usedValue)}` : ""}${
+                s.renewalCount > 0 ? `・續約 ${s.renewalCount} 次` : ""}</div>
               ${tagsOf(s).length ? `<div class="tag-row">${tagsOf(s).map((t) =>
                 `<span class="tag-chip tag-chip-sm" style="--tag:${esc(t.color)}"><span class="tag-dot"></span>${esc(t.name)}</span>`).join("")}</div>` : ""}
             </div>
@@ -3063,6 +3071,7 @@ function studentDetailSheet(student) {
             ${esc(student.name || "（未命名）")}
             ${student.status === "archived" ? '<span class="pill pill-mute">封存</span>' : ""}
             ${student.status === "paused" ? '<span class="pill pill-mute">暫停</span>' : ""}
+            ${student.status === "awaiting" ? '<span class="pill pill-warn">課程結束待續約</span>' : ""}
             ${student.mayNotRenew ? '<span class="pill pill-warn">可能不續約</span>' : ""}
           </div>
           <div class="row-sub">
@@ -3089,6 +3098,11 @@ function studentDetailSheet(student) {
              名單上看到「這個人上完了、不續了」的當下，那時候不會有人想到要
              進編輯表單捲到底（2026-08-17 回報「沒辦法把課堂數用完的學生放進封存」）。
              封存是可逆的，所以不另外問一次。 -->
+        <!-- 課程上完了但人還在（等他決定要不要續）跟「封存」是兩件事：
+             封存＝不再往來、從名單上收起來；待續約＝還要追。
+             兩顆並排，因為做這個判斷的時機是同一個（2026-08-17）。 -->
+        <button type="button" class="btn btn-sm" data-detail-action="toggle-awaiting">${
+          student.status === "awaiting" ? "取消待續約" : "課程結束待續約"}</button>
         <button type="button" class="btn btn-sm" data-detail-action="toggle-archive">${
           student.status === "archived" ? "取消封存" : "封存"}</button>
       </div>
@@ -3207,6 +3221,18 @@ function studentDetailSheet(student) {
         const payment = a === "edit-payment"
           ? (student.payments || []).find((p) => p.id === act.dataset.id)
           : null;
+        if (a === "toggle-awaiting") {
+          const marking = student.status !== "awaiting";
+          student.status = marking ? "awaiting" : "active";
+          student.updatedAt = new Date().toISOString();
+          save(); render();
+          closeSheet();
+          studentDetailSheet(student);
+          toast(marking
+            ? `已標記 ${student.name} 課程結束待續約`
+            : `${student.name} 回到一般在檔`);
+          return;
+        }
         // 封存就地做完並重開，不用跳出去再找回來
         if (a === "toggle-archive") {
           const archiving = student.status !== "archived";
@@ -3968,7 +3994,9 @@ function studentSheet(existing) {
         ${fieldSelect("acquisition", "客戶來源", Object.entries(ACQUISITION), s.acquisition)}
       </div>
       <div class="field-row">
-        ${fieldSelect("status", "狀態", [["active", "在檔"], ["paused", "暫停"], ["archived", "封存"]], s.status)}
+        ${fieldSelect("status", "狀態",
+            [["active", "在檔"], ["paused", "暫停"], ["awaiting", "課程結束待續約"], ["archived", "封存"]],
+            s.status)}
         ${fieldText("renewalCount", "續約次數", s.renewalCount || 0,
             { type: "number", hint: "按「續約」會自動加一，這裡只用來更正" })}
       </div>
@@ -7361,7 +7389,7 @@ function parseBackup(raw) {
     renewalCount: d.renewalCount || 0,
     mayNotRenew: !!d.mayNotRenew,
     acquisition: ACQUISITION[d.acquisitionRaw] ? d.acquisitionRaw : "selfDeveloped",
-    status: ["active", "paused", "archived"].includes(d.statusRaw) ? d.statusRaw : "active",
+    status: ["active", "paused", "awaiting", "archived"].includes(d.statusRaw) ? d.statusRaw : "active",
     ...(() => {
       // 續約要先有 id，收費才接得回去。舊備份沒有 renewalIndex，
       // 那就交給 linkLegacyPayments 用日期＋金額去配。
