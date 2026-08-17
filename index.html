@@ -820,7 +820,7 @@ const NOTICE_KEY = "coach-mate-web-notice-dismissed";
  * 版本標記。顯示在設定頁最下面，教練唸得出來就知道他手上是哪一版，
  * 不用再猜是不是拿到舊的快取。每次改版就把這個字串往上加。
  */
-const BUILD = "2026-08-17 · v75";
+const BUILD = "2026-08-17 · v76";
 
 /** 開發者署名，顯示在設定頁的「關於」 */
 const DEVELOPER = "杯子蛋糕好好吃";
@@ -2046,180 +2046,6 @@ function rankingRows(metric, students, from, to, limit) {
   return rows;
 }
 
-/* ── 拍照辨識 ───────────────────────────────── */
-/**
- * 把相機掃進來的文字讀成學生資料。
- *
- * **辨識本身交給手機**（iPhone 鍵盤上的「掃描文字」／Mac 的即時文字）：
- * 那是 Apple 的中文 OCR，跟 iOS 版用的是同一個引擎，離線、免費，
- * 而且**照片不會離開這台手機**。網頁只做「讀懂那串字」這一段。
- *
- * 跟之前那個固定欄位的批次貼上不一樣（那個小春試過說不好用）：
- * 這裡**看標籤不看位置** —— 「姓名：王小明」「30 堂」「$39,000」「到期 114/12/31」
- * 出現在哪一行、什麼順序都認得，認不出來的就留空，不硬猜。
- */
-
-/** 民國年轉西元。114 → 2025。看起來已經是西元就原樣回傳。 */
-function rocToAd(year) {
-  const y = +year;
-  if (!Number.isFinite(y)) return null;
-  return y < 200 ? y + 1911 : y;
-}
-
-/**
- * 各種寫法的日期都轉成 "YYYY-MM-DD"。
- * 2026-08-17／2026/8/17／2026年8月17日／114/8/17（民國）／114年8月17日
- */
-function normalizeScannedDate(text) {
-  const m = /(\d{2,4})\s*[-/年.]\s*(\d{1,2})\s*[-/月.]\s*(\d{1,2})\s*日?/.exec(String(text || ""));
-  if (!m) return "";
-  const y = rocToAd(m[1]);
-  const mo = +m[2], d = +m[3];
-  if (!y || mo < 1 || mo > 12 || d < 1 || d > 31) return "";
-  return `${y}-${pad(mo)}-${pad(d)}`;
-}
-
-/** 這段文字裡的電話（台灣手機與市話） */
-function scanPhone(text) {
-  const m = /(?:\+886[\s-]?9|09)\d{2}[\s-]?\d{3}[\s-]?\d{3}|0\d{1,2}[\s-]?\d{3,4}[\s-]?\d{4}/.exec(text || "");
-  return m ? m[0].replace(/[\s-]/g, "").replace(/^\+886/, "0") : "";
-}
-
-const SCAN_SKIP_WORDS = ["姓名", "名字", "學生", "電話", "手機", "信箱", "地址", "備註",
-                         "職業", "年齡", "性別", "堂數", "金額", "日期", "到期", "剩餘",
-                         "購買", "合計", "小計", "總計", "教練", "會員"];
-
-/**
- * 一段文字（通常是一位學生）裡認得出來的欄位。
- * 每個欄位都獨立去找，**順序與行數不拘**。
- */
-function scanFields(text) {
-  const raw = String(text || "");
-  const out = { name: "", phone: "", email: "", purchased: null, remaining: null,
-                amount: null, unitPrice: null, purchaseDate: "", expiry: "", raw };
-
-  out.phone = scanPhone(raw);
-  const email = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/.exec(raw);
-  if (email) out.email = email[0];
-
-  // 姓名：先找有標籤的，再退回「單獨一行的 2–4 個中文字」
-  const labelled = /(?:姓名|名字|學生|會員)\s*[:：]?\s*([一-鿿·]{2,4})/.exec(raw);
-  if (labelled) out.name = labelled[1];
-  if (!out.name) {
-    for (const line of raw.split(/\n/)) {
-      const t = line.trim();
-      const m = /^([一-鿿·]{2,4})(?:\s|$)/.exec(t);
-      if (m && !SCAN_SKIP_WORDS.includes(m[1])) { out.name = m[1]; break; }
-    }
-  }
-  if (!out.name) {
-    // 擠成一行、名字夾在中間（「$39,000 剩餘12堂 0912345678 王小明 購買30堂」）。
-    // 掃過所有中文詞，把單位詞與標籤字排掉，剩下的第一個當名字。
-    for (const m of raw.matchAll(/[一-鿿·]{2,4}/g)) {
-      const w = m[0];
-      if (SCAN_SKIP_WORDS.includes(w)) continue;
-      if (/[堂元月日年號期價費次個位]/.test(w)) continue;   // 單位與量詞不是名字
-      if (SCAN_SKIP_WORDS.some((k) => w.includes(k))) continue;
-      out.name = w; break;
-    }
-  }
-
-  // 數字：靠**旁邊的字**決定它是什麼，而不是靠順序
-  const num = (s) => { const n = Number(String(s).replace(/,/g, "")); return Number.isFinite(n) ? n : null; };
-  const grab = (re) => { const m = re.exec(raw); return m ? num(m[1] ?? m[2]) : null; };
-
-  // 「剩12」「剩餘 12 堂」「還有12堂」都要吃得下（長的排前面，不然只會配到「剩」）
-  out.remaining = grab(/(?:剩餘|剩下|尚餘|還有|餘|剩)\s*[:：]?\s*(\d[\d,]*)\s*堂?/);
-  out.purchased = grab(/(?:購買|購課|買了|買|總堂數|共)\s*[:：]?\s*(\d[\d,]*)\s*堂/);
-  if (out.purchased === null) {
-    // 沒有標籤時，「N 堂」就是購買堂數；但別把剩餘那個數字再抓一次
-    const all = [...raw.matchAll(/(\d[\d,]*)\s*堂/g)].map((m) => num(m[1]));
-    const rest = out.remaining === null ? all : all.filter((n) => n !== out.remaining);
-    if (rest.length) out.purchased = rest[0];
-  }
-  out.unitPrice = grab(/(?:單價|每堂|一堂|堂價)\s*[:：]?\s*(?:NT\$?|\$)?\s*(\d[\d,]*)/);
-  out.amount = grab(/(?:金額|總額|合計|收費|費用|價格|實收)\s*[:：]?\s*(?:NT\$?|\$)?\s*(\d[\d,]*)/);
-  if (out.amount === null) {
-    // 沒有「金額」標籤時才看 $ 與「元」，而且**要跳過單價那個數字**
-    // （「每堂 1200 元」是單價，不是總額 —— 直接抓會讓總額少一個數量級）
-    for (const m of raw.matchAll(/(?:NT\$|\$)\s*(\d[\d,]*)|(\d[\d,]*)\s*元/g)) {
-      const before = raw.slice(Math.max(0, m.index - 4), m.index);
-      if (/(?:單價|每堂|一堂|堂價)/.test(before)) continue;
-      out.amount = num(m[1] ?? m[2]);
-      break;
-    }
-  }
-  // 只有單價與堂數時，總額自己乘出來（存進去的一律是總額）
-  if (out.amount === null && out.unitPrice && out.purchased) out.amount = out.unitPrice * out.purchased;
-
-  // 日期：到期與購買分開找，沒有標籤的那個當購買日
-  const expiryLine = /(?:到期|有效|期限|使用期限)\D{0,6}((?:\d{2,4})\s*[-/年.]\s*\d{1,2}\s*[-/月.]\s*\d{1,2}\s*日?)/.exec(raw);
-  if (expiryLine) out.expiry = normalizeScannedDate(expiryLine[1]);
-  const buyLine = /(?:購買|購課|簽約|成交|日期|入會)\D{0,6}((?:\d{2,4})\s*[-/年.]\s*\d{1,2}\s*[-/月.]\s*\d{1,2}\s*日?)/.exec(raw);
-  if (buyLine) out.purchaseDate = normalizeScannedDate(buyLine[1]);
-  if (!out.purchaseDate) {
-    const dates = [...raw.matchAll(/(\d{2,4})\s*[-/年.]\s*(\d{1,2})\s*[-/月.]\s*(\d{1,2})\s*日?/g)]
-      .map((m) => normalizeScannedDate(m[0])).filter(Boolean).filter((d) => d !== out.expiry);
-    if (dates.length) out.purchaseDate = dates[0];
-  }
-  return out;
-}
-
-/**
- * 一次讀出好幾位。名單、表格、一行一位都吃得下。
- *
- * 怎麼切：**認出第二個名字（或第二支電話）就換下一位**。
- * 名單類的照片本來就沒有分隔線可以靠。
- */
-function scanStudents(text) {
-  const lines = String(text || "").split(/\n/).map((l) => l.trim()).filter(Boolean);
-  const blocks = [];
-  let current = [];
-  const flush = () => { if (current.length) { blocks.push(current.join("\n")); current = []; } };
-
-  for (const line of lines) {
-    const started = current.join("\n");
-    const has = started ? scanFields(started) : null;
-    const here = scanFields(line);
-    // 這一行帶出了新的名字或新的電話，而目前這位已經有了 → 換一位
-    const newPerson = has && has.name && here.name && here.name !== has.name;
-    const newPhone = has && has.phone && here.phone && here.phone !== has.phone;
-    if (newPerson || newPhone) flush();
-    current.push(line);
-  }
-  flush();
-
-  return blocks.map((b) => {
-    const f = scanFields(b);
-    f.duplicate = !!(f.name && S.students.find((s) =>
-      s.name === f.name && (!f.phone || (s.phone || "") === f.phone)));
-    return f;
-  }).filter((f) => f.name || f.phone);
-}
-
-/** 把辨識出來的一位真的建進去 */
-function createStudentFromScan(f, opts = {}) {
-  const purchased = Math.max(0, f.purchased || 0);
-  const s = newStudent({
-    name: f.name || "（未命名）",
-    phone: f.phone || "",
-    email: f.email || "",
-    totalPurchased: purchased,
-    remaining: Math.max(0, f.remaining === null || f.remaining === undefined ? purchased : f.remaining),
-    rate: f.unitPrice || (f.amount && purchased ? Math.round(f.amount / purchased) : 0),
-    expiry: f.expiry || "",
-  });
-  // 有日期才建合約紀錄 —— 沒有日期的合約會落在錯的月份（跟補歷史同一條規則）
-  const date = opts.purchaseDate || f.purchaseDate || "";
-  if (date && purchased > 0) {
-    s.renewals.push({ id: uid(), date, sessions: purchased, amount: f.amount || 0,
-                      carryOver: 0, expiry: f.expiry || "", notes: "",
-                      createdAt: new Date().toISOString() });
-  }
-  S.students.push(s);
-  return s;
-}
-
 /* ── 顏色標籤 ───────────────────────────────── */
 // 學生代表色一人只能一個顏色，回答不了「哪些人是減脂的」。
 // 標籤是另一層：教練自己定義一組有顏色的名字，一位學生可以貼好幾個。
@@ -3089,8 +2915,6 @@ function viewStudents() {
         <p class="page-sub">在檔 ${all.filter(onRoster).length} 位・封存 ${all.filter((s) => s.status === "archived").length} 位</p>
       </div>
       <div class="head-actions">
-        <!-- 跟「新增學生」擺在一起：要換一頁才做得到的事，使用者會當成沒有這個功能 -->
-        <button class="btn" type="button" data-action="scan-students">拍照辨識</button>
         <button class="btn btn-primary" type="button" data-action="new-student">${icon("plus", 15)}新增學生</button>
       </div>
     </div>
@@ -4048,88 +3872,6 @@ function renewalHistoryBlock(student) {
         <strong>剩餘堂數兩邊都不會動</strong>——看不出這筆當初是不是補登的，猜錯就是吃掉學生手上的課，要改請用「調整剩餘堂數」。
       </p>
     </details>`;
-}
-
-/**
- * 拍照辨識。
- *
- * 相機那一段交給手機自己（iPhone 鍵盤的「掃描文字」）—— 那是 Apple 的中文
- * OCR，離線、免費、跟 iOS 版同一個引擎，而且照片不會離開手機。
- * 這張表單負責的是**讀懂掃進來的字**，並且把讀懂的結果攤開讓人確認。
- */
-function scanStudentsSheet() {
-  let found = [];
-
-  const fieldLine = (label, value) =>
-    value ? `<span style="margin-right:10px">${label} <strong>${esc(String(value))}</strong></span>` : "";
-
-  const preview = () => {
-    if (!found.length) {
-      return `<p class="empty">還沒有認出東西。把相機對準名單或合約，或直接貼上文字。</p>`;
-    }
-    const ok = found.filter((f) => !f.duplicate).length;
-    return `
-      <p class="hint" style="margin:0 0 6px">認出 <strong>${found.length}</strong> 位${
-        found.length - ok ? `（其中 ${found.length - ok} 位已經在檔）` : ""}。
-        沒認到的欄位會留空，建立之後再補就好。</p>
-      ${found.map((f) => `
-        <div class="row" style="display:block;padding:8px 0;${f.duplicate ? "opacity:.55" : ""}">
-          <div class="row-title" style="font-size:14px">${esc(f.name || "（沒認出姓名）")}
-            ${f.duplicate ? '<span class="pill pill-mute">已經在檔，略過</span>' : ""}</div>
-          <div class="row-sub" style="line-height:1.9">
-            ${fieldLine("電話", f.phone)}
-            ${fieldLine("Email", f.email)}
-            ${fieldLine("購買", f.purchased !== null ? `${f.purchased} 堂` : "")}
-            ${fieldLine("剩餘", f.remaining !== null ? `${f.remaining} 堂` : "")}
-            ${fieldLine("金額", f.amount !== null ? money(f.amount) : "")}
-            ${fieldLine("單價", f.unitPrice !== null ? money(f.unitPrice) : "")}
-            ${fieldLine("購買日", f.purchaseDate)}
-            ${fieldLine("到期", f.expiry)}
-          </div>
-        </div>`).join("")}`;
-  };
-
-  openSheet({
-    title: "拍照辨識",
-    confirmLabel: "建立",
-    body: `
-      <div class="field">
-        <label for="scan-text">掃進來的文字</label>
-        <textarea id="scan-text" data-scan-text style="min-height:120px;font-size:13px"
-                  placeholder="王小明&#10;0912-345-678&#10;購買 30 堂・剩餘 12 堂&#10;$39,000&#10;到期 114/12/31"></textarea>
-        <p class="hint">
-          <strong>iPhone：</strong>點一下上面的框 → 游標旁邊會出現「掃描文字」
-          <span aria-hidden="true">（📷）</span>→ 把相機對準名單或合約，字會自己填進來。<br>
-          <strong>電腦：</strong>直接貼上，或用 iPhone 拍完在 Mac 上貼。<br>
-          辨識是<strong>手機自己做的</strong>，照片不會傳出去。
-        </p>
-      </div>
-      <div class="field">
-        <label for="scan-date">購買日期（認不到時用這個，可留空）</label>
-        <input type="date" id="scan-date" name="purchaseDate">
-        <p class="hint">留空就不建合約紀錄，只寫累計已購。</p>
-      </div>
-      <div data-scan-preview style="margin-top:6px"></div>`,
-    onMount: (root) => {
-      const ta = root.querySelector("[data-scan-text]");
-      const box = root.querySelector("[data-scan-preview]");
-      // 重畫的是旁邊那塊，不是輸入框本身（換掉 textarea 會讓中文輸入法的組字消失）
-      const redraw = () => { found = scanStudents(ta.value); box.innerHTML = preview(); };
-      ta.addEventListener("input", redraw);
-      redraw();
-      ta.focus();
-    },
-    onConfirm: (form) => {
-      found = scanStudents(form.querySelector("[data-scan-text]").value);
-      const usable = found.filter((f) => !f.duplicate);
-      if (!usable.length) { toast("沒有可以建立的資料"); return false; }
-      const date = form.elements.purchaseDate ? form.elements.purchaseDate.value : "";
-      for (const f of usable) createStudentFromScan(f, { purchaseDate: date });
-      save(); render();
-      const skipped = found.length - usable.length;
-      toast(`已建立 ${usable.length} 位${skipped ? `，略過 ${skipped} 位（已經在檔）` : ""}`);
-    },
-  });
 }
 
 function studentSheet(existing) {
@@ -7799,7 +7541,6 @@ document.addEventListener("click", (e) => {
       render();
       break;
     case "new-student": studentSheet(null); break;
-    case "scan-students": scanStudentsSheet(); break;
     case "view-student": studentDetailSheet(studentById(id)); break;
     case "edit-student": studentSheet(studentById(id)); break;
     case "renew": renewSheet(studentById(id)); break;
