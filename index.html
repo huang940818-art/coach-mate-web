@@ -831,7 +831,7 @@ const NOTICE_KEY = "coach-mate-web-notice-dismissed";
  * 版本標記。顯示在設定頁最下面，教練唸得出來就知道他手上是哪一版，
  * 不用再猜是不是拿到舊的快取。每次改版就把這個字串往上加。
  */
-const BUILD = "2026-08-17 · v79";
+const BUILD = "2026-08-17 · v80";
 
 /** 開發者署名，顯示在設定頁的「關於」 */
 const DEVELOPER = "杯子蛋糕好好吃";
@@ -1260,6 +1260,21 @@ const STUDENT_COLORS = ["#A8721B", "#2563EB", "#15803D", "#BE123C", "#7C3AED", "
 const studentById = (id) => S.students.find((s) => s.id === id) || null;
 const onRoster = (s) => s.status !== "archived";
 const activeStudents = () => S.students.filter((s) => onRoster(s));
+
+/**
+ * 中文姓名照**筆畫**排。
+ *
+ * `zh-Hant` 的預設定序本來就是筆畫，但這裡把 `-u-co-stroke` 明寫出來 ——
+ * 不指定語言的話會退回字碼順序（李 U+674E 排在 王 U+738B 前面），
+ * 那個順序對使用者來說毫無意義。
+ *
+ * Collator 建一次就好：每次比較都 new 一個，幾十位學生的下拉會明顯變慢。
+ */
+const nameCollator = new Intl.Collator("zh-Hant-u-co-stroke", { numeric: true });
+const byStudentName = (a, b) => nameCollator.compare(a.name || "", b.name || "");
+
+/** 在檔學生，照筆畫排好（下拉選單、選人的地方都用這個） */
+const activeStudentsByName = () => activeStudents().sort(byStudentName);
 
 function newStudent(over = {}) {
   return {
@@ -2462,7 +2477,9 @@ function wireDurationPicker(root) {
 }
 
 function studentOptions(includeBlank = true, blankLabel = "（未選擇）") {
-  const opts = activeStudents().map((s) => [s.id, s.name || "（未命名）"]);
+  // 排課、收費那幾個下拉以前是**建檔順序**，找人只能一個一個看過去
+  // （2026-08-17：「排課的時候也照筆畫排」）
+  const opts = activeStudentsByName().map((s) => [s.id, s.name || "（未命名）"]);
   return includeBlank ? [["", blankLabel], ...opts] : opts;
 }
 
@@ -2922,7 +2939,7 @@ function viewStudents() {
     // 選了多個標籤是「任一符合」——想找的通常是「減脂或備賽的人」
     if (activeTagFilter.size && !(s.tags || []).some((t) => activeTagFilter.has(t))) return false;
     return true;
-  }).sort((a, b) => (a.name || "").localeCompare(b.name || "", "zh-Hant"));
+  }).sort(byStudentName);
 
   return `
     <div class="page-head">
@@ -5004,7 +5021,8 @@ function lessonSheet(existing, presetKind = "lesson") {
     id: uid(), date: selectedDate, start: "09:00",
     end: timeOf(minutesOf("09:00") + S.settings.defaultDuration),
     status: "scheduled", notes: "", location: "",
-    studentId: activeStudents()[0]?.id || "", partnerId: "",
+    // 預設選第一位時，要跟下拉裡看到的順序一致（照筆畫的第一位）
+    studentId: activeStudentsByName()[0]?.id || "", partnerId: "",
     kind: presetKind, outcome: "pending", color: "", leadId: "",
     consumed: false, partnerConsumed: false, owed: false, partnerOwed: false,
     createdAt: new Date().toISOString(),
@@ -5556,8 +5574,8 @@ function paymentSheet(student = null, payment = null) {
              <div class="row-main"><div class="row-title">${esc(student.name || "（未命名）")}</div>
                <div class="row-sub">要換人請刪掉這筆，重新記一次</div></div>
            </div>`
-        : fieldSelect("studentId", "學生", studentOptions(false), activeStudents()[0].id)}
-      <div data-renewal-pick>${renewalPickField(owner || activeStudents()[0], editing ? payment.renewalId : "")}</div>
+        : fieldSelect("studentId", "學生", studentOptions(false), activeStudentsByName()[0].id)}
+      <div data-renewal-pick>${renewalPickField(owner || activeStudentsByName()[0], editing ? payment.renewalId : "")}</div>
       <p class="hint" data-link-warn hidden></p>
       <div class="seg" style="max-width:260px;margin-bottom:8px" data-price-toggle hidden>
         ${[["total", "輸入總額"], ["unit", "輸入單價"]].map(([v, t], i) =>
