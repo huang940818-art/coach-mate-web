@@ -820,7 +820,7 @@ const NOTICE_KEY = "coach-mate-web-notice-dismissed";
  * 版本標記。顯示在設定頁最下面，教練唸得出來就知道他手上是哪一版，
  * 不用再猜是不是拿到舊的快取。每次改版就把這個字串往上加。
  */
-const BUILD = "2026-08-17 · v76";
+const BUILD = "2026-08-17 · v77";
 
 /** 開發者署名，顯示在設定頁的「關於」 */
 const DEVELOPER = "杯子蛋糕好好吃";
@@ -3212,6 +3212,18 @@ const NEW_RENEWAL = "new";
 let confirmingDeleteId = null;
 
 /**
+ * 剛剛那筆續約「有加堂數、但沒加剩餘堂數」時要講的話。
+ *
+ * 2026-08-17 回報：「明明加了一堂，但是上面只顯示 15 堂」。
+ * 補登（新增一筆預設就是補登）與改堂數都**刻意不動剩餘** —— 補的是歷史，
+ * 三個月前買的課早就上完了，加回剩餘等於憑空多出課。規則是對的，
+ * **但存完只說「已補上紀錄」，沒講剩餘沒變**，使用者當然覺得數字壞了。
+ * 現在把話講出來，並且給一顆「他手上真的多了」的一鍵。
+ * `{ sessions, remaining }`，null＝沒有話要說。
+ */
+let renewalRemainingNote = null;
+
+/**
  * 改一筆續約紀錄的內容。
  *
  * 已購是所有續約堂數的累計，改了堂數就要補上差額。
@@ -3859,6 +3871,18 @@ function renewalHistoryBlock(student) {
       ${adding ? "" : `<button type="button" class="btn btn-sm" data-add-renewal="1">新增一筆</button>`}
     </div>
     ${renewalSplitLine(student, rs)}
+    ${renewalRemainingNote ? `
+      <div class="note-box" style="margin:4px 0 10px">
+        這筆多了 <strong>${renewalRemainingNote.sessions} 堂</strong>，但
+        <strong>剩餘堂數沒有變</strong>（還是 ${renewalRemainingNote.remaining} 堂）——
+        補登補的是歷史，那些課多半早就上完了，加回剩餘會憑空多出課。
+        <div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap">
+          <button type="button" class="btn btn-sm btn-primary"
+                  data-add-remaining="${renewalRemainingNote.sessions}">
+            他手上真的多了 ${renewalRemainingNote.sessions} 堂，加進去</button>
+          <button type="button" class="btn btn-sm" data-dismiss-remaining="1">知道了</button>
+        </div>
+      </div>` : ""}
     ${adding ? editRow(blankRenewal(), true) : ""}
     ${rs.length ? rs.map((r) => (r.id === confirmingDeleteId ? deleteRow(r)
                                 : r.id === editingRenewalId ? editRow(r) : showRow(r))).join("")
@@ -3880,6 +3904,7 @@ function studentSheet(existing) {
   // 上次關掉時可能停在某筆的編輯或刪除確認狀態，重開要回到乾淨的樣子
   editingRenewalId = null;
   confirmingDeleteId = null;
+  renewalRemainingNote = null;
   openSheet({
     title: existing ? "編輯學生" : "新增學生",
     body: `
@@ -4183,6 +4208,26 @@ function studentSheet(existing) {
           }
 
           // 補一筆漏掉的續約。展開的是同一種編輯列，只是還沒有對應的紀錄。
+          // 「他手上真的多了 N 堂」：把剛剛補的堂數也加到剩餘
+          const addRem = e.target.closest("[data-add-remaining]");
+          if (addRem) {
+            e.preventDefault();
+            const n = Math.max(0, +addRem.dataset.addRemaining || 0);
+            s.remaining = Math.max(0, (s.remaining || 0) + n);
+            // 表單那一格也要跟上，不然按表單底下的「儲存」會用舊值蓋回去
+            const rem = root.querySelector('[name="remaining"]');
+            if (rem) rem.value = s.remaining;
+            renewalRemainingNote = null;
+            save(); render(); redraw();
+            toast(`剩餘堂數改成 ${s.remaining} 堂`);
+            return;
+          }
+          if (e.target.closest("[data-dismiss-remaining]")) {
+            e.preventDefault();
+            renewalRemainingNote = null;
+            redraw();
+            return;
+          }
           if (e.target.closest("[data-add-renewal]")) {
             e.preventDefault();
             editingRenewalId = NEW_RENEWAL;
@@ -4230,6 +4275,7 @@ function studentSheet(existing) {
             e.preventDefault();
             const adding = saveBtn.dataset.saveRenewal === NEW_RENEWAL;
             const before = s.remaining || 0;
+            const purchasedBefore = s.totalPurchased || 0;
             const countBefore = s.renewalCount || 0;
             const rec = applyOpenRenewalRow(s, histBox);
             if (!rec) {
@@ -4247,8 +4293,18 @@ function studentSheet(existing) {
               const cnt = root.querySelector('[name="renewalCount"]');
               if (cnt) cnt.value = s.renewalCount || 0;
             }
+            // 堂數多了、剩餘卻沒動時要講出來（補登與改堂數都刻意不動剩餘）
+            const added = (s.totalPurchased || 0) - purchasedBefore;
+            renewalRemainingNote = (added > 0 && (s.remaining || 0) === before)
+              ? { sessions: added, remaining: s.remaining || 0 }
+              : null;
             save(); render(); redraw(); syncCurrentField();
-            toast(adding ? `已補上 ${rec.date} 的續約紀錄` : `已更新 ${rec.date} 的續約紀錄`);
+            const what = adding ? `已補上 ${rec.date} 的續約紀錄` : `已更新 ${rec.date} 的續約紀錄`;
+            toast(renewalRemainingNote
+              ? `${what}・剩餘堂數不變（仍 ${s.remaining || 0} 堂）`
+              : ((s.remaining || 0) !== before
+                  ? `${what}・剩餘堂數改成 ${s.remaining || 0} 堂`
+                  : what));
             return;
           }
 
@@ -4643,7 +4699,11 @@ function renewSheet(student) {
       }
       student.updatedAt = new Date().toISOString();
       save(); render();
-      toast(backfill ? `已補登 ${student.name} ${sessions} 堂` : `${student.name} 續約 ${sessions} 堂`);
+      // 補登不加剩餘堂數是刻意的，但**要講出來** —— 只說「已補登 N 堂」的話，
+      // 使用者會回頭看剩餘堂數沒動，以為沒存進去（2026-08-17 回報）
+      toast(backfill
+        ? `已補登 ${student.name} ${sessions} 堂・剩餘堂數不變（仍 ${student.remaining} 堂）`
+        : `${student.name} 續約 ${sessions} 堂・剩餘 ${student.remaining} 堂`);
     },
     onMount: (root) => {
       const modeInput = root.querySelector('[name="priceMode"]');
