@@ -402,6 +402,17 @@ button.tile:active { transform: translateY(1px); }
 
 .dot { width: 9px; height: 9px; border-radius: 50%; flex: none; }
 
+/* 看起來就能按的數字（剩餘堂數）。原本跟純文字長得一樣，沒人知道能點。 */
+.tap-adjust {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 2px 6px; margin: -2px -6px;
+  border-radius: var(--r-in);
+  border-bottom: 1px dashed var(--line);
+  cursor: pointer;
+}
+.tap-adjust:hover { background: var(--surface-2); border-bottom-color: var(--gold); }
+.tap-adjust svg { color: var(--muted); }
+
 .empty {
   color: var(--muted); font-size: 13px;
   padding: 22px 4px; text-align: center;
@@ -820,7 +831,7 @@ const NOTICE_KEY = "coach-mate-web-notice-dismissed";
  * 版本標記。顯示在設定頁最下面，教練唸得出來就知道他手上是哪一版，
  * 不用再猜是不是拿到舊的快取。每次改版就把這個字串往上加。
  */
-const BUILD = "2026-08-17 · v77";
+const BUILD = "2026-08-17 · v78";
 
 /** 開發者署名，顯示在設定頁的「關於」 */
 const DEVELOPER = "杯子蛋糕好好吃";
@@ -2293,6 +2304,7 @@ const ICONS = {
   download: '<path d="M12 3v12"/><path d="M7 11l5 5 5-5"/><path d="M4 21h16"/>',
   upload: '<path d="M12 21V9"/><path d="M7 13l5-5 5 5"/><path d="M4 3h16"/>',
   trash: '<path d="M4 6h16M10 6V4h4v2M6 6l1 14h10l1-14"/>',
+  pencil: '<path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/>',
 };
 const icon = (name, size = 17) =>
   `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[name] || ""}</svg>`;
@@ -2970,9 +2982,14 @@ function viewStudents() {
                 `<span class="tag-chip tag-chip-sm" style="--tag:${esc(t.color)}"><span class="tag-dot"></span>${esc(t.name)}</span>`).join("")}</div>` : ""}
             </div>
             <div class="row-end">
-              <button class="mono btn-plain" type="button" data-action="adjust-sessions" data-id="${s.id}"
-                      title="調整剩餘堂數" style="font-weight:600">
+              <!-- 這個數字一直都是可以按的（按了開「調整剩餘堂數」），但它長得跟
+                   純文字一樣，於是使用者根本不知道能按（2026-08-17：「沒找到」）。
+                   加上虛線底與鉛筆，讓它看起來像可以動的東西。 -->
+              <button class="mono btn-plain tap-adjust" type="button" data-action="adjust-sessions" data-id="${s.id}"
+                      title="點一下調整剩餘堂數" aria-label="${esc(s.name || "")} 剩餘 ${s.remaining} 堂，點一下調整"
+                      style="font-weight:600">
                 ${s.remaining}<span class="muted" style="font-size:12px"> / ${currentPackageTotal(s)} 堂</span>
+                ${icon("pencil", 12)}
               </button>
               ${packageBreakdown(s) ? `<div class="muted" style="font-size:11px;text-align:right;margin-top:2px">${packageBreakdown(s)}</div>` : ""}
               <div style="display:flex;gap:6px;justify-content:flex-end;margin-top:5px">
@@ -3053,7 +3070,8 @@ function studentDetailSheet(student) {
           </div>
         </div>
         <div class="row-end">
-          <div class="mono" style="font-weight:600">${student.remaining}<span class="muted" style="font-size:12px"> / ${currentPackageTotal(student)} 堂</span></div>
+          <button class="mono btn-plain tap-adjust" type="button" data-detail-action="adjust"
+                  title="點一下調整剩餘堂數" style="font-weight:600">${student.remaining}<span class="muted" style="font-size:12px"> / ${currentPackageTotal(student)} 堂</span>${icon("pencil", 12)}</button>
           ${packageBreakdown(student)
             ? `<div class="muted" style="font-size:11px">${packageBreakdown(student)}</div>`
             : ""}
@@ -3063,10 +3081,16 @@ function studentDetailSheet(student) {
       ${tagsOf(student).length ? `<div class="tag-row" style="margin-bottom:10px">${tagsOf(student).map((t) =>
         `<span class="tag-chip tag-chip-sm" style="--tag:${esc(t.color)}"><span class="tag-dot"></span>${esc(t.name)}</span>`).join("")}</div>` : ""}
 
-      <div style="display:flex;gap:6px;margin-bottom:12px">
+      <div style="display:flex;gap:6px;margin-bottom:12px;flex-wrap:wrap">
         <button type="button" class="btn btn-sm btn-primary" data-detail-action="renew">續約</button>
         <button type="button" class="btn btn-sm" data-detail-action="adjust">調整堂數</button>
         <button type="button" class="btn btn-sm" data-detail-action="edit">編輯</button>
+        <!-- 封存以前只藏在編輯表單下半部的「狀態」下拉裡 —— 想封存的時機是在
+             名單上看到「這個人上完了、不續了」的當下，那時候不會有人想到要
+             進編輯表單捲到底（2026-08-17 回報「沒辦法把課堂數用完的學生放進封存」）。
+             封存是可逆的，所以不另外問一次。 -->
+        <button type="button" class="btn btn-sm" data-detail-action="toggle-archive">${
+          student.status === "archived" ? "取消封存" : "封存"}</button>
       </div>
 
       <div class="seg" style="margin-bottom:12px">
@@ -3183,6 +3207,19 @@ function studentDetailSheet(student) {
         const payment = a === "edit-payment"
           ? (student.payments || []).find((p) => p.id === act.dataset.id)
           : null;
+        // 封存就地做完並重開，不用跳出去再找回來
+        if (a === "toggle-archive") {
+          const archiving = student.status !== "archived";
+          student.status = archiving ? "archived" : "active";
+          student.updatedAt = new Date().toISOString();
+          save(); render();
+          closeSheet();
+          studentDetailSheet(student);
+          toast(archiving
+            ? `已封存 ${student.name}・在「封存」那一頁找得到`
+            : `${student.name} 已回到在檔名單`);
+          return;
+        }
         closeSheet();
         if (a === "renew") renewSheet(student);
         else if (a === "edit") studentSheet(student);
