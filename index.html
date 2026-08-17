@@ -831,7 +831,7 @@ const NOTICE_KEY = "coach-mate-web-notice-dismissed";
  * 版本標記。顯示在設定頁最下面，教練唸得出來就知道他手上是哪一版，
  * 不用再猜是不是拿到舊的快取。每次改版就把這個字串往上加。
  */
-const BUILD = "2026-08-17 · v81";
+const BUILD = "2026-08-17 · v82";
 
 /** 開發者署名，顯示在設定頁的「關於」 */
 const DEVELOPER = "杯子蛋糕好好吃";
@@ -2487,10 +2487,18 @@ function wireDurationPicker(root) {
   });
 }
 
-function studentOptions(includeBlank = true, blankLabel = "（未選擇）") {
+function studentOptions(includeBlank = true, blankLabel = "（未選擇）", { showRemaining = false } = {}) {
   // 排課、收費那幾個下拉以前是**建檔順序**，找人只能一個一個看過去
   // （2026-08-17：「排課的時候也照筆畫排」）
-  const opts = activeStudentsByName().map((s) => [s.id, s.name || "（未命名）"]);
+  const opts = activeStudentsByName().map((s) => [
+    s.id,
+    // 排課時把剩幾堂寫在名字後面。**沒堂數的照樣選得到**——補以前的課
+    // （「假設我要補七月的排課」）本來就是對著已經上完的人排，
+    // 而且時段已經過的課不會再扣一次堂數，也不會扣成負的。
+    showRemaining
+      ? `${s.name || "（未命名）"}（剩 ${s.remaining || 0} 堂）`
+      : (s.name || "（未命名）"),
+  ]);
   return includeBlank ? [["", blankLabel], ...opts] : opts;
 }
 
@@ -2724,12 +2732,6 @@ function viewDashboard() {
     .sort((a, b) => a.remaining - b.remaining);
 
   const conv = conversionStats(ym);
-  // 要追續約的人。手動標的排前面（那是教練自己確認過的），再來才是堂數用完的
-  const dueList = students.filter(needsRenewal)
-    .sort((a, b) => (b.status === "awaiting") - (a.status === "awaiting")
-                 || (a.remaining || 0) - (b.remaining || 0)
-                 || byStudentName(a, b));
-
   return `
     <div class="page-head">
       <div>
@@ -2765,30 +2767,6 @@ function viewDashboard() {
       </section>
 
       <div class="grid-2">
-        <section class="card">
-          <div class="sec-head">
-            <h2 class="sec-title">待續約</h2>
-            <span class="sec-sub">${dueList.length ? `${dueList.length} 位` : "沒有人在等續約"}</span>
-          </div>
-          ${dueList.length ? dueList.map((s) => `
-            <div class="row">
-              <span class="dot" style="background:${esc(s.color)}"></span>
-              <div class="row-main">
-                <div class="row-title">
-                  <button type="button" class="btn-plain" data-action="view-student" data-id="${s.id}"
-                          style="font:inherit;color:inherit;cursor:pointer;text-align:left">${esc(s.name)}</button>
-                  ${s.status === "awaiting" ? '<span class="pill pill-warn">課程結束</span>' : ""}
-                </div>
-                <div class="row-sub">已上 ${consumedSessions(s).count} 堂${
-                  s.expiry ? `・${esc(s.expiry)} 到期` : ""}</div>
-              </div>
-              <div class="row-end" style="display:flex;gap:6px;align-items:center">
-                <span class="pill ${s.remaining > 0 ? "pill-mute" : "pill-crit"}">剩 ${s.remaining} 堂</span>
-                <button class="btn btn-sm btn-primary" type="button" data-action="renew" data-id="${s.id}">續約</button>
-              </div>
-            </div>`).join("") : `<p class="empty">堂數用完、或你標記「課程結束待續約」的人會出現在這裡。</p>`}
-        </section>
-
         <section class="card">
           <div class="sec-head">
             <h2 class="sec-title">堂數快用完</h2>
@@ -5099,8 +5077,8 @@ function lessonSheet(existing, presetKind = "lesson") {
         </p>`}
 
       <div data-kind-block="lesson" ${assessing ? 'hidden' : ''}>
-        ${fieldSelect("studentId", "學生", studentOptions(false), l.studentId)}
-        ${fieldSelect("partnerId", "共同課第二位", studentOptions(true, "（沒有，一對一）"), l.partnerId)}
+        ${fieldSelect("studentId", "學生", studentOptions(false, "", { showRemaining: true }), l.studentId)}
+        ${fieldSelect("partnerId", "共同課第二位", studentOptions(true, "（沒有，一對一）", { showRemaining: true }), l.partnerId)}
       </div>
 
       <div data-kind-block="assessment" ${assessing ? '' : 'hidden'}>
