@@ -820,7 +820,7 @@ const NOTICE_KEY = "coach-mate-web-notice-dismissed";
  * 版本標記。顯示在設定頁最下面，教練唸得出來就知道他手上是哪一版，
  * 不用再猜是不是拿到舊的快取。每次改版就把這個字串往上加。
  */
-const BUILD = "2026-08-17 · v74";
+const BUILD = "2026-08-17 · v75";
 
 /** 開發者署名，顯示在設定頁的「關於」 */
 const DEVELOPER = "杯子蛋糕好好吃";
@@ -3121,7 +3121,6 @@ function viewStudents() {
       <section class="card">
         ${list.length ? list.map((s) => {
           const used = consumedSessions(s);
-          const paid = s.payments.reduce((a, p) => a + p.amount, 0);
           // 上掉的課值多少錢。公司教練的鐘點抽成就是拿這個去算的，
           // 所以「上了幾堂」旁邊直接把金額寫出來，不用自己乘。
           const usedValue = used.count * sessionPrice(s);
@@ -3136,12 +3135,13 @@ function viewStudents() {
                 ${s.status === "archived" ? '<span class="pill pill-mute">封存</span>' : ""}
                 ${s.mayNotRenew ? '<span class="pill pill-warn">可能不續約</span>' : ""}
               </div>
-              <!-- 兩個金額擺在一起，其中一個沒有標籤 —— 試用者直接問「那個另外一個
-                   數字是什麼含義」（2026-08-15）。上完的課值多少（推算）與實際收到多少
-                   是兩回事，兩個都要有名字。 -->
+              <!-- 這一行以前塞到三行：已上堂數＋課程價值＋續約次數＋累計收費＋電話
+                   （2026-08-17 回報「看起來很亂」）。**累計收費與電話搬到詳情**：
+                   電話在詳情表頭、累計收費在詳情的「統計」與「收費」分頁，都還看得到。
+                   **搜尋仍然吃電話** —— 靠的是下面的 data-search-key，不是這一行。 -->
               <div class="row-sub">${used.estimated
                   ? `已上 ${used.count} 堂（依剩餘推算${used.recorded ? `，${used.recorded} 堂有紀錄` : ""}）`
-                  : `已上 ${used.count} 堂`}${usedValue > 0 ? `・課程價值 ${money(usedValue)}` : ""}${s.renewalCount > 0 ? `・續約 ${s.renewalCount} 次` : ""}・累計收費 ${money(paid)}${s.phone ? "・" + esc(s.phone) : ""}</div>
+                  : `已上 ${used.count} 堂`}${usedValue > 0 ? `・課程價值 ${money(usedValue)}` : ""}${s.renewalCount > 0 ? `・續約 ${s.renewalCount} 次` : ""}</div>
               ${tagsOf(s).length ? `<div class="tag-row">${tagsOf(s).map((t) =>
                 `<span class="tag-chip tag-chip-sm" style="--tag:${esc(t.color)}"><span class="tag-dot"></span>${esc(t.name)}</span>`).join("")}</div>` : ""}
             </div>
