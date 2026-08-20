@@ -831,7 +831,7 @@ const NOTICE_KEY = "coach-mate-web-notice-dismissed";
  * 版本標記。顯示在設定頁最下面，教練唸得出來就知道他手上是哪一版，
  * 不用再猜是不是拿到舊的快取。每次改版就把這個字串往上加。
  */
-const BUILD = "2026-08-17 · v82";
+const BUILD = "2026-08-20 · v83";
 
 /** 開發者署名，顯示在設定頁的「關於」 */
 const DEVELOPER = "杯子蛋糕好好吃";
@@ -1246,10 +1246,20 @@ const LESSON_COLORS = ["#3B82F6", "#10B981", "#F59E0B", "#EF4444", "#8B5CF6",
 const LEAD_SOURCE = {
   referral: "介紹", online: "網路", walkIn: "路過", company: "公司名單", other: "其他",
 };
+/**
+ * 名單的階段。**跟 iOS 的 `Lead.Status` 一字不差**，兩邊看同一份備份
+ * 該看到同一個詞。
+ *
+ * assessed 與 lost 原本網頁版沒有，但 applyOutcome 早就會寫進 assessed ——
+ * 於是檢測完的人在名單上顯示成「待聯繫」（下拉找不到對應的選項就落回第一個），
+ * 看起來像從來沒碰過這個人；備份匯入時也會被當成不認得的值改回 pending。
+ */
 const LEAD_STATUS = {
   pending:   { label: "待聯繫", pill: "pill-warn" },
   contacted: { label: "已聯繫", pill: "pill-info" },
+  assessed:  { label: "檢測過待追蹤", pill: "pill-info" },
   converted: { label: "已轉正式", pill: "pill-good" },
+  lost:      { label: "已婉拒", pill: "pill-mute" },
 };
 const ACQUISITION = {
   selfDeveloped: "自己開發", companyLead: "公司名單", referral: "學生介紹",
@@ -2485,6 +2495,66 @@ function wireDurationPicker(root) {
   sel.addEventListener("change", () => {
     $("[data-duration-custom]", root).style.display = sel.value === "custom" ? "" : "none";
   });
+}
+
+/**
+ * 排課時用打字找學生。
+ *
+ * 學生一多，下拉就是一條長長的名單，手機上要滑很久
+ * （2026-08-20：「排課的時候要可以輸入東西方便搜索學生」）。
+ *
+ * 兩件事值得記著：
+ *  1. **整份重建 <option>，不是把不合的設成 hidden** —— option 的 hidden
+ *     在 Safari 不管用，藏不掉的話等於沒篩。
+ *  2. **目前選到的那位一定留著**，就算他不符合現在打的字。不然重建之後
+ *     選取值會掉，存下去就是「未指定學生」。
+ *
+ * 打的字剛好只對到一位時直接幫他選起來（第二位不自動選——空白的「一對一」
+ * 本身就是一個有意義的選擇）。
+ */
+function wireStudentSearch(root) {
+  const box = root.querySelector("[data-student-search]");
+  if (!box) return;
+  const hint = root.querySelector("[data-student-search-hint]");
+  const sels = ["studentId", "partnerId"]
+    .map((n) => root.querySelector(`[name="${n}"]`)).filter(Boolean);
+  // 完整的選項留一份：篩選一律從這份重建，不是拿畫面上剩下的再篩一次
+  const all = new Map(sels.map((sel) =>
+    [sel, [...sel.options].map((o) => ({ v: o.value, t: o.textContent }))]));
+
+  const refresh = () => {
+    const q = box.value.trim().toLowerCase();
+    // 比對哪些欄位跟 iOS 的 StudentPicker.search 一致：姓名、電話、備註
+    const hits = activeStudentsByName().filter((st) => !q ||
+      [st.name, st.phone, st.notes].some((f) => (f || "").toLowerCase().includes(q)));
+    const hitIds = new Set(hits.map((st) => st.id));
+
+    for (const sel of sels) {
+      const required = sel === sels[0];        // 「學生」是必填，沒有空白選項
+      const chosen = sel.value;
+      // 選到的那位不符合現在打的字時，兩個欄位的處理刻意不一樣：
+      //  - 學生：改選第一個符合的（打字就是為了換人），清單裡也不留那個不相干的名字
+      //  - 第二位：留著。他是刻意選的，篩選不該把人默默拿掉變成「一對一」
+      // 但一個都篩不到時「學生」還是要留著原本那位 —— 必填欄位不能變成空的。
+      const keepChosen = !required || !hits.length || hitIds.has(chosen);
+      const keep = all.get(sel).filter((o) =>
+        !o.v || (keepChosen && o.v === chosen) || hitIds.has(o.v));
+      sel.innerHTML = keep.map((o) =>
+        `<option value="${esc(o.v)}">${esc(o.t)}</option>`).join("");
+      sel.value = keepChosen ? chosen : hits[0].id;
+    }
+
+    if (hint) {
+      hint.textContent = !q ? ""
+        : hits.length ? `符合的有 ${hits.length} 位`
+        : `找不到「${box.value.trim()}」（封存的學生不會出現在這裡）`;
+    }
+  };
+
+  box.addEventListener("input", refresh);
+  // 表單裡按 Enter 會直接送出整張表單 —— 在搜尋框按 Enter 只是「找好了」
+  box.addEventListener("keydown", (e) => { if (e.key === "Enter") e.preventDefault(); });
+  refresh();
 }
 
 function studentOptions(includeBlank = true, blankLabel = "（未選擇）", { showRemaining = false } = {}) {
@@ -5009,7 +5079,7 @@ function viewCalendar() {
                 <span class="pill ${meta.pill}">${meta.label}</span>
                 ${assess && outcomeOf(l) !== "pending" ? `<span class="pill ${oc.pill}">${oc.label}</span>` : ""}
                 </div>
-              <div class="row-sub mono">${esc(l.start)}–${esc(l.end)}　${durationLabel(durationOf(l))}${l.location ? "　" + esc(l.location) : ""}</div>
+              <div class="row-sub mono">${esc(l.start)}–${esc(l.end)}${l.location ? "　" + esc(l.location) : ""}</div>
               ${assess && needsOutcome(l) ? `<div class="row-sub" style="color:var(--warn)">還沒回報成交與否</div>` : ""}
               ${// 剩幾堂就寫在課上（跟 iOS 一致）——快用完的時候要在排課的地方看得到，
                 // 而不是等翻到學生頁才發現。檢測不扣堂數，不用寫。
@@ -5062,9 +5132,14 @@ function lessonSheet(existing, presetKind = "lesson") {
     toast("請先新增至少一位學生，或改排檢測");
   }
 
-  // 還沒成交、可以約檢測的名單（已轉正式的人不用再檢測一次）
+  // 可以約檢測的名單。
+  //
+  // **做過檢測的人不再列出來**（2026-08-20：「檢測過了不要放在潛在客群裡」）——
+  // 檢測是對還沒買課的人做的第一次試教，同一個人做第二次不是這條路要處理的事。
+  // 已轉正式、已婉拒同理。真的要再約一次，下面「直接打名字」照樣可以，
+  // 而且同名同電話會沿用原本那筆名單，不會多開一筆。
   const openLeads = S.leads.filter((x) =>
-    x.status !== "converted" && x.status !== "lost");
+    x.status !== "converted" && x.status !== "lost" && x.status !== "assessed");
 
   openSheet({
     title: existing ? (assessing ? "檢測詳情" : "課程詳情")
@@ -5077,6 +5152,13 @@ function lessonSheet(existing, presetKind = "lesson") {
         </p>`}
 
       <div data-kind-block="lesson" ${assessing ? 'hidden' : ''}>
+        ${activeStudentsByName().length > 6 ? `
+          <div class="field">
+            <label for="f-studentSearch">找學生</label>
+            <input id="f-studentSearch" type="search" autocomplete="off"
+                   placeholder="搜尋姓名、電話或備註" data-student-search>
+            <span class="hint" data-student-search-hint></span>
+          </div>` : ""}
         ${fieldSelect("studentId", "學生", studentOptions(false, "", { showRemaining: true }), l.studentId)}
         ${fieldSelect("partnerId", "共同課第二位", studentOptions(true, "（沒有，一對一）", { showRemaining: true }), l.partnerId)}
       </div>
@@ -5087,7 +5169,9 @@ function lessonSheet(existing, presetKind = "lesson") {
               [["", "（不從名單挑，直接打名字）"]].concat(
                 openLeads.map((x) => [x.id, `${x.name}．${LEAD_SOURCE[x.source] || "其他"}`])),
               l.leadId)
-          : `<p class="hint">名單裡還沒有人，直接在下面打名字就好。</p>`}
+          : `<p class="hint">${S.leads.length
+                ? "名單上的人都檢測過或已成交了，直接在下面打名字就好。"
+                : "名單裡還沒有人，直接在下面打名字就好。"}</p>`}
         <div data-lead-new ${l.leadId ? 'hidden' : ''}>
           ${fieldText("leadName", "姓名", leadById(l.leadId)?.name || "", { placeholder: "王小明" })}
           <div class="field-row">
@@ -5268,6 +5352,7 @@ function lessonSheet(existing, presetKind = "lesson") {
     },
     onMount: (root) => {
       wireDurationPicker(root);
+      wireStudentSearch(root);
 
       // 已經過去的時段會直接記成「已上課」並扣堂數 —— 在按下確認之前就要講，
       // 不然補歷史的人會以為只是排了一堂，回頭才發現堂數少了。
@@ -5329,7 +5414,11 @@ function lessonSheet(existing, presetKind = "lesson") {
       root.addEventListener("click", (e) => {
         if (!e.target.closest('[data-action="delete-lesson"]')) return;
         closeSheet();
-        confirmSheet("刪除課程", "已扣掉的堂數會還給學生。", () => {
+        // 還沒扣過堂數的課（時間還沒到、或補登時沒勾扣課）刪掉不會動到剩餘，
+        // 講「會還給學生」只會讓人以為刪一堂就多一堂。
+        const willRefund = SESSION_SLOTS.some(([, consumedKey]) => l[consumedKey]);
+        confirmSheet("刪除課程",
+          willRefund ? "已扣掉的堂數會還給學生。" : "這堂課沒扣過堂數，剩餘堂數不會變動。", () => {
           releaseLesson(l);
           S.lessons = S.lessons.filter((x) => x.id !== l.id);
           save(); render(); toast("已刪除課程");
@@ -6451,7 +6540,9 @@ function viewAnalysis() {
     count: students.filter((s) => { const a = ageOf(s); return a !== null && a >= lo && a <= hi; }).length,
   })).filter((r) => r.count > 0);
 
-  const openLeads = S.leads.filter((l) => l.status !== "converted");
+  // 待追蹤 ＝ 還值得再追的（跟 iOS 的 Lead.Status.isOpen 同一條規則）。
+  // 檢測過但還沒買的算，明確婉拒與已轉正式的不算。
+  const openLeads = S.leads.filter((l) => l.status !== "converted" && l.status !== "lost");
   const totalRevenue = allPayments().reduce((a, p) => a + p.amount, 0);
   const avgSessions = students.length
     ? students.reduce((a, s) => a + s.totalPurchased, 0) / students.length : 0;
@@ -6518,8 +6609,11 @@ function viewAnalysis() {
           <span class="sec-sub">${openLeads.length ? `${openLeads.length} 位待追蹤` : "沒有待追蹤的名單"}</span>
         </div>
         ${S.leads.length ? S.leads.map((l) => {
-          // 狀態同時用顏色點與下拉的文字表示，不只靠顏色
-          const statusColor = l.status === "converted" ? "good" : l.status === "contacted" ? "info" : "warn";
+          // 狀態同時用顏色點與下拉的文字表示，不只靠顏色。
+          // 顏色跟著 LEAD_STATUS 走，加了新狀態不用再回來改這一行
+          // （原本寫死三種，檢測過與已婉拒都會跟「待聯繫」同色）。
+          const statusColor = { "pill-good": "good", "pill-info": "info",
+                                "pill-mute": "muted" }[(LEAD_STATUS[l.status] || {}).pill] || "warn";
           return `
           <div class="row">
             <span class="dot" style="background:var(--${statusColor})"></span>
@@ -6729,103 +6823,6 @@ function baseModeHint(rule) {
     default:
       return `底薪 ${money(base)} 固定給，抽成另外加上去。`;
   }
-}
-
-/**
- * 全部學生的「續約與收費對不對得起來」。
- *
- * 為什麼要有一個總表：補歷史是一位一位在補的，走鐘也是一位一位走鐘 ——
- * 一筆錢沒接到續約、一筆續約刪掉留下孤兒收費，畫面上都不會主動講，
- * 要一位一位點進去才看得到（2026-08-11「紀錄又對不上了」）。
- * 這裡一次把有問題的列出來，點進去就是修得到的那張表單。
- *
- * 封存的學生也一起檢查：業績與銷售統計本來就會算到他們。
- */
-
-/**
- * 事後才補、卻扣了堂數的課。
- *
- * v42 那一版把「時段已經過了」的新課直接記成已上課**並扣一堂**，但補以前的課
- * 不該扣 —— 那些課早就上完了，剩餘堂數已經反映過（2026-08-11 回報：
- * 「課後才補紀錄，幫我把我的補回來」）。這裡把被吃掉的找出來還回去。
- *
- * 判斷方式是 **建立時間晚於課程結束時間** ＝ 事後補的紀錄。
- * 事先排好、時間到了才被自動標記的課不算（那種本來就該扣，
- * 它的 createdAt 在上課之前）。
- */
-function backfilledConsumedLessons() {
-  return S.lessons.filter((l) => {
-    if (kindOf(l) !== "lesson") return false;              // 檢測本來就不扣
-    // 扣掉了、或**因為沒堂數可扣而被記成欠課**，兩種都要撈出來。
-    // 只看 consumed 會漏掉最慘的那一種：剩餘已經是 0 的學生（補歷史時很常見，
-    // 堂數本來就上完了），每補一堂就多欠一堂，而且一堂都沒「被扣掉」，
-    // 於是整個補救區塊連出現都不會出現（2026-08-11 回報「為什麼會有欠幾堂」）。
-    if (!l.consumed && !l.partnerConsumed && !l.owed && !l.partnerOwed) return false;
-    return isBackfilledRecord(l);
-  });
-}
-
-/** 把那些課扣掉的堂數還回去（紀錄留著，狀態也留著，只是不再扣） */
-function refundBackfilledLessons() {
-  const rows = backfilledConsumedLessons();
-  let refunded = 0, cleared = 0;
-  for (const l of rows) {
-    for (const [idKey, consumedKey, owedKey] of SESSION_SLOTS) {
-      if (l[consumedKey]) {
-        const st = studentById(l[idKey]);
-        if (st) { st.remaining += 1; st.updatedAt = new Date().toISOString(); refunded++; }
-        l[consumedKey] = false;
-      }
-      // 欠課也是同一件事的另一面：剩餘是 0 的時候扣不動，就被記成「欠一堂」。
-      // 補歷史本來就不該扣，那個欠也不該存在。
-      if (l[owedKey]) { l[owedKey] = false; cleared++; }
-    }
-  }
-  return { lessons: rows.length, refunded, cleared };
-}
-
-function backfillRefundSection() {
-  const rows = backfilledConsumedLessons();
-  if (!rows.length) return "";
-  // 每位受影響的學生：要補回幾堂、要清掉幾筆欠課
-  const byStudent = new Map();
-  for (const l of rows) {
-    for (const [idKey, consumedKey, owedKey] of SESSION_SLOTS) {
-      if (!l[consumedKey] && !l[owedKey]) continue;
-      const st = studentById(l[idKey]);
-      const name = st ? (st.name || "（未命名）") : "（已刪除的學生）";
-      const row = byStudent.get(name) || { back: 0, owed: 0 };
-      if (l[consumedKey]) row.back += 1;
-      if (l[owedKey]) row.owed += 1;
-      byStudent.set(name, row);
-    }
-  }
-  const totalOwed = [...byStudent.values()].reduce((a, r) => a + r.owed, 0);
-  return `
-    <section class="card">
-      <div class="sec-head">
-        <h2 class="sec-title">修正補登造成的堂數</h2>
-        <span class="sec-sub">${rows.length} 堂事後補的課動到了堂數</span>
-      </div>
-      <p class="row-sub" style="margin:0 0 10px">
-        這些課是<strong>上完之後才回來記的</strong>（建立時間晚於課程結束），
-        但當時扣了一堂${totalOwed ? "、或因為當下沒堂數可扣而被記成「欠一堂」" : ""}。
-        補以前的課不該扣——那些課早就上完了，剩餘堂數多半已經反映過。
-        按下面的按鈕會把堂數還回去${totalOwed ? "、並清掉那些欠課" : ""}，
-        <strong>課程紀錄與「已上課」的狀態都留著</strong>。
-      </p>
-      ${[...byStudent.entries()].map(([name, r]) => `
-        <div class="row">
-          <div class="row-main"><div class="row-title">${esc(name)}</div></div>
-          <div class="row-end mono">${[r.back ? `＋${r.back} 堂` : "", r.owed ? `清掉欠 ${r.owed} 堂` : ""]
-            .filter(Boolean).join("・")}</div>
-        </div>`).join("")}
-      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">
-        <button class="btn btn-primary" type="button" data-action="refund-backfilled">${totalOwed ? "補回堂數並清掉欠課" : "把堂數補回來"}</button>
-      </div>
-      <p class="hint">如果其中有些是「剛上完才記、本來就該扣」的，補回來之後到那一堂
-        把狀態切成別的再切回「已出席」，就會重新扣一堂。</p>
-    </section>`;
 }
 
 function viewSettings() {
@@ -7107,8 +7104,6 @@ function viewSettings() {
         </div>
         <button class="btn btn-sm" type="button" data-action="edit-tags">管理標籤</button>
       </section>
-
-      ${backfillRefundSection()}
 
       <section class="card">
         <div class="sec-head">
@@ -7805,16 +7800,6 @@ document.addEventListener("click", (e) => {
       toast(n ? `已補上 ${n} 筆合約金額` : "沒有可以補的合約");
       break;
     }
-    case "refund-backfilled": {
-      const { lessons, refunded, cleared } = refundBackfilledLessons();
-      save(); render();
-      toast(refunded || cleared
-        ? `已處理 ${lessons} 筆紀錄`
-          + (refunded ? `，補回 ${refunded} 堂` : "")
-          + (cleared ? `，清掉 ${cleared} 筆欠課` : "")
-        : "沒有需要補回的堂數");
-      break;
-    }
     case "delete-payment": {
       const st = studentById(el.dataset.student);
       if (!st) break;
@@ -8377,17 +8362,8 @@ function stripCacheBuster() {
 // 這是要給不同教練各自試用的，別人的假學生混在裡面只會擋路。
 // 想先看看長什麼樣子，總覽頁與設定頁都有「載入示範資料」。
 const loaded = load();
-let startupRefund = null;
 if (loaded) {
   S = loaded;
-  // 一次性補救：2026-08-11 有一版把「補登的課」也扣了堂數（剩餘是 0 的還會
-  // 記成欠課）。那是錯的——補的是歷史，剩餘堂數早就反映過了。
-  // 自動跑，不要求使用者自己去設定裡找按鈕；跑過就記一個旗標，不會跑第二次。
-  if (!S.settings.backfillRefundDone) {
-    const r = refundBackfilledLessons();
-    S.settings.backfillRefundDone = true;
-    if (r.refunded || r.cleared) startupRefund = r;
-  }
   autoMarkPastLessons();
   if (S.settings.salesPeriod) salesPeriod = S.settings.salesPeriod;
   if (S.settings.rankPeriod) rankPeriod = S.settings.rankPeriod;
@@ -8399,12 +8375,6 @@ if (loaded) {
 }
 
 render();
-
-// 補回來了要講一聲，不然堂數自己變多也很嚇人
-if (startupRefund) {
-  toast(`已把補登時誤扣的堂數還回去：${startupRefund.refunded} 堂`
-    + (startupRefund.cleared ? `，並清掉 ${startupRefund.cleared} 筆欠課` : ""));
-}
 
 // 網址裡如果帶著資料（從瀏覽器加到主畫面時放進去的），把它撈出來。
 // 放在 render() 之後：解壓縮是非同步的，不要為了它讓畫面空白著。
