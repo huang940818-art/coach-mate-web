@@ -400,6 +400,33 @@ button.tile:active { transform: translateY(1px); }
 .row-sub { font-size: 12px; color: var(--muted); }
 .row-end { text-align: right; flex: none; font-variant-numeric: tabular-nums; }
 
+/*
+ * 續約紀錄那一列。原本直接用 `.row`（單行 flex：內容一份、按鈕一份），
+ * 但這一列的兩邊都會長大 —— 左邊最多掛四個 pill（這一期／加購／首購／沒有收費），
+ * 右邊最多三顆按鈕（改回主約／編輯／刪除）再加堂數與金額。
+ * 手機寬度下 `.row-end` 就吃掉八成，`.row-main` 被壓到六十幾 px，
+ * 於是「2026-08-02」被逐字折成三行，「＋結轉 20 ＝ 22」也疊到金額上
+ *（2026-08-27 回報，畫面截圖）。
+ *
+ * 改成三塊各自可換行：內容／數字／按鈕。窄畫面時按鈕整條落到下一行，
+ * 上面那行就有足夠寬度讓日期不斷行。
+ */
+.renewal-row { align-items: flex-start; flex-wrap: wrap; row-gap: 8px; column-gap: 10px; }
+.renewal-row .row-main { flex: 1 1 52%; }
+.renewal-row .row-title { font-size: 14px; align-items: flex-start; }
+.r-date { white-space: nowrap; }
+.r-figs {
+  flex: 0 0 auto; margin-left: auto; text-align: right;
+  font-variant-numeric: tabular-nums; line-height: 1.4;
+}
+.r-sessions { font-weight: 600; white-space: nowrap; }
+.r-carry, .r-amount { font-size: 12px; color: var(--muted); white-space: nowrap; }
+.r-acts { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; flex: 0 0 auto; }
+@media (max-width: 560px) {
+  /* 按鈕自己佔滿一行，上面那行才有寬度給日期與 pill */
+  .r-acts { flex: 1 0 100%; }
+}
+
 .dot { width: 9px; height: 9px; border-radius: 50%; flex: none; }
 
 /* 看起來就能按的數字（剩餘堂數）。原本跟純文字長得一樣，沒人知道能點。 */
@@ -831,7 +858,7 @@ const NOTICE_KEY = "coach-mate-web-notice-dismissed";
  * 版本標記。顯示在設定頁最下面，教練唸得出來就知道他手上是哪一版，
  * 不用再猜是不是拿到舊的快取。每次改版就把這個字串往上加。
  */
-const BUILD = "2026-08-20 · v83";
+const BUILD = "2026-08-27 · v84";
 
 /** 開發者署名，顯示在設定頁的「關於」 */
 const DEVELOPER = "杯子蛋糕好好吃";
@@ -987,6 +1014,9 @@ const DEFAULT_SETTINGS = {
   // 總覽頁「堂數快用完」從剩幾堂開始提醒。教練的方案差很多（10 堂與 36 堂
   // 的「快用完」不是同一個數字），寫死 3 對買大包的人來說太晚了。
   lowSessions: 3,
+  // 總覽頁「太久沒上課」從幾天開始提醒。一週上一次是常態，隔一週沒來還算正常，
+  // 兩週就值得問一句了 —— 所以預設 14。
+  idleDays: 14,
   customFields: ["性別", "職業", "生日"],
   // 每個自訂欄位的型別與選項。鍵是欄位名稱，所以**改名時要一起搬**。
   //
@@ -1496,6 +1526,89 @@ function consumedSessions(student) {
   if (implied > recorded) return { count: implied, estimated: true, recorded };
   return { count: recorded, estimated: false, recorded };
 }
+
+/**
+ * 最後一次真的上到課是哪一天（"YYYY-MM-DD"，沒有就 null）。
+ *
+ * 只認 `CONSUMING`（已出席／遲到）—— 排定的課還沒發生，取消與缺席那天他人沒到，
+ * 拿來當「上次上課」會讓一個三週沒來的人看起來像上週才上過。
+ * **檢測不算**：那是還沒買課的人的試教，跟「這位學生多久沒來」是兩件事。
+ * 未來日期的紀錄也排除（補課先標成已出席會讓天數變負的）。
+ */
+function lastAttendedDate(studentId) {
+  const t = today();
+  const days = lessonsOf(studentId)
+    .filter((l) => !isAssessment(l) && CONSUMING.includes(l.status) && l.date && l.date <= t)
+    .map((l) => l.date)
+    .sort();
+  return days.length ? days[days.length - 1] : null;
+}
+
+/** 那天到今天隔了幾天（今天＝0）。認不出來的日期回 null，不要算成 0。 */
+function daysSince(day) {
+  const d = parseDay(day);
+  if (!d) return null;
+  const t = parseDay(today());
+  return Math.round((t - d) / 86400000);
+}
+
+/** 已經排好、還沒上的課（今天以後） */
+function hasUpcomingLesson(studentId) {
+  const t = today();
+  return lessonsOf(studentId).some((l) => l.status === "scheduled" && l.date >= t);
+}
+
+/**
+ * 太久沒上課的人 —— 總覽頁那一區。
+ *
+ * 三個條件，缺一個這份名單就會變成雜訊：
+ * 　1. **手上還有堂數**：課上完了的人要談的是續約，不是排課，那是另一區的事。
+ * 　2. **沒有排好的下一堂**：已經約好下週見的人跳出來只會讓人以為漏了什麼。
+ * 　3. 距離上次上課 ≥ 門檻天數。
+ *
+ * 一堂課程紀錄都沒有的人分兩種，**只有後者該進名單**：
+ * 　·「上過課但沒記」——補歷史的人只記最近幾堂，整批搬進來的更是一堂都沒有。
+ * 　　他們明明還在上，只是不知道是哪天；列成「太久沒上課」是錯的資訊，比沒有更糟。
+ * 　　認法是 `consumedSessions` 推算得出他上掉過課（已購 > 剩餘）。
+ * 　·「真的還沒開始」——剛買完課、一堂都還沒上（已購 ≈ 剩餘）。那才是要約的人，
+ * 　　用**建檔那天**算，因為那才是「這位學生放著多久了」。
+ *
+ * 這條規則是拿 `fixtures/migrated-roster.json` 跑出來的：不分開的話，
+ * 整批搬進來的八位全部跳出來寫「還沒有上課紀錄」，一整區都是雜訊（2026-08-27）。
+ */
+function idleStudents(minDays = idleDaysSetting()) {
+  return activeStudents()
+    .filter((s) => (s.remaining || 0) > 0 && !hasUpcomingLesson(s.id))
+    .map((s) => {
+      const last = lastAttendedDate(s.id);
+      if (!last && consumedSessions(s).count > 0) return null;   // 上過課，只是沒記錄
+      const from = last || dayOfISO(s.createdAt);
+      return { student: s, last, days: daysSince(from) };
+    })
+    .filter((x) => x && x.days !== null && x.days >= minDays)
+    .sort((a, b) => b.days - a.days);
+}
+
+/** ISO 時間戳（createdAt）取本地日期字串。時區踩過坑，不要用 toISOString。 */
+function dayOfISO(iso) {
+  if (!iso) return null;
+  const d = new Date(iso);
+  return isNaN(d) ? null : dayStr(d);
+}
+
+/** 至少 1 天。設成 0 等於每個人都「太久沒上課」，那份名單就沒用了。 */
+function idleDaysSetting() {
+  return Math.max(1, Math.round(+S.settings.idleDays) || DEFAULT_SETTINGS.idleDays);
+}
+
+/** 「14 天前」這種說法。今天／昨天照講，其他寫天數。 */
+function daysAgoLabel(days) {
+  if (days === null || days === undefined) return "";
+  if (days <= 0) return "今天";
+  if (days === 1) return "昨天";
+  return `${days} 天前`;
+}
+
 /** 續約紀錄，新的排前面。日期相同時用建立時間分先後。 */
 function renewalsOf(student) {
   return [...(student.renewals || [])].sort((a, b) =>
@@ -2836,6 +2949,42 @@ function viewDashboard() {
           `<p class="empty">今天沒有排課，休息一下。</p>`}
       </section>
 
+      ${(() => {
+        // 太久沒上課。獨立一整條而不是塞進下面的 grid-2 ——
+        // 每一列要放上次上課、隔了幾天、剩幾堂還有一顆「排課」，
+        // 擠成半欄的話又會變成上面續約列那種折行的樣子。
+        const idle = idleStudents();
+        const idleAt = idleDaysSetting();
+        if (!idle.length) return "";
+        return `
+      <section class="card">
+        <div class="sec-head">
+          <h2 class="sec-title">太久沒上課</h2>
+          <span class="sec-sub">${idleAt} 天以上・${idle.length} 位</span>
+        </div>
+        ${idle.map(({ student: s, last, days }) => `
+          <div class="row">
+            <span class="dot" style="background:${esc(s.color)}"></span>
+            <div class="row-main">
+              <div class="row-title">
+                <button type="button" class="btn-plain" data-action="view-student" data-id="${s.id}"
+                        style="font:inherit;color:inherit;cursor:pointer;text-align:left">${esc(s.name || "（未命名）")}</button>
+                <span class="pill ${days >= idleAt * 2 ? "pill-crit" : "pill-warn"}">${daysAgoLabel(days)}</span>
+              </div>
+              <div class="row-sub">${last
+                ? `上次上課 ${esc(last)}`
+                : `還沒有上課紀錄・建檔 ${days} 天`}・剩 ${s.remaining} 堂</div>
+            </div>
+            <div class="row-end">
+              <button class="btn btn-sm btn-primary" type="button"
+                      data-action="schedule-for" data-id="${s.id}"
+                      title="幫 ${esc(s.name || "")} 排一堂課">排課</button>
+            </div>
+          </div>`).join("")}
+        <p class="hint">已經排好下一堂的人不會出現在這裡。天數門檻在設定頁可以改。</p>
+      </section>`;
+      })()}
+
       <div class="grid-2">
         <section class="card">
           <div class="sec-head">
@@ -3012,6 +3161,9 @@ function viewStudents() {
   const all = S.students;
   const tags = allTags();
   const counts = tagCounts();
+  // 太久沒上課的那個 pill 走跟總覽同一份名單（同一條規則、同一個門檻），
+  // 免得兩個地方對同一位學生講不一樣的話。
+  const idle = new Map(idleStudents().map((x) => [x.student.id, x]));
   // **搜尋不在這裡篩。**
   // 邊打邊 render() 會把 <input> 整個換掉 —— 焦點與游標可以補回來，但**中文
   // 輸入法的組字狀態補不回來**，用注音根本打不出名字（2026-08-12 回報）。
@@ -3089,6 +3241,17 @@ function viewStudents() {
                 ${s.status === "archived" ? '<span class="pill pill-mute">封存</span>' : ""}
                 ${s.status === "awaiting" ? '<span class="pill pill-warn">課程結束待續約</span>' : ""}
                 ${s.mayNotRenew ? '<span class="pill pill-warn">可能不續約</span>' : ""}
+                ${// 太久沒上課只用一個 pill，**不寫進下面那行**。
+                  // 這一行 2026-08-17 才因為「看起來很亂」精簡過，每一列都掛
+                  // 「上次上課 X（N 天前）」等於把它塞回去；真正要看名單的人
+                  // 走總覽那一區，這裡只要看得出「這位放很久了」就夠。
+                  (() => {
+                    const hit = idle.get(s.id);
+                    if (!hit) return "";
+                    const at = idleDaysSetting();
+                    return `<span class="pill ${hit.days >= at * 2 ? "pill-crit" : "pill-warn"}"
+                             title="${hit.last ? `上次上課 ${esc(hit.last)}` : "還沒有上課紀錄"}">${hit.days} 天沒上課</span>`;
+                  })()}
               </div>
               <!-- 這一行以前塞到三行：已上堂數＋課程價值＋續約次數＋累計收費＋電話
                    （2026-08-17 回報「看起來很亂」）。**累計收費與電話搬到詳情**：
@@ -3191,6 +3354,13 @@ function studentDetailSheet(student) {
           <div class="row-sub">
             ${student.phone ? esc(student.phone) + "　" : ""}${sessionPrice(student) ? `每堂 ${money(sessionPrice(student))}${student.rate > 0 ? "" : "（依合約換算）"}` : ""}
           </div>
+          ${// 上次上課。排課前最想知道的一件事，寫在表頭比翻課程分頁快。
+            (() => {
+              const last = lastAttendedDate(student.id);
+              if (!last) return "";
+              const d = daysSince(last);
+              return `<div class="row-sub">上次上課 ${esc(last)}（${daysAgoLabel(d)}）</div>`;
+            })()}
         </div>
         <div class="row-end">
           <button class="mono btn-plain tap-adjust" type="button" data-detail-action="adjust"
@@ -3996,9 +4166,9 @@ function renewalHistoryBlock(student) {
   };
 
   const showRow = (r) => `
-    <div class="row" style="padding:8px 0">
+    <div class="row renewal-row" style="padding:8px 0">
       <div class="row-main">
-        <div class="row-title" style="font-size:14px">${esc(r.date || "（無日期）")}
+        <div class="row-title"><span class="r-date">${esc(r.date || "（無日期）")}</span>
           ${currentPackage.has(r.id)
             ? `<span class="pill ${isInProgress ? "pill-good" : "pill-mute"}">${isInProgress ? "這一期・進行中" : "這一期"}</span>`
             : ""}
@@ -4010,14 +4180,15 @@ function renewalHistoryBlock(student) {
           ? `<div class="row-sub">原本記 ${esc(r.soldOn)}，歸到主約後跟著主約的日期</div>` : ""}
         ${r.notes ? `<div class="row-sub">${esc(r.notes)}</div>` : ""}
       </div>
-      <div class="row-end" style="display:flex;align-items:center;gap:8px">
-        <div style="text-align:right">
-          <div class="mono" style="font-weight:600">${r.sessions || 0} 堂${
-            (r.carryOver || 0) > 0
-              ? `<span class="muted" style="font-size:12px;font-weight:400">＋結轉 ${r.carryOver} ＝ ${(r.sessions || 0) + r.carryOver}</span>`
-              : ""}</div>
-          <div class="muted" style="font-size:12px">${money(r.amount || 0)}</div>
-        </div>
+      <div class="r-figs">
+        <div class="mono r-sessions">${r.sessions || 0} 堂</div>
+        ${// 結轉自己一行。跟堂數擠在一起時，「2 堂＋結轉 20 ＝ 22」會折行疊到金額上。
+          (r.carryOver || 0) > 0
+            ? `<div class="r-carry">＋結轉 ${r.carryOver} ＝ ${(r.sessions || 0) + r.carryOver} 堂</div>`
+            : ""}
+        <div class="r-amount">${money(r.amount || 0)}</div>
+      </div>
+      <div class="r-acts">
         ${r.addOn
           ? `<button type="button" class="btn btn-sm" data-set-addon="${r.id}" data-on="0"
                      title="改回獨立的一期合約，續約次數 +1">改回主約</button>`
@@ -5113,13 +5284,15 @@ function viewCalendar() {
  * 「種類」下拉點出來 —— 沒點開表單的人根本不知道有這個功能，
  * 使用者的說法是「網頁版沒有檢測」（2026-08-11）。功能一直都在，是入口沒有。
  */
-function lessonSheet(existing, presetKind = "lesson") {
+function lessonSheet(existing, presetKind = "lesson", presetStudentId = "") {
   const l = existing || {
     id: uid(), date: selectedDate, start: "09:00",
     end: timeOf(minutesOf("09:00") + S.settings.defaultDuration),
     status: "scheduled", notes: "", location: "",
-    // 預設選第一位時，要跟下拉裡看到的順序一致（照筆畫的第一位）
-    studentId: activeStudentsByName()[0]?.id || "", partnerId: "",
+    // 預設選第一位時，要跟下拉裡看到的順序一致（照筆畫的第一位）。
+    // 從「太久沒上課」那一列按過來時直接帶那位（`presetStudentId`）——
+    // 從名單看到人再自己去下拉裡找一次，是這個功能最容易白做的一段。
+    studentId: presetStudentId || activeStudentsByName()[0]?.id || "", partnerId: "",
     kind: presetKind, outcome: "pending", color: "", leadId: "",
     consumed: false, partnerConsumed: false, owed: false, partnerOwed: false,
     createdAt: new Date().toISOString(),
@@ -6889,6 +7062,17 @@ function viewSettings() {
         </div>
         <div class="row">
           <div class="row-main">
+            <div class="row-title">太久沒上課的提醒</div>
+            <div class="row-sub">總覽頁從幾天沒上課開始提醒你該約他</div>
+          </div>
+          <div class="row-end">
+            <input type="number" min="1" inputmode="numeric" style="width:72px"
+                   data-action="set-idle-days" value="${idleDaysSetting()}">
+            <span class="muted" style="margin-left:6px">天</span>
+          </div>
+        </div>
+        <div class="row">
+          <div class="row-main">
             <div class="row-title">外觀</div>
             <div class="row-sub">淺色／深色／跟隨系統</div>
           </div>
@@ -7294,6 +7478,7 @@ function buildBackup() {
       defaultLessonDurationMinutes: String(S.settings.defaultDuration),
       // iOS 還沒有這個設定。讀到不認得的鍵會直接忽略，不會壞。
       lowSessionsThreshold: String(Math.max(1, +S.settings.lowSessions || 3)),
+      idleDaysThreshold: String(idleDaysSetting()),
       customFieldDefinitions: JSON.stringify(S.settings.customFields),
       // 型別與選項。iOS 只讀上面那個名稱陣列，多這一個鍵它會忽略。
       customFieldSpecs: JSON.stringify(S.settings.customFieldSpecs || {}),
@@ -7497,6 +7682,10 @@ function parseBackup(raw) {
   }
   if (rawSettings.lowSessionsThreshold) {
     settings.lowSessions = Math.max(1, Math.round(+rawSettings.lowSessionsThreshold) || 3);
+  }
+  if (rawSettings.idleDaysThreshold) {
+    settings.idleDays = Math.max(1, Math.round(+rawSettings.idleDaysThreshold)
+                                    || DEFAULT_SETTINGS.idleDays);
   }
   const fields = parseJSON(rawSettings.customFieldDefinitions, null);
   if (Array.isArray(fields)) settings.customFields = fields.filter((f) => typeof f === "string");
@@ -7755,6 +7944,8 @@ document.addEventListener("click", (e) => {
       S.settings.salary.baseSalaryMode = value; save(); render(); break;
 
     case "new-lesson": lessonSheet(null); break;
+    // 「太久沒上課」那一列的排課：直接帶著那位學生開表單
+    case "schedule-for": lessonSheet(null, "lesson", id); break;
     // 檢測本來只藏在排課表單的「種類」下拉裡，畫面上完全看不到這個功能
     case "new-assessment": lessonSheet(null, "assessment"); break;
     case "edit-lesson": lessonSheet(S.lessons.find((l) => l.id === id)); break;
@@ -7993,6 +8184,14 @@ document.addEventListener("change", (e) => {
       // 至少 1 —— 設成 0 的話這個提醒等於關掉，但畫面上看不出來是關的
       const v = Math.max(1, Math.round(+el.value) || 1);
       S.settings.lowSessions = v;
+      el.value = v;
+      save(); render();
+      return;
+    }
+    if (action === "set-idle-days") {
+      // 同上：0 天等於「每個人都太久沒上課」，那份名單就沒有用了
+      const v = Math.max(1, Math.round(+el.value) || DEFAULT_SETTINGS.idleDays);
+      S.settings.idleDays = v;
       el.value = v;
       save(); render();
       return;
