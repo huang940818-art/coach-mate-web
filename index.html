@@ -858,7 +858,7 @@ const NOTICE_KEY = "coach-mate-web-notice-dismissed";
  * 版本標記。顯示在設定頁最下面，教練唸得出來就知道他手上是哪一版，
  * 不用再猜是不是拿到舊的快取。每次改版就把這個字串往上加。
  */
-const BUILD = "2026-08-27 · v84";
+const BUILD = "2026-08-27 · v85";
 
 /** 開發者署名，顯示在設定頁的「關於」 */
 const DEVELOPER = "杯子蛋糕好好吃";
@@ -1824,21 +1824,35 @@ function percentForSessions(count) {
   return pct;
 }
 
-/** 公司教練的當月薪資試算 */
-function salaryFor(ym) {
+/**
+ * 公司教練的當月薪資試算。
+ *
+ * `projected: true` 是**排完會是多少**：已經上到的，加上這個月**還沒上的排定課**。
+ * 缺席與取消不算 —— 那兩個是已經發生的事實，不會再變成收入。
+ * 月中最想知道的其實是這個數字（「這個月排滿了能領多少」「再幾堂跳級」），
+ * 而預設的 onlyAttended 只算已上，月初永遠接近 0（2026-08-27 小春要的）。
+ */
+function salaryFor(ym, opts = {}) {
   const rule = S.settings.salary;
   const basis = rule.payoutBasisRaw;
   const countsLessons = basis !== "onSale";
   const countsSales = basis !== "perLesson";
 
-  let sessions = 0, lessonRevenue = 0;
+  let sessions = 0, lessonRevenue = 0, pendingSessions = 0;
   if (countsLessons) {
     for (const l of S.lessons) {
       if (!l.date.startsWith(ym)) continue;
       // 檢測佔時段但不算課程收入也不進抽成堂數
       if (!LESSON_KIND[kindOf(l)].paid) continue;
-      const ok = rule.onlyAttended ? CONSUMING.includes(l.status) : l.status !== "cancelled";
+      const attended = CONSUMING.includes(l.status);
+      const ok = opts.projected
+        ? (attended || l.status === "scheduled")
+        : (rule.onlyAttended ? attended : l.status !== "cancelled");
       if (!ok) continue;
+      if (opts.projected && !attended) {
+        // 幾堂是「還沒上、算進來的」—— 差額從哪來要講得出來
+        for (const id of [l.studentId, l.partnerId]) if (studentById(id)) pendingSessions += 1;
+      }
       for (const id of [l.studentId, l.partnerId]) {
         const st = studentById(id);
         if (!st) continue;
@@ -1893,8 +1907,16 @@ function salaryFor(ym) {
   }
 
   const total = baseSalary + earned;
-  return { sessions, lessonRevenue, pct, lessonPay, salesAmount, companySalesAmount,
-           salesBonus, baseSalary, configuredBase, mode, threshold, earned, baseNote, total };
+
+  // 還差幾堂跳到下一級。抽成級距是這個試算最值得看的地方 ——
+  // 「再兩堂多 5%」跟「已經到頂」是完全不同的決定。
+  const nextTier = [...(rule.tiers || [])]
+    .sort((a, b) => a.minSessions - b.minSessions)
+    .find((t) => t.minSessions > sessions) || null;
+
+  return { sessions, pendingSessions, lessonRevenue, pct, lessonPay, salesAmount,
+           companySalesAmount, salesBonus, baseSalary, configuredBase, mode, threshold,
+           earned, baseNote, total, nextTier };
 }
 
 /* ── 檢測成交率 ─────────────────────────────── */
@@ -5735,27 +5757,62 @@ function viewPayments() {
         ${tile({ value: money(rows.reduce((a, p) => a + p.amount, 0)), label: "累計收入", iconName: "money",
                  color: "var(--gold)", note: `${rows.length} 筆` })}
         ${isCompany
+          // 底薪印的是**實際加上去的金額**，不是設定值。原本寫
+          // `sal.baseSalary || 設定值`，而「達標後取消底薪」算出來就是 0（falsy）——
+          // 於是達標當月這裡照樣印著 $20,000，跟旁邊的合計對不起來（2026-08-27）。
           ? tile({ value: money(sal.total), label: "本月實拿", iconName: "target", color: "var(--info)",
-                   note: `底薪 ${money(sal.baseSalary || S.settings.salary.baseSalary)}` })
+                   note: `底薪 ${money(sal.baseSalary)}` })
           : tile({ value: money(S.students.reduce((a, s) => a + s.remaining * sessionPrice(s), 0)),
                    label: "未上課的預收", iconName: "clock", color: "var(--info)", note: "剩餘堂數 × 鐘點" })}
       </div>
 
-      ${isCompany ? `
+      ${isCompany ? (() => {
+        // 排完會是多少：已經上到的 ＋ 這個月還沒上的排定課。
+        // 月初只看「已上」永遠接近 0，看不出這個月排的量值多少錢。
+        const proj = salaryFor(ym, { projected: true });
+        const more = Math.max(0, proj.total - sal.total);
+        return `
       <section class="card">
         <div class="sec-head">
           <h2 class="sec-title">本月薪資試算</h2>
           <span class="sec-sub">依「設定 → 薪資規則」計算</span>
         </div>
-        <div class="row"><div class="row-main">上課堂數</div><div class="row-end mono">${sal.sessions} 堂</div></div>
+
+        ${proj.pendingSessions ? `
+        <div class="tiles" style="grid-template-columns:1fr 1fr;margin-bottom:12px">
+          ${tile({ value: money(sal.total), label: "已上課的部分", iconName: "money",
+                   color: "var(--good)", note: `${sal.sessions} 堂・抽成 ${sal.pct}%` })}
+          ${tile({ value: money(proj.total), label: "這個月排完", iconName: "target",
+                   color: "var(--gold)",
+                   note: `${proj.sessions} 堂・抽成 ${proj.pct}%` })}
+        </div>
+        <p class="hint" style="margin:-4px 0 10px">
+          還有 <strong>${proj.pendingSessions} 堂</strong>排了還沒上，全部上完會多
+          <strong>${money(more)}</strong>。缺席與取消的不算在裡面。${
+            proj.pct > sal.pct
+              ? `　上完會從 ${sal.pct}% 跳到 <strong>${proj.pct}%</strong>。`
+              : proj.nextTier
+              ? `　再上 <strong>${proj.nextTier.minSessions - proj.sessions} 堂</strong>可以跳到 ${proj.nextTier.percent}%。`
+              : ""}
+        </p>` : `
+        <p class="hint" style="margin:0 0 10px">這個月沒有排了還沒上的課，下面就是最終數字。${
+          sal.nextTier
+            ? `再上 <strong>${sal.nextTier.minSessions - sal.sessions} 堂</strong>可以跳到 ${sal.nextTier.percent}%。`
+            : ""}</p>`}
+
+        <div class="row"><div class="row-main">上課堂數</div><div class="row-end mono">${sal.sessions} 堂${
+          proj.pendingSessions ? `<span class="muted" style="font-size:12px">（排完 ${proj.sessions}）</span>` : ""}</div></div>
         <div class="row"><div class="row-main">課程收入</div><div class="row-end mono">${money(sal.lessonRevenue)}</div></div>
         <div class="row"><div class="row-main">適用抽成</div><div class="row-end mono">${sal.pct}%</div></div>
         <div class="row"><div class="row-main">鐘點抽成</div><div class="row-end mono">${money(sal.lessonPay)}</div></div>
         ${sal.salesBonus ? `<div class="row"><div class="row-main">業績獎金</div><div class="row-end mono">${money(sal.salesBonus)}</div></div>` : ""}
-        <div class="row"><div class="row-main">底薪</div><div class="row-end mono">${money(S.settings.salary.baseSalary)}</div></div>
+        <div class="row"><div class="row-main">底薪</div><div class="row-end mono">${money(sal.baseSalary)}</div>
+          </div>
+        ${sal.baseNote ? `<p class="hint" style="margin:-6px 0 8px">${sal.baseNote}</p>` : ""}
         <div class="row"><div class="row-main" style="font-weight:650">實拿合計</div>
           <div class="row-end mono" style="font-weight:700;color:var(--gold)">${money(sal.total)}</div></div>
-      </section>` : ""}
+      </section>`;
+      })() : ""}
 
       <section class="card">
         <div class="sec-head">
@@ -6658,6 +6715,84 @@ function salesSection() {
     </section>`;
 }
 
+
+/**
+ * 某一類的檢測場次清單。
+ *
+ * 卡片上的數字要能點進去看「是哪幾場、對象是誰」——
+ * 「這個月 7 場、成交 2 位」本身沒有可以行動的資訊，
+ * 但「沒成交的那位是王小明、來源是公司名單」才叫得出下一步。
+ *
+ * 用同一個 assessmentsInRange 過濾，跟 assessmentStats 算出來的數字才對得起來。
+ * （iOS 的 AssessmentStats.lessons 是同一條規則，兩邊要一起改。）
+ */
+function assessmentList(from, to, filter) {
+  const rows = assessmentsInRange(from, to);
+  let matched;
+  if (filter === "all") matched = rows;
+  else if (filter === "pending") matched = rows.filter((l) => needsOutcome(l));
+  else if (filter.startsWith("source:")) {
+    const key = filter.slice(7);
+    matched = rows.filter((l) => leadById(l.leadId)?.source === key);
+  } else matched = rows.filter((l) => outcomeOf(l) === filter);
+
+  // 新的排前面。要追的通常是最近那幾場。
+  return matched.sort((a, b) =>
+    (b.date + b.startTime).localeCompare(a.date + a.startTime));
+}
+
+/** 名單頁的標題文字。跟 iOS 的 AssessmentStats.Filter.title 一字不差。 */
+function assessmentFilterTitle(filter) {
+  if (filter === "all") return "全部檢測";
+  if (filter === "pending") return "還沒回報";
+  if (filter.startsWith("source:")) return LEAD_SOURCE[filter.slice(7)] || "來源";
+  return OUTCOME[filter]?.label || "檢測";
+}
+
+/** 檢測名單。分析頁的每個數字都導到這裡。 */
+function openAssessmentList(filter) {
+  const b = periodBounds("thisMonth");
+  const rows = assessmentList(b.from, b.to, filter);
+  const title = assessmentFilterTitle(filter);
+
+  const body = rows.length === 0
+    ? `<p class="hint" style="text-align:center;padding:24px 0">這個月沒有「${esc(title)}」的檢測。</p>`
+    : `
+      <p class="sec-sub" style="margin:0 0 10px">${rows.length} 場</p>
+      ${rows.map((l) => {
+        const lead = leadById(l.leadId);
+        const name = lead?.name || l.studentName || "（沒有記名字）";
+        const o = outcomeOf(l);
+        // pending 要分兩種：時間過了叫「待回報」（你欠一個動作），
+        // 還沒到的叫「未結束」（不用管）。跟 iOS 一樣。
+        const label = o === "pending"
+          ? (needsOutcome(l) ? "待回報" : "未結束")
+          : OUTCOME[o].label;
+        const [, mm, dd] = l.date.split("-");
+        const meta = [`${+mm}/${+dd} ${l.startTime}`,
+                      lead?.source ? LEAD_SOURCE[lead.source] : "",
+                      lead?.phone || ""].filter(Boolean).join("・");
+        return `
+          <div class="row">
+            <div class="row-main">
+              <div class="row-title">${esc(name)}</div>
+              <div class="row-sub">${esc(meta)}</div>
+            </div>
+            <span class="pill ${OUTCOME[o].pill}">${esc(label)}</span>
+          </div>`;
+      }).join("")}
+      ${filter === "pending" ? `
+        <p class="hint" style="margin-top:12px">
+          這些是時間已經過了但還沒回報成交與否的。沒回報的話成交率會少算——到課表點「回報」補上。
+        </p>` : ""}
+      ${filter === "notClosed" ? `
+        <p class="hint" style="margin-top:12px">
+          沒成交不代表白做。看得出是哪個來源、哪一類的人容易沒成交，下次就知道要調整什麼。
+        </p>` : ""}`;
+
+  openSheet({ title, body, confirmLabel: "", closeLabel: "關閉" });
+}
+
 /** 檢測成交率。檢測是花時間不收錢的推銷場，值不值得只能靠成交率說話。 */
 function assessmentSection() {
   const b = periodBounds("thisMonth");
@@ -6674,16 +6809,21 @@ function assessmentSection() {
       </div>
 
       <div class="tiles">
-        ${tile({ value: s.total, unit: "場", label: "本月檢測", iconName: "clock", color })}
-        ${tile({ value: s.closed, unit: "位", label: "成交", iconName: "target", color: "var(--good)" })}
+        ${tile({ value: s.total, unit: "場", label: "本月檢測", iconName: "clock", color,
+                 action: "assess-list:all" })}
+        ${tile({ value: s.closed, unit: "位", label: "成交", iconName: "target", color: "var(--good)",
+                 action: "assess-list:closed" })}
         ${tile({ value: s.notClosed, unit: "位", label: "沒成交", iconName: "people", color: "var(--warn)",
-                 note: s.followUp ? `另有 ${s.followUp} 位再約` : "" })}
+                 note: s.followUp ? `另有 ${s.followUp} 位再約` : "",
+                 action: "assess-list:notClosed" })}
       </div>
 
       ${s.pending ? `
-        <p class="hint" style="color:var(--warn);margin-top:12px">
-          還有 ${s.pending} 場沒回報成交與否，成交率會少算。到課表點「回報」補上。
-        </p>` : ""}
+        <button class="hint" type="button" data-action="assess-list:pending"
+                style="color:var(--warn);margin-top:12px;background:none;border:0;
+                       padding:0;text-align:left;cursor:pointer;font:inherit">
+          還有 ${s.pending} 場沒回報成交與否，成交率會少算。點這裡看是哪幾場。
+        </button>` : ""}
       ${s.rate === null ? `
         <p class="hint" style="margin-top:12px">
           還沒有任何一場有結論。「再約」不算進成交率的分母。
@@ -6693,12 +6833,14 @@ function assessmentSection() {
         <div style="margin-top:14px">
           <p class="sec-sub" style="margin:0 0 9px">依來源</p>
           ${bySource.map((r) => `
-            <div class="row">
+            <button class="row" type="button" data-action="assess-list:source:${esc(r.key)}"
+                    style="width:100%;background:none;border:0;padding:0;font:inherit;
+                           text-align:left;cursor:pointer">
               <div class="row-main"><div class="row-title">${esc(r.label)}</div></div>
               <div class="row-end mono">${r.closed}/${r.total}
                 <span class="muted" style="font-size:12px">　${r.rate === null ? "—" : r.rate.toFixed(0) + "%"}</span>
               </div>
-            </div>`).join("")}
+            </button>`).join("")}
         </div>` : ""}
     </section>`;
 }
@@ -7886,6 +8028,13 @@ document.addEventListener("click", (e) => {
   const el = e.target.closest("[data-action]");
   if (!el || el.closest(".scrim")) return;
   const { action, value, id } = el.dataset;
+
+  // 檢測名單。action 長成 "assess-list:closed" 或 "assess-list:source:company"，
+  // 所以不能放進下面的 switch（那是完全比對）。
+  if (action.startsWith("assess-list:")) {
+    openAssessmentList(action.slice(12));
+    return;
+  }
 
   switch (action) {
     case "goto": tab = value; render(); break;
