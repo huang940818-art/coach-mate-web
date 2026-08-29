@@ -858,7 +858,7 @@ const NOTICE_KEY = "coach-mate-web-notice-dismissed";
  * 版本標記。顯示在設定頁最下面，教練唸得出來就知道他手上是哪一版，
  * 不用再猜是不是拿到舊的快取。每次改版就把這個字串往上加。
  */
-const BUILD = "2026-08-27 · v85";
+const BUILD = "2026-08-30 · v86";
 
 /** 開發者署名，顯示在設定頁的「關於」 */
 const DEVELOPER = "杯子蛋糕好好吃";
@@ -7330,10 +7330,19 @@ function viewSettings() {
             <label for="s-onlyAttended">只算實際上到的課</label>
             <input id="s-onlyAttended" type="checkbox" data-action="toggle-salary" data-key="onlyAttended" ${rule.onlyAttended ? "checked" : ""}>
           </div>
+          <p class="hint">${rule.onlyAttended
+            ? "已出席與遲到才計薪，缺席與取消都不算。"
+            : "缺席也算一堂（只排除已取消），適合「學生放鴿子照算」的合約。"}</p>
+
+          <div class="divider" style="margin:12px 0"></div>
+          <p class="sec-sub" style="margin:0 0 9px">課程收入怎麼算</p>
           <div class="switch">
             <label for="s-useStudentRate">用每位學生的鐘點費</label>
             <input id="s-useStudentRate" type="checkbox" data-action="toggle-salary" data-key="useStudentRate" ${rule.useStudentRate ? "checked" : ""}>
           </div>
+          <p class="hint">${rule.useStudentRate
+            ? "用學生資料裡各自的每堂費用加總。"
+            : "不管學生是誰，每堂都算同樣的鐘點。"}</p>
           ${rule.useStudentRate ? "" : `
             <div class="row">
               <div class="row-main">固定鐘點</div>
@@ -7385,6 +7394,9 @@ function viewSettings() {
               <div class="row-end"><input type="number" data-action="salary-num" data-key="companyLeadSalesPercent"
                    value="${rule.companyLeadSalesPercent}" style="width:82px" inputmode="decimal"> %</div>
             </div>` : ""}
+          <p class="hint">${rule.separateCompanyLeadRate
+            ? "公司給的名單通常抽比較少。學生資料裡的「客戶來源」決定走哪一組趴數。"
+            : "學生每次續約／簽約的金額，抽這個趴數當獎金。"}</p>
         ` : ""}
 
         <div class="divider" style="margin:12px 0"></div>
@@ -7396,6 +7408,8 @@ function viewSettings() {
         <p class="hint">沒有底薪就填 0，抽成金額直接當作薪資。</p>
 
         ${rule.baseSalary > 0 ? `
+          <div class="divider" style="margin:12px 0"></div>
+          <p class="sec-sub" style="margin:0 0 9px">底薪的給法</p>
           <div class="row" style="align-items:flex-start">
             <div class="row-main">
               <div class="row-title">底薪怎麼給</div>
@@ -7403,7 +7417,7 @@ function viewSettings() {
             </div>
           </div>
           <div class="seg seg-wrap">
-            ${[["always", "底薪＋抽成"], ["belowThreshold", "達標後取消"], ["higherOf", "取高者"]].map(([v, t]) =>
+            ${[["always", "底薪＋抽成"], ["belowThreshold", "達標後取消底薪"], ["higherOf", "取高者"]].map(([v, t]) =>
               `<button type="button" data-action="set-base-mode" data-value="${v}"
                        aria-pressed="${(rule.baseSalaryMode || "always") === v}">${t}</button>`).join("")}
           </div>
@@ -8303,8 +8317,14 @@ document.addEventListener("change", (e) => {
     }
     if (action === "salary-num") {
       const v = +el.value;
+      const before = S.settings.salary[key];
       S.settings.salary[key] = Number.isFinite(v) ? v : 0;
       save();
+      // 這裡**刻意不重畫** —— 重畫會讓輸入框失焦，數字打到一半被打斷。
+      // 唯一的例外是底薪跨過 0：「底薪的給法」那一整段是 baseSalary > 0 才畫的，
+      // 不重畫的話，剛填完底薪的人看不到那三顆按鈕（要切出去再切回來才長出來），
+      // 而改回 0 之後那段又會賴在畫面上。跨過 0 才重畫，其他欄位維持不動。
+      if (key === "baseSalary" && (before > 0) !== (S.settings.salary[key] > 0)) render();
       return;
     }
     if (action === "rename-field") {
