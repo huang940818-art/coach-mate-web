@@ -858,7 +858,7 @@ const NOTICE_KEY = "coach-mate-web-notice-dismissed";
  * 版本標記。顯示在設定頁最下面，教練唸得出來就知道他手上是哪一版，
  * 不用再猜是不是拿到舊的快取。每次改版就把這個字串往上加。
  */
-const BUILD = "2026-08-30 · v86";
+const BUILD = "2026-08-30 · v87";
 
 /** 開發者署名，顯示在設定頁的「關於」 */
 const DEVELOPER = "杯子蛋糕好好吃";
@@ -1864,18 +1864,24 @@ function salaryFor(ym, opts = {}) {
   const pct = percentForSessions(sessions);
   const lessonPay = lessonRevenue * pct / 100;
 
-  let salesAmount = 0, companySalesAmount = 0, salesBonus = 0;
+  // 命名跟 iOS 的 SalaryBreakdown 對齊：salesAmount 是**本月簽約總額**，
+  // selfSalesAmount／companySalesAmount 是拆開的兩邊。原本 salesAmount 存的是
+  // 「自己開發」那一半，名字看起來卻像總額 —— 一直沒人用所以沒爆，
+  // 但收費頁現在要把三個數字都畫出來了（2026-08-30）。
+  let selfSalesAmount = 0, companySalesAmount = 0, salesBonus = 0, saleCount = 0;
   if (countsSales) {
     for (const st of S.students) {
       for (const r of st.renewals) {
         if (!(r.date || "").startsWith(ym)) continue;
         const isCompany = rule.separateCompanyLeadRate && st.acquisition === "companyLead";
         const rate = isCompany ? rule.companyLeadSalesPercent : rule.salesPercent;
-        if (isCompany) companySalesAmount += r.amount; else salesAmount += r.amount;
+        if (isCompany) companySalesAmount += r.amount; else selfSalesAmount += r.amount;
         salesBonus += r.amount * rate / 100;
+        saleCount += 1;
       }
     }
   }
+  const salesAmount = selfSalesAmount + companySalesAmount;
 
   // ── 底薪 ────────────────────────────────────────────────
   // 「底薪」在不同公司是三種完全不同的東西，用同一種算法會差好幾萬：
@@ -1915,7 +1921,8 @@ function salaryFor(ym, opts = {}) {
     .find((t) => t.minSessions > sessions) || null;
 
   return { sessions, pendingSessions, lessonRevenue, pct, lessonPay, salesAmount,
-           companySalesAmount, salesBonus, baseSalary, configuredBase, mode, threshold,
+           selfSalesAmount, companySalesAmount, saleCount, salesBonus,
+           baseSalary, configuredBase, mode, threshold,
            earned, baseNote, total, nextTier };
 }
 
@@ -5721,6 +5728,9 @@ function viewPayments() {
     : rows;
   const isCompany = S.settings.employment === "company";
   const sal = isCompany ? salaryFor(ym) : null;
+  // 薪資試算要照計薪基準決定畫哪幾列（同 salaryFor 與設定頁的判斷）
+  const countsLessons = S.settings.salary.payoutBasisRaw !== "onSale";
+  const countsSales = S.settings.salary.payoutBasisRaw !== "perLesson";
 
   return `
     <div class="page-head">
@@ -5761,7 +5771,7 @@ function viewPayments() {
           // `sal.baseSalary || 設定值`，而「達標後取消底薪」算出來就是 0（falsy）——
           // 於是達標當月這裡照樣印著 $20,000，跟旁邊的合計對不起來（2026-08-27）。
           ? tile({ value: money(sal.total), label: "本月實拿", iconName: "target", color: "var(--info)",
-                   note: `底薪 ${money(sal.baseSalary)}` })
+                   note: `${sal.mode === "higherOf" ? "底薪補差額" : "底薪"} ${money(sal.baseSalary)}` })
           : tile({ value: money(S.students.reduce((a, s) => a + s.remaining * sessionPrice(s), 0)),
                    label: "未上課的預收", iconName: "clock", color: "var(--info)", note: "剩餘堂數 × 鐘點" })}
       </div>
@@ -5778,7 +5788,10 @@ function viewPayments() {
           <span class="sec-sub">依「設定 → 薪資規則」計算</span>
         </div>
 
-        ${proj.pendingSessions ? `
+        ${/* 排完會多少、還差幾堂跳級 —— 都只有鐘點制才有級距可言。
+              選「依簽約」時堂數一律是 0，這段會變成「這個月沒有排了還沒上的課」，
+              對業績制的人是句廢話。 */""}
+        ${!countsLessons ? "" : proj.pendingSessions ? `
         <div class="tiles" style="grid-template-columns:1fr 1fr;margin-bottom:12px">
           ${tile({ value: money(sal.total), label: "已上課的部分", iconName: "money",
                    color: "var(--good)", note: `${sal.sessions} 堂・抽成 ${sal.pct}%` })}
@@ -5798,16 +5811,31 @@ function viewPayments() {
         <p class="hint" style="margin:0 0 10px">這個月沒有排了還沒上的課，下面就是最終數字。${
           sal.nextTier
             ? `再上 <strong>${sal.nextTier.minSessions - sal.sessions} 堂</strong>可以跳到 ${sal.nextTier.percent}%。`
+            : (S.settings.salary.tiers || []).length
+            ? "已達最高級距。"
             : ""}</p>`}
 
-        <div class="row"><div class="row-main">上課堂數</div><div class="row-end mono">${sal.sessions} 堂${
-          proj.pendingSessions ? `<span class="muted" style="font-size:12px">（排完 ${proj.sessions}）</span>` : ""}</div></div>
-        <div class="row"><div class="row-main">課程收入</div><div class="row-end mono">${money(sal.lessonRevenue)}</div></div>
-        <div class="row"><div class="row-main">適用抽成</div><div class="row-end mono">${sal.pct}%</div></div>
-        <div class="row"><div class="row-main">鐘點抽成</div><div class="row-end mono">${money(sal.lessonPay)}</div></div>
-        ${sal.salesBonus ? `<div class="row"><div class="row-main">業績獎金</div><div class="row-end mono">${money(sal.salesBonus)}</div></div>` : ""}
-        <div class="row"><div class="row-main">底薪</div><div class="row-end mono">${money(sal.baseSalary)}</div>
-          </div>
+        ${/* 上課那一段只有把課算進薪水時才有意義。選「依簽約」時原本照樣畫
+              「上課堂數 0 堂・課程收入 $0・適用抽成 50%」，看起來像算錯了。 */""}
+        ${countsLessons ? `
+          <div class="row"><div class="row-main">上課堂數</div><div class="row-end mono">${sal.sessions} 堂${
+            proj.pendingSessions ? `<span class="muted" style="font-size:12px">（排完 ${proj.sessions}）</span>` : ""}</div></div>
+          <div class="row"><div class="row-main">課程收入</div><div class="row-end mono">${money(sal.lessonRevenue)}</div></div>
+          <div class="row"><div class="row-main">適用抽成</div><div class="row-end mono">${sal.pct}%</div></div>
+          <div class="row"><div class="row-main">鐘點抽成</div><div class="row-end mono">${money(sal.lessonPay)}</div></div>` : ""}
+
+        ${countsSales ? `
+          <div class="row"><div class="row-main">本月簽約</div><div class="row-end mono">${sal.saleCount} 筆・${money(sal.salesAmount)}</div></div>
+          ${sal.companySalesAmount ? `
+            <div class="row"><div class="row-main" style="padding-left:14px">自己開發</div><div class="row-end mono">${money(sal.selfSalesAmount)}</div></div>
+            <div class="row"><div class="row-main" style="padding-left:14px">公司名單</div><div class="row-end mono">${money(sal.companySalesAmount)}</div></div>` : ""}
+          <div class="row"><div class="row-main">業績獎金</div><div class="row-end mono">${money(sal.salesBonus)}</div></div>` : ""}
+
+        ${/* 「取高者」加上去的是**補到底薪的差額**，不是底薪本身。標成「底薪」
+              會讓人以為底薪跟抽成相加了。0 就整列不畫 —— 原因寫在下面那行 note 裡。 */""}
+        ${sal.baseSalary > 0 ? `
+          <div class="row"><div class="row-main">${sal.mode === "higherOf" ? "底薪補差額" : "底薪"}</div>
+            <div class="row-end mono">${money(sal.baseSalary)}</div></div>` : ""}
         ${sal.baseNote ? `<p class="hint" style="margin:-6px 0 8px">${sal.baseNote}</p>` : ""}
         <div class="row"><div class="row-main" style="font-weight:650">實拿合計</div>
           <div class="row-end mono" style="font-weight:700;color:var(--gold)">${money(sal.total)}</div></div>
