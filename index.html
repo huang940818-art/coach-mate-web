@@ -858,7 +858,7 @@ const NOTICE_KEY = "coach-mate-web-notice-dismissed";
  * 版本標記。顯示在設定頁最下面，教練唸得出來就知道他手上是哪一版，
  * 不用再猜是不是拿到舊的快取。每次改版就把這個字串往上加。
  */
-const BUILD = "2026-08-30 · v87";
+const BUILD = "2026-08-30 · v88";
 
 /** 開發者署名，顯示在設定頁的「關於」 */
 const DEVELOPER = "杯子蛋糕好好吃";
@@ -1862,7 +1862,12 @@ function salaryFor(ym, opts = {}) {
     }
   }
   const pct = percentForSessions(sessions);
-  const lessonPay = lessonRevenue * pct / 100;
+  // **每一項先取整再相加**（同 iOS 的 SalaryCalculator）。原本這裡留浮點數，
+  // 只在 money() 顯示時才四捨五入，於是畫面上的列自己加不出畫面上的合計：
+  // 鐘點抽成 500.5 → 顯示 $501、業績獎金 500.5 → 顯示 $501，
+  // 但合計是 1001 → 顯示 $1,001，跟兩列相加的 $1,002 差一元。
+  // iOS 對同一筆資料算出 1002，兩個 App 也就對不起來（2026-08-30）。
+  const lessonPay = Math.round(lessonRevenue * pct / 100);
 
   // 命名跟 iOS 的 SalaryBreakdown 對齊：salesAmount 是**本月簽約總額**，
   // selfSalesAmount／companySalesAmount 是拆開的兩邊。原本 salesAmount 存的是
@@ -1876,7 +1881,8 @@ function salaryFor(ym, opts = {}) {
         const isCompany = rule.separateCompanyLeadRate && st.acquisition === "companyLead";
         const rate = isCompany ? rule.companyLeadSalesPercent : rule.salesPercent;
         if (isCompany) companySalesAmount += r.amount; else selfSalesAmount += r.amount;
-        salesBonus += r.amount * rate / 100;
+        // 逐筆取整（同 iOS）：整批加完再取整會跟一筆一筆算的結果差幾元
+        salesBonus += Math.round(r.amount * rate / 100);
         saleCount += 1;
       }
     }
@@ -7631,8 +7637,12 @@ function buildBackup() {
         ...(r.soldOn !== undefined ? { addOnSoldOn: r.soldOn } : {}),
         notes: r.notes || "", createdAt: iso(r.createdAt),
       })),
+      // 網頁不顯示這些，但從 iOS 匯入時原封收在 _carry，匯出時要攤回去。
+      // 預設值放在 spread 前面：iOS 沒帶過這幾欄的學生（例如網頁自己建的）
+      // 還是要有空陣列，不然 iOS 的 Codable 解不開。
       inbody: [],
       exercises: [],
+      ...(s._carry || {}),
     })),
     lessons: S.lessons.map((l) => ({
       title: "", date: l.date, startTime: l.start, endTime: l.end,
@@ -7647,6 +7657,7 @@ function buildBackup() {
       outcomeRaw: outcomeOf(l),
       colorTag: l.color || "",
       leadIndex: leadIndexOf.has(l.leadId) ? leadIndexOf.get(l.leadId) : null,
+      ...(l._carry || {}),
     })),
     leads: S.leads.map((l) => ({
       name: l.name, phone: l.phone, email: l.email || "",
@@ -7654,7 +7665,7 @@ function buildBackup() {
       statusRaw: l.status, notes: l.notes || "",
       createdAt: iso(l.createdAt), updatedAt: iso(l.updatedAt),
     })),
-    locations: [],
+    locations: S.settings._carryLocations || [],
     settings: {
       employmentType: S.settings.employment,
       // 身份。iOS 用同一個鍵（一般教練／承攬教練），兩邊搬得過去。
@@ -7675,6 +7686,8 @@ function buildBackup() {
         id: t.id, name: t.name, colorHex: t.color,
       }))),
       colorTheme: "amber",
+      // iOS 專屬的設定原封帶回去（提醒、一天的起訖時間、訓練菜單範本…）
+      ...(S.settings._carry || {}),
     },
   };
 }
@@ -7769,10 +7782,62 @@ function pasteBackupSheet() {
 }
 
 /** 把備份檔（iOS 或網頁版產生的）讀成網頁版的資料結構 */
+/* ── 備份的「原封帶走」──────────────────────────────
+ * iOS 有而網頁沒有的東西（InBody 記錄、訓練菜單、暫停到期日、上課地點、
+ * 課程標題、提醒設定…），網頁本來是**直接丟掉**的：parseBackup 不讀，
+ * buildBackup 又寫死 `inbody: []`／`exercises: []`／`locations: []`。
+ * 結果 iOS → 網頁 → iOS 走一趟，那些資料就沒了，而且完全沒有提示
+ * （2026-08-30 實測：2 筆 InBody、2 個動作、暫停到期日、1 個地點全歸零）。
+ *
+ * 網頁不需要**顯示**這些東西，但不能把它們吃掉。作法是把不認得的鍵
+ * 原封收在 `_carry` 裡，匯出時再攤回去。用「排除已知鍵」而不是列舉，
+ * 這樣 iOS 之後新增欄位也會自動被帶著走。
+ */
+const carryOf = (obj, known) => {
+  const out = {};
+  for (const k of Object.keys(obj || {})) if (!known.has(k)) out[k] = obj[k];
+  return Object.keys(out).length ? out : undefined;
+};
+
+const CARRY_STUDENT_KNOWN = new Set([
+  "name", "phone", "email", "rate", "totalPurchasedSessions", "remainingSessions",
+  "notes", "color", "packageExpiryDate", "customFieldsJSON", "renewalCount",
+  "mayNotRenew", "acquisitionRaw", "statusRaw", "archivedAt", "createdAt",
+  "updatedAt", "tagsCSV", "payments", "renewals",
+]);
+const CARRY_LESSON_KNOWN = new Set([
+  "date", "startTime", "endTime", "statusRaw", "notes", "locationName",
+  "consumedSession", "consumedPartnerSession", "owedSession", "owedPartnerSession",
+  "createdAt", "updatedAt", "studentIndex", "partnerIndex",
+  "kindRaw", "outcomeRaw", "colorTag", "leadIndex",
+]);
+const CARRY_SETTINGS_KNOWN = new Set([
+  "employmentType", "userRole", "defaultLessonDurationMinutes", "lowSessionsThreshold",
+  "idleDaysThreshold", "customFieldDefinitions", "customFieldSpecs", "coachPackages",
+  "salaryRule", "studentTags", "colorTheme",
+]);
+
+/**
+ * InBody 的照片是 base64，一張就可能幾百 KB，而瀏覽器的 localStorage 只有
+ * 幾 MB —— 整份存進去會讓 save() 爆掉，那比掉幾張照片嚴重得多
+ * （存不進去等於這次匯入的所有資料都沒落地）。所以照片不帶，
+ * 但**要數出來告訴使用者**，不能默默拿掉。
+ */
+let carriedPhotosDropped = 0;
+const stripPhotos = (carry) => {
+  if (!carry || !Array.isArray(carry.inbody)) return carry;
+  carry.inbody = carry.inbody.map((b) => {
+    if (b && b.photoData) { carriedPhotosDropped += 1; const { photoData, ...rest } = b; return rest; }
+    return b;
+  });
+  return carry;
+};
+
 function parseBackup(raw) {
   if (!raw || typeof raw !== "object" || !Array.isArray(raw.students)) {
     throw new Error("這不是教練小幫手的備份檔");
   }
+  carriedPhotosDropped = 0;
   if (raw.version > 1) throw new Error(`這個備份是較新版本（v${raw.version}）建立的`);
 
   const dayOf = (isoStr) => {
@@ -7826,6 +7891,8 @@ function parseBackup(raw) {
       : [],
     createdAt: d.createdAt || new Date().toISOString(),
     updatedAt: d.updatedAt || new Date().toISOString(),
+    // 網頁不顯示、但不能吃掉的欄位（pausedUntil／inbody／exercises…）
+    ...(() => { const c = stripPhotos(carryOf(d, CARRY_STUDENT_KNOWN)); return c ? { _carry: c } : {}; })(),
   }));
 
   // 名單要排在課程前面還原：檢測掛在名單上，順序反了就對不到人
@@ -7853,6 +7920,7 @@ function parseBackup(raw) {
     color: typeof d.colorTag === "string" ? d.colorTag : "",
     leadId: leads[d.leadIndex]?.id || "",
     createdAt: d.createdAt || new Date().toISOString(),
+    ...(() => { const c = carryOf(d, CARRY_LESSON_KNOWN); return c ? { _carry: c } : {}; })(),
   }));
 
   const rawSettings = raw.settings || {};
@@ -7899,9 +7967,15 @@ function parseBackup(raw) {
       .map((t) => ({ id: t.id, name: t.name, color: t.colorHex || t.color || TAG_COLORS[0] }));
   }
   settings.theme = S.settings.theme;   // 外觀是這台裝置的偏好，不跟著備份走
+  // iOS 專屬的設定（提醒、一天的起訖時間、訓練菜單範本…）原封帶著
+  const settingsCarry = carryOf(rawSettings, CARRY_SETTINGS_KNOWN);
+  if (settingsCarry) settings._carry = settingsCarry;
+  // 上課地點：網頁沒有這個頁面，但 iOS 有，不能弄丟
+  if (Array.isArray(raw.locations) && raw.locations.length) settings._carryLocations = raw.locations;
 
   students.forEach((s) => delete s._i);
-  return { students, lessons, leads, settings };
+  // photosDropped 給匯入畫面用 —— InBody 照片是唯一沒帶過來的東西，要講出來
+  return { students, lessons, leads, settings, photosDropped: carriedPhotosDropped };
 }
 
 function importFile(file) {
@@ -7931,6 +8005,10 @@ function askImportMode(parsed) {
     title: "要怎麼匯入？",
     body: `
       <div class="note-box" style="margin-bottom:14px">備份內容：${summary}</div>
+      ${parsed.photosDropped ? `<p class="hint" style="margin:-8px 0 12px">
+        這份備份裡有 <strong>${parsed.photosDropped} 張 InBody 照片</strong>，網頁版不會帶進來
+        （瀏覽器能存的空間有限，照片會把其他資料一起擠掉）。量測的數字都在，
+        照片請留著原本那份備份檔。</p>` : ""}
       <p style="margin:0 0 6px;color:var(--ink-2)"><strong>合併</strong>：保留現在的資料，把備份加進來。同名同電話的學生視為同一人，不會重複建立。</p>
       <p style="margin:0;color:var(--ink-2)"><strong>取代</strong>：先清空現在的資料，整份換成備份的內容。</p>`,
     extraFoot: `<button class="btn btn-sm" type="button" data-action="do-merge">合併</button>`,
