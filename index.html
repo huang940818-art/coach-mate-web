@@ -858,7 +858,7 @@ const NOTICE_KEY = "coach-mate-web-notice-dismissed";
  * 版本標記。顯示在設定頁最下面，教練唸得出來就知道他手上是哪一版，
  * 不用再猜是不是拿到舊的快取。每次改版就把這個字串往上加。
  */
-const BUILD = "2026-08-30 · v89";
+const BUILD = "2026-08-30 · v90";
 
 /** 開發者署名，顯示在設定頁的「關於」 */
 const DEVELOPER = "杯子蛋糕好好吃";
@@ -1004,6 +1004,25 @@ const DEFAULT_SALARY = {
   separateCompanyLeadRate: false,
   companyLeadSalesPercent: 5,
 };
+
+/**
+ * 「達標後取消底薪」的堂數門檻。**所有讀這個值的地方都要走這裡。**
+ *
+ * 以前每個地方各寫一次 `rule.baseSalaryThreshold || 40`，於是 0 被靜靜當成 40 ——
+ * 設定頁顯示 40、算薪也照 40 算，教練根本看不出來自己填的 0 沒生效。
+ * 2026-08-30 在輸入的地方夾成最小 1 擋住了手動輸入那條路，但**匯入備份沒擋到**：
+ * iOS 的門檻是 Int、可以是 0，備份帶著 0 進來，網頁又變回照 40 算 ——
+ * 同一份資料，iOS 底薪一毛不給、網頁底薪照給，兩台裝置兩個薪水。
+ *
+ * 所以規則收斂成一條：**沒設定（undefined／null／NaN）才用預設 40；
+ * 有給值就夾到最小 1 並取整。** 門檻 0 本來就沒有意義（等於底薪永遠不給，
+ * 那該把底薪填 0）。
+ */
+function salaryThreshold(rule) {
+  const v = +(rule || {}).baseSalaryThreshold;
+  if (!Number.isFinite(v)) return DEFAULT_SALARY.baseSalaryThreshold;
+  return Math.max(1, Math.round(v));
+}
 
 const DEFAULT_SETTINGS = {
   employment: "independent",       // independent | company
@@ -1897,7 +1916,7 @@ function salaryFor(ym, opts = {}) {
   // 算出來的是「實際要加上去的金額」，這樣 total 一律是 抽成 ＋ 這個數字。
   const configuredBase = rule.baseSalary || 0;
   const mode = rule.baseSalaryMode || "always";
-  const threshold = rule.baseSalaryThreshold || 40;
+  const threshold = salaryThreshold(rule);
   const earned = lessonPay + salesBonus;
 
   let baseSalary;
@@ -7163,7 +7182,7 @@ function convertLead(lead) {
 /** 用實際數字解釋底薪的給法，比抽象敘述好懂 */
 function baseModeHint(rule) {
   const base = rule.baseSalary || 0;
-  const threshold = rule.baseSalaryThreshold || 40;
+  const threshold = salaryThreshold(rule);
   switch (rule.baseSalaryMode || "always") {
     case "belowThreshold":
       return `不滿 ${threshold} 堂時領 ${money(base)} 底薪加抽成；滿 ${threshold} 堂之後底薪歸零，只算抽成。`;
@@ -7459,7 +7478,7 @@ function viewSettings() {
             <div class="row">
               <div class="row-main">堂數門檻</div>
               <div class="row-end"><input type="number" data-action="salary-num" data-key="baseSalaryThreshold"
-                   value="${rule.baseSalaryThreshold || 40}" style="width:82px" inputmode="numeric"> 堂</div>
+                   value="${salaryThreshold(rule)}" style="width:82px" inputmode="numeric"> 堂</div>
             </div>` : ""}
         ` : ""}
       </section>` : ""}
@@ -7958,6 +7977,10 @@ function parseBackup(raw) {
         ? salary.tiers.map((t) => ({ minSessions: t.minSessions || 0, percent: t.percent || 0 }))
         : DEFAULT_SALARY.tiers,
     };
+    // iOS 的門檻是 Int，可以是 0。進來就正規化，存的、畫面上的、算薪用的
+    // 才是同一個數字 —— 不然 0 會一路留在 localStorage 裡，只有讀的時候才被
+    // 當成別的值。規則見 salaryThreshold()。
+    settings.salary.baseSalaryThreshold = salaryThreshold(settings.salary);
   }
   // 顏色標籤。iOS 存的是 colorHex，網頁用 color。
   const tags = parseJSON(rawSettings.studentTags, null);
@@ -8429,7 +8452,9 @@ document.addEventListener("change", (e) => {
       // （等於底薪永遠不給，那該把底薪填 0），所以存的時候就夾到最小 1，
       // 畫面跟計算才會是同一個數字（2026-08-30）。
       const raw = Number.isFinite(v) ? v : 0;
-      S.settings.salary[key] = key === "baseSalaryThreshold" ? Math.max(1, Math.round(raw)) : raw;
+      S.settings.salary[key] = key === "baseSalaryThreshold"
+        ? salaryThreshold({ baseSalaryThreshold: raw })
+        : raw;
       save();
       // 這裡**刻意不重畫** —— 重畫會讓輸入框失焦，數字打到一半被打斷。
       // 唯一的例外是底薪跨過 0：「底薪的給法」那一整段是 baseSalary > 0 才畫的，
