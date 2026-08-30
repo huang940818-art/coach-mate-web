@@ -858,7 +858,7 @@ const NOTICE_KEY = "coach-mate-web-notice-dismissed";
  * 版本標記。顯示在設定頁最下面，教練唸得出來就知道他手上是哪一版，
  * 不用再猜是不是拿到舊的快取。每次改版就把這個字串往上加。
  */
-const BUILD = "2026-08-30 · v88";
+const BUILD = "2026-08-30 · v89";
 
 /** 開發者署名，顯示在設定頁的「關於」 */
 const DEVELOPER = "杯子蛋糕好好吃";
@@ -8424,7 +8424,12 @@ document.addEventListener("change", (e) => {
     if (action === "salary-num") {
       const v = +el.value;
       const before = S.settings.salary[key];
-      S.settings.salary[key] = Number.isFinite(v) ? v : 0;
+      // 「堂數門檻」填 0 會被 salaryFor 的 `|| 40` 吃掉 —— 欄位上顯示 0、
+      // 實際卻照 40 在算，下次重畫又自己變成 40。門檻 0 本來就沒有意義
+      // （等於底薪永遠不給，那該把底薪填 0），所以存的時候就夾到最小 1，
+      // 畫面跟計算才會是同一個數字（2026-08-30）。
+      const raw = Number.isFinite(v) ? v : 0;
+      S.settings.salary[key] = key === "baseSalaryThreshold" ? Math.max(1, Math.round(raw)) : raw;
       save();
       // 這裡**刻意不重畫** —— 重畫會讓輸入框失焦，數字打到一半被打斷。
       // 唯一的例外是底薪跨過 0：「底薪的給法」那一整段是 baseSalary > 0 才畫的，
