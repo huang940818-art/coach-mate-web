@@ -858,7 +858,7 @@ const NOTICE_KEY = "coach-mate-web-notice-dismissed";
  * 版本標記。顯示在設定頁最下面，教練唸得出來就知道他手上是哪一版，
  * 不用再猜是不是拿到舊的快取。每次改版就把這個字串往上加。
  */
-const BUILD = "2026-08-31 · v96";
+const BUILD = "2026-08-31 · v97";
 
 /** 開發者署名，顯示在設定頁的「關於」 */
 const DEVELOPER = "杯子蛋糕好好吃";
@@ -6378,20 +6378,20 @@ function contractsNeedingReview() {
       const created = r.createdAt ? new Date(r.createdAt) : null;
       const bulkDay = !!(created && !isNaN(created.getTime()) && r.date === dayStr(created)
                          && bulkDates.has(r.date));
-      // 未來的日期幾乎一定是打錯或選錯的（實例：首購掛在 2027-01-26）。
-      // 這種不必等到湊成一批，單獨一筆就要問。
-      const future = !!(r.date && r.date > today());
       // 「今天買的 36 堂，但他手上只剩 7 堂」—— 今天買的不可能已經上掉 29 堂。
-      // 這是最後一種漏網的：日期被改成今天（不等於建檔那天）、也還沒到未來，
-      // 但一看堂數就知道那份合約不是今天的。
+      // 日期被改成今天（不等於建檔那天），但一看堂數就知道那份合約不是今天的。
       const latest = renewalsOf(s)[0];
       const usedAlready = !!(latest === r && r.date >= today() && (r.sessions || 0) > 0
                              && (s.remaining || 0) < (r.sessions || 0));
-      const sameDay = bulkDay || future || usedAlready;
-      // **為什麼被列入要留著。** 三種情況以前一律被說成「日期停在補登那天」，
+      const sameDay = bulkDay || usedAlready;
+      // **為什麼被列入要留著。** 兩種情況以前一律被說成「日期停在補登那天」，
       // 使用者點進去看發現日期根本不是那天，會以為修不好（2026-08-31 回報）。
       // 而且 bulkDay 要三位以上學生同一天才成立，兩筆的時候一定不是它。
-      const reason = bulkDay ? "bulk" : future ? "future" : usedAlready ? "used" : "";
+      //
+      // **未來日期不在這裡面**（2026-08-31 小春指正）：先簽下一期、日期填未來
+      // 本來就是正常的生意，這個月談好下一期，合約日期就是下個月。
+      // 代價是選錯年份那種打錯不會再被提醒 ——「顯示全部合約」看得到每一筆。
+      const reason = bulkDay ? "bulk" : usedAlready ? "used" : "";
       // $0 本身是合法的（贈課、補課）。只有「還沒確認過」的才提出來問一次，
       // 在批次表按過套用就記 amountOk，不再一直標記同一筆。
       const noAmount = !(r.amount > 0) && !r.amountOk;
@@ -6685,10 +6685,9 @@ function batchContractSheet(showAll = false) {
           // 跟分析頁那個提示框用同一套說法。三種日期問題混成一句
           // 「停在補登那天」的話，點進來看到的是未來日期或用掉的堂數，對不起來。
           const n = (why) => rows.filter((r) => r.reason === why).length;
-          const bulk = n("bulk"), future = n("future"), used = n("used");
+          const bulk = n("bulk"), used = n("used");
           const parts = [
             bulk   ? `<strong>${bulk} 筆的日期停在補登那天</strong>，業績會全算到那個月` : "",
-            future ? `<strong>${future} 筆的日期在未來</strong>，多半是選錯年份` : "",
             used   ? `<strong>${used} 筆寫著今天買的，但堂數已經用掉一部分</strong>` : "",
           ].filter(Boolean).join("；");
           return parts ? `${parts}。
@@ -6724,7 +6723,6 @@ function batchContractSheet(showAll = false) {
           </div>
           ${(sameDay || clues) ? `<div class="muted" style="font-size:11.5px">${
             [sameDay ? `現在是 ${esc(renewal.date || "")}（${
-               reason === "future" ? "在未來" :
                reason === "used" ? "但堂數已經用掉一部分" : "補登那天"}）` : "", esc(clues)]
               .filter(Boolean).join("・")}</div>` : ""}
           <div class="field-row" style="margin-top:5px">
@@ -6914,10 +6912,9 @@ function salesSection() {
               // 三種日期問題分開講。混成一句「日期停在補登那天」的話，
               // 使用者點進去看到的是未來日期或用掉的堂數，對不起來。
               const n = (why) => rows.filter((r) => r.reason === why).length;
-              const bulk = n("bulk"), future = n("future"), used = n("used");
+              const bulk = n("bulk"), used = n("used");
               return [
                 bulk   ? `${bulk} 筆的日期停在補登那天（業績會全算到那個月）` : "",
-                future ? `${future} 筆的日期在未來（多半是選錯年份）` : "",
                 used   ? `${used} 筆寫著今天買的，但堂數已經用掉一部分` : "",
                 noAmount ? `${noAmount} 筆沒填金額（銷售金額會少算）` : "",
               ].filter(Boolean).join("、");
