@@ -858,7 +858,7 @@ const NOTICE_KEY = "coach-mate-web-notice-dismissed";
  * 版本標記。顯示在設定頁最下面，教練唸得出來就知道他手上是哪一版，
  * 不用再猜是不是拿到舊的快取。每次改版就把這個字串往上加。
  */
-const BUILD = "2026-08-31 · v93";
+const BUILD = "2026-08-31 · v94";
 
 /** 開發者署名，顯示在設定頁的「關於」 */
 const DEVELOPER = "杯子蛋糕好好吃";
@@ -4709,9 +4709,14 @@ function studentSheet(existing) {
             const before = s.remaining || 0;
             const purchasedBefore = s.totalPurchased || 0;
             const countBefore = s.renewalCount || 0;
+            // applyOpenRenewalRow 擋下來時自己已經 toast 過原因（日期沒填完之類），
+            // 這裡再 toast 一次會蓋掉它，使用者看到的是錯的訊息。
+            // 只有「什麼都沒填」那種它是安靜回 null 的，才由這裡補一句。
+            const dateBox = histBox.querySelector('[name="r_date"]');
+            const dateLooksBroken = dateBox && !dateBox.disabled && !dateBox.value;
             const rec = applyOpenRenewalRow(s, histBox);
             if (!rec) {
-              if (adding) { toast("堂數或金額至少要填一個"); }
+              if (adding && !dateLooksBroken) { toast("堂數或金額至少要填一個"); }
               return;
             }
             // 剩餘堂數與續約次數真的變了，就把表單那兩格也帶上去 —— 不然
@@ -6604,6 +6609,27 @@ function batchContractSheet(showAll = false) {
       }).join("")}`,
     onConfirm: (form) => {
       const makePayments = !!(form.elements.makePayments && form.elements.makePayments.checked);
+
+      // **先掃一遍有沒有填壞的日期。**（2026-08-31 回報「合約修正還是有問題」）
+      // <input type="date"> 內容不完整或不合法時 .value 是空字串，而底下是
+      // `if (newDate && ...)` —— 那一列會靜靜跳過，最後還回一句「日期還沒填」。
+      // 一次改五筆、其中兩筆填壞的話，它會說「已修正 3 筆」，另外兩筆不見了
+      // 而使用者不會知道。
+      //
+      // 只看「本來就帶著日期的那幾列」（!sameDay）：sameDay 那幾列是刻意留空的，
+      // 空著代表她還沒填，那是既有的狀態不是填壞。
+      const broken = rows.filter(({ renewal, sameDay }) => {
+        if (sameDay) return false;
+        const d = form.elements[`d_${renewal.id}`];
+        return d && !d.disabled && !d.value;
+      });
+      if (broken.length) {
+        toast(broken.length === 1
+          ? `有 1 筆的日期沒填完（${broken[0].student.name || "未命名"}），補齊再套用`
+          : `有 ${broken.length} 筆的日期沒填完，補齊再套用`);
+        return false;   // 表單留著，不要關掉讓人以為存好了
+      }
+
       let changed = 0, made = 0, linked = 0, realEdits = 0;
       for (const { student, renewal } of rows) {
         const d = form.elements[`d_${renewal.id}`];
