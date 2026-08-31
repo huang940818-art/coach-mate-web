@@ -858,7 +858,7 @@ const NOTICE_KEY = "coach-mate-web-notice-dismissed";
  * 版本標記。顯示在設定頁最下面，教練唸得出來就知道他手上是哪一版，
  * 不用再猜是不是拿到舊的快取。每次改版就把這個字串往上加。
  */
-const BUILD = "2026-08-31 · v94";
+const BUILD = "2026-08-31 · v95";
 
 /** 開發者署名，顯示在設定頁的「關於」 */
 const DEVELOPER = "杯子蛋糕好好吃";
@@ -1211,6 +1211,9 @@ function parseDay(s) {
   return m ? new Date(+m[1], +m[2] - 1, +m[3]) : null;
 }
 function addDays(d, n) { const x = new Date(d); x.setDate(x.getDate() + n); return x; }
+/** 總覽的週卡片在看第幾週。0 = 本週，1 = 上週，往前數。 */
+let dashWeekOffset = 0;
+
 function startOfWeek(d) {           // 週一為一週之始
   const x = new Date(d);
   const wd = (x.getDay() + 6) % 7;
@@ -2953,6 +2956,8 @@ function viewDashboard() {
   const weekStart = startOfWeek(new Date());
   const weekDays = [...Array(7)].map((_, i) => dayStr(addDays(weekStart, i)));
   const weekLessons = S.lessons.filter((l) => weekDays.includes(l.date) && l.status !== "cancelled");
+  // 可以往前翻的那張週卡片（上面那個方塊固定看本週，不受影響）
+  const weekView = weekStats(dashWeekOffset);
   const upcoming = S.lessons.filter((l) => l.status === "scheduled" && l.date >= today());
   const students = activeStudents();
   const ym = thisMonth();
@@ -2993,6 +2998,8 @@ function viewDashboard() {
         ${tile({ value: upcoming.length, unit: "堂", label: "待上課程", iconName: "upcoming", color: "var(--warn)",
                  note: upcoming.length ? `最近 ${esc(upcoming.map((l) => l.date).sort()[0])}` : "目前沒有排課" })}
       </div>
+
+      ${weekCard(weekView)}
 
       <section class="card">
         <div class="sec-head">
@@ -6551,6 +6558,112 @@ function fixPaymentDatesFromRenewals() {
   return rows.length;
 }
 
+/**
+ * 某一週的數字。offset 0 = 本週，1 = 上週，往前數。
+ *
+ * 取消的課不算堂數（它沒發生），但要單獨講出來 —— 一週被取消三堂
+ * 跟一週只排三堂是完全不同的狀況，混在一起看不出來。
+ * 檢測佔時段但不扣堂數也不算收入（同 LESSON_KIND），所以分開數。
+ */
+function weekStats(offset = 0) {
+  const start = addDays(startOfWeek(new Date()), -7 * offset);
+  const days = [...Array(7)].map((_, i) => dayStr(addDays(start, i)));
+  const from = days[0], to = days[6];
+  const all = S.lessons.filter((l) => days.includes(l.date));
+
+  const cancelled = all.filter((l) => l.status === "cancelled");
+  const live = all.filter((l) => l.status !== "cancelled");
+  const attended = live.filter((l) => CONSUMING.includes(l.status));
+  const assessments = live.filter((l) => !LESSON_KIND[kindOf(l)].paid);
+  const scheduled = live.filter((l) => l.status === "scheduled");
+
+  // 上到的課值多少錢。用每個學生自己的單價，共同課兩個人各算一份 ——
+  // 跟薪資試算同一套算法（salaryFor），兩邊數字才對得起來。
+  let revenue = 0;
+  for (const l of attended) {
+    if (!LESSON_KIND[kindOf(l)].paid) continue;
+    for (const id of [l.studentId, l.partnerId]) {
+      const st = studentById(id);
+      if (st) revenue += sessionPrice(st);
+    }
+  }
+
+  // 這一週收到的錢（照收費日期，跟收費頁同一個口徑）
+  const collected = allPayments()
+    .filter((p) => inPeriod(p.date, from, to))
+    .reduce((a, p) => a + (p.amount || 0), 0);
+
+  // 這一週簽的約（照合約日期）
+  const contracts = S.students.flatMap((st) =>
+    (st.renewals || []).filter((r) => inPeriod(r.date, from, to)));
+
+  const people = new Set();
+  for (const l of attended) for (const id of [l.studentId, l.partnerId]) if (id) people.add(id);
+
+  return {
+    offset, from, to, days,
+    attended: attended.length,
+    scheduled: scheduled.length,
+    cancelled: cancelled.length,
+    assessments: assessments.length,
+    people: people.size,
+    revenue,
+    collected,
+    contracts: contracts.length,
+    contractAmount: contracts.reduce((a, r) => a + (r.amount || 0), 0),
+    isFuture: offset < 0,
+  };
+}
+
+/**
+ * 可以往前翻的週卡片。
+ *
+ * 為什麼不做成日期區間選擇器：翻週是「上禮拜怎麼樣」這種很順手的問題，
+ * 選日期要按四五下。真的要自訂區間的話，分析頁本來就有。
+ */
+function weekCard(w) {
+  const title = w.offset === 0 ? "這禮拜" : w.offset === 1 ? "上禮拜" : `${w.offset} 週前`;
+  const empty = !w.attended && !w.scheduled && !w.cancelled && !w.assessments;
+  return `
+      <section class="card">
+        <div class="sec-head">
+          <h2 class="sec-title">${title}</h2>
+          <div style="display:flex;align-items:center;gap:8px">
+            <span class="sec-sub">${weekRangeLabel(w.from, w.to)}</span>
+            <button class="btn btn-sm" type="button" data-action="dash-week" data-value="1"
+                    aria-label="再往前一週">‹</button>
+            <button class="btn btn-sm" type="button" data-action="dash-week" data-value="-1"
+                    ${w.offset === 0 ? "disabled" : ""} aria-label="往後一週">›</button>
+            ${w.offset !== 0 ? `<button class="btn btn-sm" type="button" data-action="dash-week" data-value="0">回本週</button>` : ""}
+          </div>
+        </div>
+        ${empty ? `<p class="empty">這一週沒有課。</p>` : `
+        <div class="tiles" style="grid-template-columns:repeat(auto-fit,minmax(120px,1fr))">
+          ${tile({ value: w.attended, unit: "堂", label: "上到的課", iconName: "clock", color: "var(--good)",
+                   note: w.people ? `${w.people} 位學生` : "—" })}
+          ${tile({ value: money(w.revenue), label: "課程收入", iconName: "money", color: "var(--gold)",
+                   note: "照每位學生的單價" })}
+          ${tile({ value: money(w.collected), label: "收到的錢", iconName: "money", color: "var(--info)",
+                   note: "照收費日期" })}
+          ${w.contracts ? tile({ value: w.contracts, unit: "筆", label: "簽的約", iconName: "money",
+                                 color: "var(--gold)", note: money(w.contractAmount) }) : ""}
+        </div>
+        <p class="hint">
+          ${w.scheduled ? `還有 <strong>${w.scheduled}</strong> 堂排了沒上。` : ""}
+          ${w.cancelled ? `<strong>${w.cancelled}</strong> 堂取消（不算堂數也不算收入）。` : ""}
+          ${w.assessments ? `<strong>${w.assessments}</strong> 場檢測（佔時段但不扣堂數）。` : ""}
+          ${!w.scheduled && !w.cancelled && !w.assessments ? "這一週沒有取消或檢測。" : ""}
+        </p>`}
+      </section>`;
+}
+
+/** 「8/25–8/31」這種寫法。同一個月就不重複寫月份。 */
+function weekRangeLabel(from, to) {
+  const [, m1, d1] = from.split("-");
+  const [, m2, d2] = to.split("-");
+  return m1 === m2 ? `${+m1}/${+d1}–${+d2}` : `${+m1}/${+d1}–${+m2}/${+d2}`;
+}
+
 function batchContractSheet(showAll = false) {
   // 我的判斷再怎麼修都會有漏網的（實際資料就漏過兩批），所以留一條退路：
   // 「顯示全部合約」讓人自己看、自己改，不必跟我的啟發式規則吵架。
@@ -8320,6 +8433,12 @@ document.addEventListener("click", (e) => {
     case "week": {
       if (value === "0") { weekAnchor = today(); selectedDate = today(); }
       else weekAnchor = dayStr(addDays(parseDay(weekAnchor), +value * 7));
+      render(); break;
+    }
+    // 總覽的週卡片翻頁。往前不設上限（舊資料翻得回去），
+    // 但不給翻到未來 —— 那是「待上課程」在管的，混在一起會以為課已經上了。
+    case "dash-week": {
+      dashWeekOffset = value === "0" ? 0 : Math.max(0, dashWeekOffset + +value);
       render(); break;
     }
     case "cal-refresh":
