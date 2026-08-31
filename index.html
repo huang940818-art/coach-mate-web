@@ -858,7 +858,7 @@ const NOTICE_KEY = "coach-mate-web-notice-dismissed";
  * 版本標記。顯示在設定頁最下面，教練唸得出來就知道他手上是哪一版，
  * 不用再猜是不是拿到舊的快取。每次改版就把這個字串往上加。
  */
-const BUILD = "2026-08-31 · v91";
+const BUILD = "2026-08-31 · v92";
 
 /** 開發者署名，顯示在設定頁的「關於」 */
 const DEVELOPER = "杯子蛋糕好好吃";
@@ -3886,6 +3886,24 @@ function addRenewalRecord(student, patch) {
  *
  * 同一時間只會有一列展開，所以不必用 id 去找。
  */
+/**
+ * 讀一格日期輸入。**空字串不是「沒填」，是「填壞了」。**
+ *
+ * <input type="date"> 只要內容不完整或不合法（打到一半、月份 13、
+ * 民國年），`.value` 就是空字串。而各張表原本都寫
+ * `form.elements.date.value || today()` —— 使用者打的東西被靜悄悄換成今天，
+ * 畫面一句話都沒說，回頭看合約日期全掛在同一天。
+ * 2026-08-31 小春回報「修正合約的時候有時候我打日期他會吃不到」。
+ *
+ * 回傳 null 代表「使用者動過但現在不成立」，呼叫端要擋下來並說一聲。
+ */
+function readDateField(el, fallback) {
+  if (!el) return fallback;
+  const v = (el.value || "").trim();
+  if (v) return v;
+  return el.disabled ? fallback : null;
+}
+
 function applyOpenRenewalRow(student, scope) {
   const row = scope.querySelector("[data-renewal-row]");
   if (!row) return null;
@@ -3916,8 +3934,15 @@ function applyOpenRenewalRow(student, scope) {
     return null;
   }
   // 日期沒填就不要存。預設今天是上一版的做法，結果整批補登的合約全掛在同一天。
-  if (adding && !patch.date) {
-    toast("請填合約日期——那筆是什麼時候的");
+  //
+  // **修改既有紀錄時也要擋**（2026-08-31 小春回報「打日期他會吃不到」）：
+  // <input type="date"> 只要內容不完整或不合法，`.value` 就是空字串，而底下
+  // applyRenewalEdit 是 `record.date = patch.date || record.date` —— 空字串會
+  // 靜靜退回原本的日期，使用者打的東西不見了而畫面一句話都沒說。
+  // 加購那格是 disabled（日期跟著主約，改了也不生效），不在此限。
+  const dateBox = row.querySelector('[name="r_date"]');
+  if (dateBox && !dateBox.disabled && !patch.date) {
+    toast(adding ? "請填合約日期——那筆是什麼時候的" : "日期沒填完，補齊再存");
     return null;
   }
   const saved = adding
@@ -5074,7 +5099,8 @@ function renewSheet(student) {
       // 業績抽成也是直接乘總額 —— 存單價的話兩邊都會少一個數量級。
       const typed = +form.elements.amount.value || 0;
       const amount = form.elements.priceMode.value === "unit" ? typed * sessions : typed;
-      const date = form.elements.date.value || today();
+      const date = readDateField(form.elements.date, today());
+      if (date === null) { toast("合約日期沒填完，補齊再存"); return false; }
       // 收費日期預設跟合約同一天。分開填是很常見的：這個月簽約、下個月才
       // 轉帳。混在一起的話收入會記到錯的月份，而業績本來就該留在簽約那個月。
       const payDate = (form.elements.separatePayDate && form.elements.separatePayDate.checked
@@ -5477,7 +5503,8 @@ function lessonSheet(existing, presetKind = "lesson", presetStudentId = "") {
         </div>`}`,
     extraFoot: existing ? `<button class="btn btn-danger btn-sm" type="button" data-action="delete-lesson" data-id="${l.id}">刪除</button>` : "",
     onConfirm: (form) => {
-      const date = form.elements.date.value || today();
+      const date = readDateField(form.elements.date, today());
+      if (date === null) { toast("日期沒填完，補齊再存"); return false; }
       const start = form.elements.start.value || "09:00";
       const minutes = readDuration(form);
       const end = timeOf(minutesOf(start) + minutes);
@@ -6136,8 +6163,11 @@ function paymentSheet(student = null, payment = null) {
       // 而且擋掉它只會逼人隨便填一個數字，那才真的把帳弄髒（2026-08-12）。
       // 續約當下自動產生的收費本來就允許 0，這裡不該有第二套規矩。
 
+      const payDate = readDateField(form.elements.date, today());
+      if (payDate === null) { toast("收費日期沒填完，補齊再存"); return false; }
+
       const fields = {
-        amount, date: form.elements.date.value || today(),
+        amount, date: payDate,
         method: form.elements.method.value, notes: form.elements.notes.value,
         ...(renewalId ? { renewalId } : {}),
       };
