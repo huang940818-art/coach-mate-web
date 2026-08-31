@@ -858,7 +858,7 @@ const NOTICE_KEY = "coach-mate-web-notice-dismissed";
  * 版本標記。顯示在設定頁最下面，教練唸得出來就知道他手上是哪一版，
  * 不用再猜是不是拿到舊的快取。每次改版就把這個字串往上加。
  */
-const BUILD = "2026-08-31 · v92";
+const BUILD = "2026-08-31 · v93";
 
 /** 開發者署名，顯示在設定頁的「關於」 */
 const DEVELOPER = "杯子蛋糕好好吃";
@@ -3003,41 +3003,6 @@ function viewDashboard() {
           `<p class="empty">今天沒有排課，休息一下。</p>`}
       </section>
 
-      ${(() => {
-        // 太久沒上課。獨立一整條而不是塞進下面的 grid-2 ——
-        // 每一列要放上次上課、隔了幾天、剩幾堂還有一顆「排課」，
-        // 擠成半欄的話又會變成上面續約列那種折行的樣子。
-        const idle = idleStudents();
-        const idleAt = idleDaysSetting();
-        if (!idle.length) return "";
-        return `
-      <section class="card">
-        <div class="sec-head">
-          <h2 class="sec-title">太久沒上課</h2>
-          <span class="sec-sub">${idleAt} 天以上・${idle.length} 位</span>
-        </div>
-        ${idle.map(({ student: s, last, days }) => `
-          <div class="row">
-            <span class="dot" style="background:${esc(s.color)}"></span>
-            <div class="row-main">
-              <div class="row-title">
-                <button type="button" class="btn-plain" data-action="view-student" data-id="${s.id}"
-                        style="font:inherit;color:inherit;cursor:pointer;text-align:left">${esc(s.name || "（未命名）")}</button>
-                <span class="pill ${days >= idleAt * 2 ? "pill-crit" : "pill-warn"}">${daysAgoLabel(days)}</span>
-              </div>
-              <div class="row-sub">${last
-                ? `上次上課 ${esc(last)}`
-                : `還沒有上課紀錄・建檔 ${days} 天`}・剩 ${s.remaining} 堂</div>
-            </div>
-            <div class="row-end">
-              <button class="btn btn-sm btn-primary" type="button"
-                      data-action="schedule-for" data-id="${s.id}"
-                      title="幫 ${esc(s.name || "")} 排一堂課">排課</button>
-            </div>
-          </div>`).join("")}
-        <p class="hint">已經排好下一堂的人不會出現在這裡。天數門檻在設定頁可以改。</p>
-      </section>`;
-      })()}
 
       <div class="grid-2">
         <section class="card">
@@ -3082,6 +3047,44 @@ function viewDashboard() {
           </div>
         </section>
       </div>
+      ${(() => {
+        // 太久沒上課。獨立一整條而不是塞進上面那個 grid-2 ——
+        // 每一列要放上次上課、隔了幾天、剩幾堂還有一顆「排課」，
+        // 擠成半欄的話又會變成上面續約列那種折行的樣子。
+        //
+        // 2026-08-31 移到「堂數快用完」下面：快用完是**這幾天就要處理**的事
+        // （不續約就斷了），太久沒上課是追蹤，先看急的那個。
+        const idle = idleStudents();
+        const idleAt = idleDaysSetting();
+        if (!idle.length) return "";
+        return `
+      <section class="card">
+        <div class="sec-head">
+          <h2 class="sec-title">太久沒上課</h2>
+          <span class="sec-sub">${idleAt} 天以上・${idle.length} 位</span>
+        </div>
+        ${idle.map(({ student: s, last, days }) => `
+          <div class="row">
+            <span class="dot" style="background:${esc(s.color)}"></span>
+            <div class="row-main">
+              <div class="row-title">
+                <button type="button" class="btn-plain" data-action="view-student" data-id="${s.id}"
+                        style="font:inherit;color:inherit;cursor:pointer;text-align:left">${esc(s.name || "（未命名）")}</button>
+                <span class="pill ${days >= idleAt * 2 ? "pill-crit" : "pill-warn"}">${daysAgoLabel(days)}</span>
+              </div>
+              <div class="row-sub">${last
+                ? `上次上課 ${esc(last)}`
+                : `還沒有上課紀錄・建檔 ${days} 天`}・剩 ${s.remaining} 堂</div>
+            </div>
+            <div class="row-end">
+              <button class="btn btn-sm btn-primary" type="button"
+                      data-action="schedule-for" data-id="${s.id}"
+                      title="幫 ${esc(s.name || "")} 排一堂課">排課</button>
+            </div>
+          </div>`).join("")}
+        <p class="hint">已經排好下一堂的人不會出現在這裡。天數門檻在設定頁可以改。</p>
+      </section>`;
+      })()}
     </div>`;
 }
 
