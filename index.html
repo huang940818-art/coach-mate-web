@@ -858,7 +858,7 @@ const NOTICE_KEY = "coach-mate-web-notice-dismissed";
  * 版本標記。顯示在設定頁最下面，教練唸得出來就知道他手上是哪一版，
  * 不用再猜是不是拿到舊的快取。每次改版就把這個字串往上加。
  */
-const BUILD = "2026-08-30 · v90";
+const BUILD = "2026-08-31 · v91";
 
 /** 開發者署名，顯示在設定頁的「關於」 */
 const DEVELOPER = "杯子蛋糕好好吃";
@@ -4996,14 +4996,27 @@ function tagEditorRow(tag, count) {
 
 function renewSheet(student) {
   const packages = S.settings.packages;
+  // 檢測成交後彈出來的就是這張表，而那時學生手上還沒有任何合約 ——
+  // 那是「首次購買」不是續約。字面、按鈕、跟不適用的欄位都要跟著換。
+  // 2026-08-31 小春回報「每次都會變成上面寫續約一次 但明明沒有」。
+  //
+  // **不能只看 renewals 是不是空的**：舊版建的學生、或手動改過次數的人，
+  // 次數與已購都有值卻沒有半筆紀錄。那種人再買一次是真的續約，
+  // 判成首購的話次數就永遠加不上去（測試 test-renewal-count.js 守著）。
+  // 所以首購＝完全沒有任何購買歷史。
+  const isFirst = !(student.renewals || []).length
+               && !(student.renewalCount || 0)
+               && !(student.totalPurchased || 0);
   openSheet({
-    title: `續約 · ${student.name}`,
+    title: `${isFirst ? "首次購買" : "續約"} · ${student.name}`,
     body: `
       <div class="note-box" style="margin-bottom:14px">
-        目前剩 <strong class="mono">${student.remaining}</strong> 堂，累計購買 <strong class="mono">${student.totalPurchased}</strong> 堂。
+        ${isFirst
+          ? `<strong>${esc(student.name)}</strong> 的第一份合約。買了幾堂、多少錢，填完會一起記進銷售與收費。`
+          : `目前剩 <strong class="mono">${student.remaining}</strong> 堂，累計購買 <strong class="mono">${student.totalPurchased}</strong> 堂。
         ${student.remaining > 0
           ? `<br>還沒上完就先續約沒關係——<strong>剩下的 ${student.remaining} 堂會結轉</strong>，跟這次買的加在一起。`
-          : ""}
+          : ""}`}
       </div>
       ${packages.length ? fieldSelect("pkg", "選擇方案",
         [["", "自己填"], ...packages.map((p) => [p.id, `${p.name}・${p.sessions} 堂・${money(p.price)}`])], "") : ""}
@@ -5013,14 +5026,14 @@ function renewSheet(student) {
       </div>
       <input type="hidden" name="priceMode" value="total">
       <div class="field-row">
-        ${fieldText("sessions", "加購堂數", 10, { type: "number", required: true })}
+        ${fieldText("sessions", isFirst ? "購買堂數" : "加購堂數", 10, { type: "number", required: true })}
         ${fieldText("amount", "總額", "", { type: "number" })}
       </div>
       <p class="hint" data-price-hint>存進去的一律是總額——銷售統計與業績抽成都是拿總額去算的。</p>
-      ${fieldText("carryOver", "上一期剩下的堂數", student.remaining || 0, { type: "number",
+      ${isFirst ? "" : `${fieldText("carryOver", "上一期剩下的堂數", student.remaining || 0, { type: "number",
         hint: "自動帶入他現在手上的堂數。只是記下「這一期有幾堂是上次留下來的」，"
             + "不會再加一次到剩餘堂數裡。補以前的紀錄時改成當時的數字。" })}
-      <p class="hint" data-carry-hint></p>
+      <p class="hint" data-carry-hint></p>`}
       <div class="field-row">
         ${fieldText("date", "合約日期", today(), { type: "date",
           hint: "簽約的那一天。銷售統計與「依簽約」計薪的業績都照這個日期分月。" })}
@@ -5037,14 +5050,14 @@ function renewSheet(student) {
       ${fieldText("expiry", "新的到期日", student.expiry, { type: "date", hint: "留白就不改" })}
       ${fieldText("notes", "備註", "")}
       <div class="divider"></div>
-      <div class="switch">
+      ${isFirst ? "" : `<div class="switch">
         <label for="f-addOn">這是加購活動（綁在目前的合約底下）</label>
         <input id="f-addOn" name="addOn" type="checkbox">
       </div>
       <p class="hint">主約底下再加賣的小方案（4 堂、2 堂那種）。堂數一樣加給學生、
-        錢一樣算進銷售，但<strong>不算又續一次約</strong>，剩餘堂數的分母也會併進同一期。</p>
+        錢一樣算進銷售，但<strong>不算又續一次約</strong>，剩餘堂數的分母也會併進同一期。</p>`}
       <div class="switch">
-        <label for="f-backfill">補登以前的續約</label>
+        <label for="f-backfill">${isFirst ? "補登以前的購買" : "補登以前的續約"}</label>
         <input id="f-backfill" name="backfill" type="checkbox">
       </div>
       <p class="hint">補以前的紀錄用。堂數一樣算進「已購」與銷售統計，但<strong>不會加到剩餘堂數</strong>——那些課早就上完了，加上去會灌水。</p>
@@ -5053,10 +5066,10 @@ function renewSheet(student) {
         <input id="f-recordPayment" name="recordPayment" type="checkbox" checked>
       </div>
       <p class="hint">這筆錢如果在「收費」那邊已經記過了，取消勾選，否則累計收費與月營收會重複計算。</p>`,
-    confirmLabel: "確認續約",
+    confirmLabel: isFirst ? "確認購買" : "確認續約",
     onConfirm: (form) => {
       const sessions = +form.elements.sessions.value || 0;
-      if (sessions <= 0) { toast("加購堂數要大於 0"); return false; }
+      if (sessions <= 0) { toast(`${isFirst ? "購買" : "加購"}堂數要大於 0`); return false; }
       // 存進去的一律是總額。銷售統計的均價是「總額 ÷ 堂數」除出來的，
       // 業績抽成也是直接乘總額 —— 存單價的話兩邊都會少一個數量級。
       const typed = +form.elements.amount.value || 0;
@@ -5073,7 +5086,7 @@ function renewSheet(student) {
       // 上一期沒用完的堂數。**在加新堂數之前**讀，那時候的 remaining 就是結轉。
       // 只是記下來（分母與說明要用），不會再加一次進 remaining ——
       // 那些課本來就已經在 remaining 裡了。
-      const carryOver = Math.max(0, +form.elements.carryOver.value || 0);
+      const carryOver = Math.max(0, +(form.elements.carryOver && form.elements.carryOver.value) || 0);
       // 加購是綁在主約底下的小活動，不是又續一次約 —— 次數不加
       const addOn = !!(form.elements.addOn && form.elements.addOn.checked);
       // 而且**日期跟到期日都跟著主約**，不另外記一個 ——
@@ -5082,7 +5095,10 @@ function renewSheet(student) {
       const recordDate = mainForAddOn ? (mainForAddOn.date || date) : date;
       student.totalPurchased += sessions;
       if (!backfill) student.remaining += sessions;
-      if (!addOn) student.renewalCount += 1;
+      // 首購不算「又續一次約」。addRenewalRecord() 本來就有這個判斷
+      // （`hadAny && !patch.addOn`），這裡漏掉，於是成交後填完第一份合約
+      // 學生就寫著「續約 1 次」。
+      if (!isFirst && !addOn) student.renewalCount += 1;
       if (form.elements.expiry.value && !addOn) student.expiry = form.elements.expiry.value;
       const renewalId = uid();
       student.renewals.push({ id: renewalId, date: recordDate, sessions, amount, carryOver, addOn,
