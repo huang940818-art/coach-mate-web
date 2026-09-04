@@ -336,6 +336,11 @@ main {
   line-height: 1.15;
   overflow-wrap: anywhere;
 }
+/* 位數多的數字自己降一級，不要折成「$150,00 / 0」。
+   以月為單位看的時候金額比週大一個數量級（週收 3 萬、月收 15 萬），
+   25px 的等寬字在四欄並排時就放不下了（2026-09-04 截圖抓到）。 */
+.tile-value--sm { font-size: 21px; }
+.tile-value--xs { font-size: 18px; }
 .tile-unit { font-size: 12px; color: var(--muted); font-family: var(--sans); margin-left: 2px; }
 .tile-label { font-size: 12.5px; color: var(--ink-2); }
 /* 說明行永遠佔位，四格才不會一高一矮 */
@@ -858,7 +863,7 @@ const NOTICE_KEY = "coach-mate-web-notice-dismissed";
  * 版本標記。顯示在設定頁最下面，教練唸得出來就知道他手上是哪一版，
  * 不用再猜是不是拿到舊的快取。每次改版就把這個字串往上加。
  */
-const BUILD = "2026-08-31 · v97";
+const BUILD = "2026-09-04 · v98";
 
 /** 開發者署名，顯示在設定頁的「關於」 */
 const DEVELOPER = "杯子蛋糕好好吃";
@@ -1211,8 +1216,16 @@ function parseDay(s) {
   return m ? new Date(+m[1], +m[2] - 1, +m[3]) : null;
 }
 function addDays(d, n) { const x = new Date(d); x.setDate(x.getDate() + n); return x; }
-/** 總覽的週卡片在看第幾週。0 = 本週，1 = 上週，往前數。 */
+/** 總覽那張卡片在看第幾段。0 = 這一段（本週／本月），1 = 前一段，往前數。 */
 let dashWeekOffset = 0;
+/**
+ * 那張卡片用哪個單位看：`"week"` 或 `"month"`。
+ *
+ * 2026-09-04 小春要「以一個月為單位看上個月或更早」。翻週要按四五下才回到
+ * 上個月，而月是教練真正結算的單位（薪水、業績都按月）。換單位時 offset 要
+ * 歸零 —— 停在「3 週前」切到月變成「3 個月前」，看到的會是完全不相干的資料。
+ */
+let dashSpan = "week";
 
 function startOfWeek(d) {           // 週一為一週之始
   const x = new Date(d);
@@ -2918,9 +2931,12 @@ async function saveFile(filename, text) {
 
 function tile({ value, unit = "", label, note = "", iconName = "clock", color = "var(--gold)", action = "" }) {
   const tag = action ? "button" : "div";
+  // 單位（「堂」「位」）是小字，不佔位數，所以只量 value 本身
+  const len = String(value).length;
+  const sizeClass = len >= 11 ? " tile-value--xs" : len >= 8 ? " tile-value--sm" : "";
   return `<${tag} class="tile" style="--tile-color:${color}" ${action ? `type="button" data-action="${action}"` : ""}>
     <span class="tile-icon">${icon(iconName, 19)}</span>
-    <span class="tile-value">${esc(value)}${unit ? `<span class="tile-unit">${esc(unit)}</span>` : ""}</span>
+    <span class="tile-value${sizeClass}">${esc(value)}${unit ? `<span class="tile-unit">${esc(unit)}</span>` : ""}</span>
     <span class="tile-label">${esc(label)}</span>
     <span class="tile-note">${esc(note)}</span>
   </${tag}>`;
@@ -2955,9 +2971,12 @@ function viewDashboard() {
 
   const weekStart = startOfWeek(new Date());
   const weekDays = [...Array(7)].map((_, i) => dayStr(addDays(weekStart, i)));
-  const weekLessons = S.lessons.filter((l) => weekDays.includes(l.date) && l.status !== "cancelled");
-  // 可以往前翻的那張週卡片（上面那個方塊固定看本週，不受影響）
-  const weekView = weekStats(dashWeekOffset);
+  // 檢測不算課（同 spanStats 與薪資試算）—— 不濾掉的話「本週課堂 6 堂」裡面
+  // 有兩場是檢測，跟下面那張卡片的「上到的課」對不起來（2026-09-04）。
+  const weekLessons = S.lessons.filter((l) => weekDays.includes(l.date)
+    && l.status !== "cancelled" && LESSON_KIND[kindOf(l)].paid);
+  // 可以往前翻的那張卡片，週或月（上面那排方塊固定看本週／本月，不受影響）
+  const weekView = spanStats(dashSpan, dashWeekOffset);
   const upcoming = S.lessons.filter((l) => l.status === "scheduled" && l.date >= today());
   const students = activeStudents();
   const ym = thisMonth();
@@ -3200,6 +3219,15 @@ let studentSearch = "";
  * 在手機上就是一條捲不完的長條（實測 60 位學生會有 480 筆）。
  */
 let paymentRange = "thisMonth";
+/**
+ * 薪資試算在看哪一個月。0 = 本月，1 = 上個月，往前數。
+ *
+ * 2026-09-04：原本鎖死本月，「上個月領多少、上個月計薪幾堂」完全看不到。
+ * 這個 offset **只管薪資那張卡片** —— 上面的「本月收到」「累計收入」是這一頁
+ * 自己的固定數字（本月收到還牽著「預收」跟今天比），下面的收費紀錄有自己的
+ * 期間選擇器。三組期間綁在一起會變成一動全動，比看不到上個月更糟。
+ */
+let salaryMonthOffset = 0;
 /** 學生名單上選了哪些標籤要篩選（空的＝不篩） */
 let activeTagFilter = new Set();
 /** 銷售統計目前選的期間 */
@@ -5810,7 +5838,13 @@ function viewPayments() {
     ? rows.filter((p) => inPeriod(p.date, bounds.from, bounds.to))
     : rows;
   const isCompany = S.settings.employment === "company";
-  const sal = isCompany ? salaryFor(ym) : null;
+  // 上面那排方塊一律是本月（「本月實拿」就該是本月），薪資試算那張卡片
+  // 才跟著 salaryMonthOffset 翻。兩個 salaryFor 是刻意分開的。
+  const monthSal = isCompany ? salaryFor(ym) : null;
+  const salBounds = spanBounds("month", salaryMonthOffset);
+  const salYm = salBounds.ym;
+  const salIsNow = salaryMonthOffset === 0;
+  const sal = isCompany ? salaryFor(salYm) : null;
   // 薪資試算要照計薪基準決定畫哪幾列（同 salaryFor 與設定頁的判斷）
   const countsLessons = S.settings.salary.payoutBasisRaw !== "onSale";
   const countsSales = S.settings.salary.payoutBasisRaw !== "perLesson";
@@ -5853,8 +5887,8 @@ function viewPayments() {
           // 底薪印的是**實際加上去的金額**，不是設定值。原本寫
           // `sal.baseSalary || 設定值`，而「達標後取消底薪」算出來就是 0（falsy）——
           // 於是達標當月這裡照樣印著 $20,000，跟旁邊的合計對不起來（2026-08-27）。
-          ? tile({ value: money(sal.total), label: "本月實拿", iconName: "target", color: "var(--info)",
-                   note: `${sal.mode === "higherOf" ? "底薪補差額" : "底薪"} ${money(sal.baseSalary)}` })
+          ? tile({ value: money(monthSal.total), label: "本月實拿", iconName: "target", color: "var(--info)",
+                   note: `${monthSal.mode === "higherOf" ? "底薪補差額" : "底薪"} ${money(monthSal.baseSalary)}` })
           : tile({ value: money(S.students.reduce((a, s) => a + s.remaining * sessionPrice(s), 0)),
                    label: "未上課的預收", iconName: "clock", color: "var(--info)", note: "剩餘堂數 × 鐘點" })}
       </div>
@@ -5862,19 +5896,37 @@ function viewPayments() {
       ${isCompany ? (() => {
         // 排完會是多少：已經上到的 ＋ 這個月還沒上的排定課。
         // 月初只看「已上」永遠接近 0，看不出這個月排的量值多少錢。
-        const proj = salaryFor(ym, { projected: true });
+        //
+        // **只有本月才有「排完會是多少」可言。** 過去的月份早就結算完了，
+        // 而且每次開 App 都會自動點名（autoMarkPastLessons），過去不會留下
+        // 「排了還沒上」的課 —— 對上個月講「全部上完會多 $0」是句廢話。
+        const proj = salIsNow ? salaryFor(salYm, { projected: true }) : sal;
         const more = Math.max(0, proj.total - sal.total);
+        const salTitle = salaryMonthOffset === 0 ? "本月薪資試算"
+                       : salaryMonthOffset === 1 ? "上個月薪資試算"
+                       : `${spanMonthLabel(salYm)}薪資試算`;
         return `
       <section class="card">
         <div class="sec-head">
-          <h2 class="sec-title">本月薪資試算</h2>
-          <span class="sec-sub">依「設定 → 薪資規則」計算</span>
+          <h2 class="sec-title">${salTitle}</h2>
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:flex-end">
+            <span class="sec-sub">${spanMonthLabel(salYm)}</span>
+            <button class="btn btn-sm" type="button" data-action="salary-month" data-value="1"
+                    aria-label="再往前一個月">‹</button>
+            <button class="btn btn-sm" type="button" data-action="salary-month" data-value="-1"
+                    ${salIsNow ? "disabled" : ""} aria-label="往後一個月">›</button>
+            ${salIsNow ? "" : `<button class="btn btn-sm" type="button" data-action="salary-month" data-value="0">回本月</button>`}
+          </div>
         </div>
+        ${salIsNow ? "" : `<p class="hint" style="margin:-4px 0 10px">
+          這是 <strong>${spanMonthLabel(salYm)}</strong> 的結算，用的是<strong>現在</strong>的薪資規則。
+          當時的規則如果不一樣，這裡算出來的就不會等於當月實領。</p>`}
+        <p class="sec-sub" style="margin:-4px 0 10px">依「設定 → 薪資規則」計算</p>
 
         ${/* 排完會多少、還差幾堂跳級 —— 都只有鐘點制才有級距可言。
               選「依簽約」時堂數一律是 0，這段會變成「這個月沒有排了還沒上的課」，
               對業績制的人是句廢話。 */""}
-        ${!countsLessons ? "" : proj.pendingSessions ? `
+        ${!countsLessons || !salIsNow ? "" : proj.pendingSessions ? `
         <div class="tiles" style="grid-template-columns:1fr 1fr;margin-bottom:12px">
           ${tile({ value: money(sal.total), label: "已上課的部分", iconName: "money",
                    color: "var(--good)", note: `${sal.sessions} 堂・抽成 ${sal.pct}%` })}
@@ -5902,13 +5954,13 @@ function viewPayments() {
               「上課堂數 0 堂・課程收入 $0・適用抽成 50%」，看起來像算錯了。 */""}
         ${countsLessons ? `
           <div class="row"><div class="row-main">上課堂數</div><div class="row-end mono">${sal.sessions} 堂${
-            proj.pendingSessions ? `<span class="muted" style="font-size:12px">（排完 ${proj.sessions}）</span>` : ""}</div></div>
+            salIsNow && proj.pendingSessions ? `<span class="muted" style="font-size:12px">（排完 ${proj.sessions}）</span>` : ""}</div></div>
           <div class="row"><div class="row-main">課程收入</div><div class="row-end mono">${money(sal.lessonRevenue)}</div></div>
           <div class="row"><div class="row-main">適用抽成</div><div class="row-end mono">${sal.pct}%</div></div>
           <div class="row"><div class="row-main">鐘點抽成</div><div class="row-end mono">${money(sal.lessonPay)}</div></div>` : ""}
 
         ${countsSales ? `
-          <div class="row"><div class="row-main">本月簽約</div><div class="row-end mono">${sal.saleCount} 筆・${money(sal.salesAmount)}</div></div>
+          <div class="row"><div class="row-main">${salIsNow ? "本月簽約" : "當月簽約"}</div><div class="row-end mono">${sal.saleCount} 筆・${money(sal.salesAmount)}</div></div>
           ${sal.companySalesAmount ? `
             <div class="row"><div class="row-main" style="padding-left:14px">自己開發</div><div class="row-end mono">${money(sal.selfSalesAmount)}</div></div>
             <div class="row"><div class="row-main" style="padding-left:14px">公司名單</div><div class="row-end mono">${money(sal.companySalesAmount)}</div></div>` : ""}
@@ -6563,29 +6615,57 @@ function fixPaymentDatesFromRenewals() {
 }
 
 /**
- * 某一週的數字。offset 0 = 本週，1 = 上週，往前數。
+ * 總覽卡片那一段的起訖日。span 是 `"week"` 或 `"month"`，
+ * offset 0 = 這一段，1 = 前一段，往前數。
+ *
+ * 月用 `new Date(y, m - offset, 1)` 讓 Date 自己跨年（m 給負數會退到去年），
+ * 不要自己算年月 —— 12 月往前翻是最容易寫錯的地方。
+ */
+function spanBounds(span = "week", offset = 0) {
+  const now = new Date();
+  if (span === "month") {
+    const d = new Date(now.getFullYear(), now.getMonth() - offset, 1);
+    const y = d.getFullYear(), m = d.getMonth();
+    const ym = `${y}-${pad(m + 1)}`;
+    const last = new Date(y, m + 1, 0).getDate();
+    return { span, offset, ym, from: `${ym}-01`, to: `${ym}-${pad(last)}` };
+  }
+  const start = addDays(startOfWeek(now), -7 * offset);
+  return { span: "week", offset, ym: null,
+           from: dayStr(start), to: dayStr(addDays(start, 6)) };
+}
+
+/**
+ * 某一段（一週或一個月）的數字。
  *
  * 取消的課不算堂數（它沒發生），但要單獨講出來 —— 一週被取消三堂
  * 跟一週只排三堂是完全不同的狀況，混在一起看不出來。
  * 檢測佔時段但不扣堂數也不算收入（同 LESSON_KIND），所以分開數。
+ *
+ * 日期用字串比區間，不再列出每一天 —— 一個月要列 28~31 天，而課程日期
+ * 一律是 `YYYY-MM-DD`，比大小跟列舉等價（日期空白的課兩種寫法都不算，
+ * 它歸不到任何一段）。
  */
-function weekStats(offset = 0) {
-  const start = addDays(startOfWeek(new Date()), -7 * offset);
-  const days = [...Array(7)].map((_, i) => dayStr(addDays(start, i)));
-  const from = days[0], to = days[6];
-  const all = S.lessons.filter((l) => days.includes(l.date));
+function spanStats(span = "week", offset = 0) {
+  const { from, to, ym } = spanBounds(span, offset);
+  const all = S.lessons.filter((l) => (l.date || "") >= from && (l.date || "") <= to);
 
   const cancelled = all.filter((l) => l.status === "cancelled");
   const live = all.filter((l) => l.status !== "cancelled");
-  const attended = live.filter((l) => CONSUMING.includes(l.status));
+  // 檢測不算在「上到的課」裡。它佔時段但不扣堂數也不算收入（卡片自己那行
+  // 提示就是這樣寫的），可是原本 attended 沒有濾掉它 —— 一個月做了 6 場檢測，
+  // 「上到的課」就比薪資試算的堂數多 6 堂，兩頁對不起來（2026-09-04 抓到）。
+  const paidLive = live.filter((l) => LESSON_KIND[kindOf(l)].paid);
+  const attended = paidLive.filter((l) => CONSUMING.includes(l.status));
   const assessments = live.filter((l) => !LESSON_KIND[kindOf(l)].paid);
-  const scheduled = live.filter((l) => l.status === "scheduled");
+  // 「排了還沒上」也一樣要濾掉檢測，不然它會同時出現在這裡和檢測那個數字裡
+  const scheduled = paidLive.filter((l) => l.status === "scheduled");
 
   // 上到的課值多少錢。用每個學生自己的單價，共同課兩個人各算一份 ——
   // 跟薪資試算同一套算法（salaryFor），兩邊數字才對得起來。
+  // （attended 已經只剩會算錢的課，這裡不必再濾一次檢測）
   let revenue = 0;
   for (const l of attended) {
-    if (!LESSON_KIND[kindOf(l)].paid) continue;
     for (const id of [l.studentId, l.partnerId]) {
       const st = studentById(id);
       if (st) revenue += sessionPrice(st);
@@ -6605,7 +6685,7 @@ function weekStats(offset = 0) {
   for (const l of attended) for (const id of [l.studentId, l.partnerId]) if (id) people.add(id);
 
   return {
-    offset, from, to, days,
+    span, offset, from, to, ym,
     attended: attended.length,
     scheduled: scheduled.length,
     cancelled: cancelled.length,
@@ -6619,29 +6699,50 @@ function weekStats(offset = 0) {
   };
 }
 
+/** 舊名字，週的那一段。`days` 只有這裡還在給（既有呼叫端與測試在用）。 */
+function weekStats(offset = 0) {
+  const s = spanStats("week", offset);
+  const start = parseDay(s.from);
+  return { ...s, days: [...Array(7)].map((_, i) => dayStr(addDays(start, i))) };
+}
+
 /**
- * 可以往前翻的週卡片。
+ * 可以往前翻的期間卡片（一週或一個月）。
  *
- * 為什麼不做成日期區間選擇器：翻週是「上禮拜怎麼樣」這種很順手的問題，
- * 選日期要按四五下。真的要自訂區間的話，分析頁本來就有。
+ * 為什麼不做成日期區間選擇器：翻週、翻月是「上禮拜怎麼樣」「上個月上了幾堂」
+ * 這種很順手的問題，選日期要按四五下。真的要自訂區間的話，分析頁本來就有。
  */
 function weekCard(w) {
-  const title = w.offset === 0 ? "這禮拜" : w.offset === 1 ? "上禮拜" : `${w.offset} 週前`;
+  const isMonth = w.span === "month";
+  // 唸得出來的量詞：「再往前一個月」不是「再往前一月」
+  const unit = isMonth ? "個月" : "週";
+  const title = w.offset === 0 ? (isMonth ? "這個月" : "這禮拜")
+              : w.offset === 1 ? (isMonth ? "上個月" : "上禮拜")
+              : `${w.offset} ${unit}前`;
+  // 月直接寫「2026 年 8 月」——翻到半年前時只寫 8/1–8/31 認不出是哪一年
+  const sub = isMonth ? spanMonthLabel(w.ym) : weekRangeLabel(w.from, w.to);
+  const backLabel = isMonth ? "回本月" : "回本週";
   const empty = !w.attended && !w.scheduled && !w.cancelled && !w.assessments;
+  const emptyWord = isMonth ? `${sub}沒有課。` : "這一週沒有課。";
   return `
       <section class="card">
         <div class="sec-head">
           <h2 class="sec-title">${title}</h2>
-          <div style="display:flex;align-items:center;gap:8px">
-            <span class="sec-sub">${weekRangeLabel(w.from, w.to)}</span>
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:flex-end">
+            <div class="seg">
+              ${[["week", "週"], ["month", "月"]].map(([v, t]) =>
+                `<button type="button" data-action="dash-span" data-value="${v}"
+                         aria-pressed="${w.span === v}">${t}</button>`).join("")}
+            </div>
+            <span class="sec-sub">${sub}</span>
             <button class="btn btn-sm" type="button" data-action="dash-week" data-value="1"
-                    aria-label="再往前一週">‹</button>
+                    aria-label="再往前一${unit}">‹</button>
             <button class="btn btn-sm" type="button" data-action="dash-week" data-value="-1"
-                    ${w.offset === 0 ? "disabled" : ""} aria-label="往後一週">›</button>
-            ${w.offset !== 0 ? `<button class="btn btn-sm" type="button" data-action="dash-week" data-value="0">回本週</button>` : ""}
+                    ${w.offset === 0 ? "disabled" : ""} aria-label="往後一${unit}">›</button>
+            ${w.offset !== 0 ? `<button class="btn btn-sm" type="button" data-action="dash-week" data-value="0">${backLabel}</button>` : ""}
           </div>
         </div>
-        ${empty ? `<p class="empty">這一週沒有課。</p>` : `
+        ${empty ? `<p class="empty">${emptyWord}</p>` : `
         <div class="tiles" style="grid-template-columns:repeat(auto-fit,minmax(120px,1fr))">
           ${tile({ value: w.attended, unit: "堂", label: "上到的課", iconName: "clock", color: "var(--good)",
                    note: w.people ? `${w.people} 位學生` : "—" })}
@@ -6656,9 +6757,21 @@ function weekCard(w) {
           ${w.scheduled ? `還有 <strong>${w.scheduled}</strong> 堂排了沒上。` : ""}
           ${w.cancelled ? `<strong>${w.cancelled}</strong> 堂取消（不算堂數也不算收入）。` : ""}
           ${w.assessments ? `<strong>${w.assessments}</strong> 場檢測（佔時段但不扣堂數）。` : ""}
-          ${!w.scheduled && !w.cancelled && !w.assessments ? "這一週沒有取消或檢測。" : ""}
+          ${!w.scheduled && !w.cancelled && !w.assessments
+            ? (isMonth ? "這個月沒有取消或檢測。" : "這一週沒有取消或檢測。") : ""}
         </p>`}
       </section>`;
+}
+
+/**
+ * 「2026 年 8 月」。翻到去年時只寫月份認不出是哪一年。
+ *
+ * 名字不能叫 `monthLabel` —— 銷售統計那邊已經有一個同名的（印「8 月」，
+ * 只在跨年時才帶年份），後定義的會把先定義的整個蓋掉。
+ */
+function spanMonthLabel(ym) {
+  const m = /^(\d{4})-(\d{2})$/.exec(ym || "");
+  return m ? `${m[1]} 年 ${+m[2]} 月` : (ym || "");
 }
 
 /** 「8/25–8/31」這種寫法。同一個月就不重複寫月份。 */
@@ -8412,6 +8525,12 @@ document.addEventListener("click", (e) => {
     case "report-issue": reportIssueSheet(); break;
     case "add-to-home": addToHomeSheet(); break;
     case "payment-range": paymentRange = value; render(); break;
+    // 薪資試算翻月。跟總覽那張卡片一樣不給翻到未來 —— 下個月的薪水
+    // 只有「已經簽的約」那一半，畫出來會被當成預估收入。
+    case "salary-month": {
+      salaryMonthOffset = value === "0" ? 0 : Math.max(0, salaryMonthOffset + +value);
+      render(); break;
+    }
     case "sales-period":
       salesPeriod = value;
       S.settings.salesPeriod = value; save();
@@ -8463,6 +8582,12 @@ document.addEventListener("click", (e) => {
     case "dash-week": {
       dashWeekOffset = value === "0" ? 0 : Math.max(0, dashWeekOffset + +value);
       render(); break;
+    }
+    // 換單位一定要把 offset 歸零：停在「3 週前」切成月會變「3 個月前」，
+    // 看到的是完全不相干的一段。
+    case "dash-span": {
+      if (dashSpan !== value) { dashSpan = value; dashWeekOffset = 0; render(); }
+      break;
     }
     case "cal-refresh":
     case "refresh-all": {
