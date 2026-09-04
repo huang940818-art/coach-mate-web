@@ -848,13 +848,15 @@ function showFatal(message, file, line) {
  * 換新公告時「一定要改 id」，否則之前按過「知道了」的人不會再看到。
  */
 const ANNOUNCEMENT = {
-  id: "2026-08-06-b",
-  title: "加到主畫面會看不到資料？先看這則",
-  body: "iPhone 的桌面圖示跟 Safari 是分開存資料的，所以在 Safari 建好的學生，" +
-        "打開桌面圖示會是空的——資料沒有不見，還在 Safari 那邊。" +
-        "到「設定 → 加到主畫面 → 怎麼加？」可以把資料一起帶過去。" +
-        "另外這次新增了：檢測（對還沒買課的人做的試教，不扣堂數不算錢，上完會問你成交了沒）、" +
-        "顏色標籤、銷售統計、底薪給法設定。有問題到設定最下面「回報問題」告訴我。",
+  id: "2026-09-04",
+  title: "這次可以往回看了",
+  body: "總覽那張卡片多了「週／月」切換，選月就能一路往前翻，看上個月、上上個月" +
+        "上了幾堂、收多少。收費頁的薪資試算也能翻月了。分析頁最下面新增「年度」：" +
+        "全年堂數與收入、跟去年比、每月長條、最忙的月份。" +
+        "學生詳情多了兩個分頁：InBody（體重體脂那些，可以看最近兩筆的變化；" +
+        "網頁版不存照片，那個要用 App）與菜單（動作清單，可以存成公版套用給別人）。" +
+        "另外修好一個數字：檢測以前會被算進「課堂數」，跟薪資的堂數對不起來，現在不會了。" +
+        "有問題到設定最下面「回報問題」告訴我。",
 };
 
 const NOTICE_KEY = "coach-mate-web-notice-dismissed";
@@ -863,7 +865,7 @@ const NOTICE_KEY = "coach-mate-web-notice-dismissed";
  * 版本標記。顯示在設定頁最下面，教練唸得出來就知道他手上是哪一版，
  * 不用再猜是不是拿到舊的快取。每次改版就把這個字串往上加。
  */
-const BUILD = "2026-09-04 · v98";
+const BUILD = "2026-09-04 · v99";
 
 /** 開發者署名，顯示在設定頁的「關於」 */
 const DEVELOPER = "杯子蛋糕好好吃";
@@ -1090,6 +1092,22 @@ function load() {
     if (!Array.isArray((parsed.settings || {}).tags)) {
       settings.tags = clone(DEFAULT_SETTINGS.tags);
     }
+    // 菜單公版：以前從 iOS 匯入時收在 settings._carry 裡不顯示，
+    // 現在網頁自己也用它了（同一個鍵，兩邊帶得過去）。搬過來並從暗格移走 ——
+    // 留在暗格裡的話，buildBackup 的 `..._carry` 會把網頁新存的公版蓋掉。
+    if (!Array.isArray(settings.trainingMenuTemplates)) {
+      const c = settings._carry || {};
+      // 暗格裡存的是 iOS 的原始值 —— JSON 字串，不是陣列
+      const raw = c.trainingMenuTemplates;
+      const list = Array.isArray(raw) ? raw : parseJSON(raw, null);
+      if (Array.isArray(list)) {
+        settings.trainingMenuTemplates = list;
+        const { trainingMenuTemplates, ...rest } = c;
+        settings._carry = Object.keys(rest).length ? rest : undefined;
+      } else {
+        settings.trainingMenuTemplates = [];
+      }
+    }
     return {
       students: (Array.isArray(parsed.students) ? parsed.students : []).map((s) => ({
         ...s,
@@ -1127,6 +1145,21 @@ function load() {
         payments: linkLegacyPayments(
           Array.isArray(s.payments) ? s.payments : [],
           Array.isArray(s.renewals) ? s.renewals : []),
+        // InBody 與訓練菜單：2026-09-04 以前從 iOS 匯入的這兩樣是原封收在
+        // `_carry` 裡不顯示的。網頁現在自己顯示它們了，所以要把舊資料搬到
+        // 一級欄位來 —— 不搬的話畫面上是空的、備份裡卻有，而且 buildBackup
+        // 的 `..._carry` 排在後面，還會把新加的那幾筆整個蓋掉。
+        ...(() => {
+          const rest = { ...(s._carry || {}) };
+          const out = {};
+          // 已經是一級欄位的就別再動它（重複載入不能讓資料翻倍）
+          for (const [key, parse] of [["inbody", parseInbody], ["exercises", parseExercises]]) {
+            if (Array.isArray(s[key])) { out[key] = s[key]; continue; }
+            out[key] = Array.isArray(rest[key]) ? parse(rest[key]) : [];
+            delete rest[key];
+          }
+          return { ...out, _carry: Object.keys(rest).length ? rest : undefined };
+        })(),
       })),
       // 課程種類、檢測結果、單堂顏色也是後來才加的，舊課一律當正課。
       // owed／partnerOwed 一律清掉：2026-08-11 起網頁版沒有「欠課」這個概念，
@@ -1198,6 +1231,31 @@ function save() {
 }
 
 const uid = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4);
+
+/**
+ * 解 JSON，壞掉就給 fallback。
+ *
+ * **一定要是全域的。** 它本來是 `parseBackup` 內部的區域變數，
+ * 2026-09-04 `load()` 開始要用它解菜單公版時直接 ReferenceError ——
+ * 而 load 的 catch 會把它當成「資料壞了」，整份本機資料換成空白。
+ */
+const parseJSON = (s, fallback) => {
+  try { return JSON.parse(s); } catch (e) { return fallback; }
+};
+
+/**
+ * 標準格式的 UUID。
+ *
+ * **菜單公版一定要用這個，不能用 `uid()`。** iOS 的 `MenuItem.id` 是 `UUID`，
+ * 解到不是 UUID 格式的字串會直接 throw，而那是整份公版一起解 ——
+ * 一筆格式不對，使用者存的**所有**範本都會不見（iOS 那邊為了同一件事
+ * 特地寫了 `decodeIfPresent`，那只擋得住「沒有這個鍵」，擋不住「格式不對」）。
+ */
+const uuid = () => (crypto.randomUUID ? crypto.randomUUID()
+  : "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
+      const r = Math.random() * 16 | 0;
+      return (c === "x" ? r : (r & 0x3 | 0x8)).toString(16);
+    }));
 
 /* ════════════════════════════════════════════════
    2. 日期與格式
@@ -1370,7 +1428,7 @@ function newStudent(over = {}) {
     expiry: "", custom: {}, renewalCount: 0, mayNotRenew: false,
     acquisition: "selfDeveloped", status: "active",
     tags: [],
-    payments: [], renewals: [],
+    payments: [], renewals: [], inbody: [], exercises: [],
     createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
     ...over,
   };
@@ -2104,6 +2162,47 @@ function salesByMonth(from, to) {
     .sort((x, y) => x.month.localeCompare(y.month));
 }
 
+/* ── 年度彙總 ───────────────────────────────── */
+// 「這一年總共上了幾堂、收了多少、領了多少」，以及跟去年比。
+// 口徑跟 iOS 的 YearCalculator.summarize 一致，兩邊數字要對得起來：
+//   attended 是**堂數不是人次**（共同課一堂算一堂，跟薪資的 sessionCount 不同，
+//   那邊是兩個人各算一份）；檢測不算課；income 照收費日期；
+//   salary 用同一支 salaryFor，所以會跟收費頁的薪資試算逐月對得起來。
+
+function yearSummary(year) {
+  const pays = allPayments();
+  const months = [];
+  for (let m = 1; m <= 12; m++) {
+    const ym = `${year}-${pad(m)}`;
+    const attended = S.lessons.filter((l) => (l.date || "").startsWith(ym)
+      && CONSUMING.includes(l.status) && LESSON_KIND[kindOf(l)].paid).length;
+    const income = pays.filter((p) => (p.date || "").startsWith(ym))
+      .reduce((a, p) => a + (p.amount || 0), 0);
+    months.push({ month: m, ym, attended, income, salary: salaryFor(ym).total });
+  }
+  const sum = (k) => months.reduce((a, x) => a + x[k], 0);
+  const active = months.filter((x) => x.attended > 0);
+  const best = (k) => months.filter((x) => x[k] > 0)
+    .reduce((b, x) => (b && b[k] >= x[k] ? b : x), null);
+  return {
+    year, months,
+    totalAttended: sum("attended"), totalIncome: sum("income"), totalSalary: sum("salary"),
+    // 只算有課的月份 —— 一月才開始接案的人除以 12 會被稀釋成沒意義的數字
+    avgPerActiveMonth: active.length ? sum("attended") / active.length : 0,
+    activeMonths: active.length,
+    busiest: best("attended"), bestIncome: best("income"),
+  };
+}
+
+/**
+ * 成長率。去年是 0 就回傳 null —— 除以 0 得到 Infinity，
+ * 畫面上會變成「成長 ∞%」；「去年沒有資料」才是實話。
+ */
+function yearGrowth(previous, current) {
+  if (!previous) return null;
+  return (current - previous) / previous * 100;
+}
+
 /** 這段期間買最多的人 */
 function salesTopStudents(from, to, limit = 5) {
   const { rows } = salesSummary(from, to);
@@ -2622,14 +2721,18 @@ function confirmSheet(title, message, onYes, yesLabel = "確定") {
 /* ── 表單片段 ───────────────────────────────── */
 
 function fieldText(name, label, value = "", opts = {}) {
-  const { type = "text", hint = "", placeholder = "", required = false, list = "", disabled = false } = opts;
+  const { type = "text", hint = "", placeholder = "", required = false, list = "",
+          disabled = false, step = "" } = opts;
   return `<div class="field">
     <label for="f-${name}">${esc(label)}</label>
     <input id="f-${name}" name="${name}" type="${type}" value="${esc(value)}"
            placeholder="${esc(placeholder)}" ${required ? "required" : ""}
            ${list ? `list="${esc(list)}"` : ""}
            ${disabled ? "readonly" : ""}
-           ${type === "number" ? 'inputmode="numeric"' : ""}>
+           ${step ? `step="${esc(step)}"` : ""}
+           ${/* 小數要用 decimal，numeric 在 iPhone 上叫出來的鍵盤沒有小數點 ——
+                體重 62.5 就打不進去 */""}
+           ${type === "number" ? `inputmode="${step && step !== "1" ? "decimal" : "numeric"}"` : ""}>
     ${hint ? `<span class="hint">${hint}</span>` : ""}
   </div>`;
 }
@@ -3228,6 +3331,8 @@ let paymentRange = "thisMonth";
  * 期間選擇器。三組期間綁在一起會變成一動全動，比看不到上個月更糟。
  */
 let salaryMonthOffset = 0;
+/** 分析頁的年度區塊在看哪一年。預設今年，不給看未來。 */
+let analysisYear = new Date().getFullYear();
 /** 學生名單上選了哪些標籤要篩選（空的＝不篩） */
 let activeTagFilter = new Set();
 /** 銷售統計目前選的期間 */
@@ -3392,6 +3497,381 @@ function viewStudents() {
  *
  * 唯讀。要改資料走上面那排按鈕，跟 iOS 一樣。
  */
+/* ── 訓練菜單 ───────────────────────────────── */
+// 掛在學生底下的動作清單，跟 iOS 的 TrainingMenuSectionView 是同一份東西。
+// 範本（公版）存在 settings.trainingMenuTemplates，跟 iOS 的 UserDefaults
+// 同一個鍵，備份互相帶得過去。
+
+/** 備份裡的動作讀成網頁的形狀。order 小的排前面（同 iOS 的 TrainingMenu.sorted）。 */
+function parseExercises(list) {
+  if (!Array.isArray(list)) return [];
+  return list.map((x, i) => ({
+    id: uid(), name: x.name || "", weight: +x.weight || 0,
+    unit: x.unitRaw === "lb" ? "lb" : "kg",
+    reps: +x.reps || 0, sets: +x.sets || 0,
+    order: Number.isFinite(+x.order) ? +x.order : i,
+    createdAt: x.createdAt || new Date().toISOString(),
+  })).sort((a, b) => a.order - b.order);
+}
+
+const menuOf = (student) => (student.exercises || []).slice()
+  .sort((a, b) => (a.order || 0) - (b.order || 0));
+
+const WEIGHT_UNITS = { kg: "公斤", lb: "磅" };
+
+/** 「60 kg」。0 或負數是徒手動作，整數不留小數點（同 iOS 的 weightText）。 */
+function weightText(weight, unit = "kg") {
+  const w = +weight || 0;
+  if (w <= 0) return "徒手";
+  const n = w === Math.round(w) ? String(Math.round(w)) : w.toFixed(1);
+  return `${n} ${unit === "lb" ? "lb" : "kg"}`;
+}
+
+/**
+ * 一行摘要：「槓鈴臥推 · 60 kg × 8 下 × 3 組」。
+ * 沒填的欄位就不寫，不要出現「0 下 × 0 組」（同 iOS 的 TrainingMenuFormat.summary）。
+ */
+function exerciseSummary(x) {
+  const name = (x.name || "").trim() || "未命名動作";
+  const parts = [];
+  if (+x.weight > 0) parts.push(weightText(x.weight, x.unit));
+  if (+x.reps > 0) parts.push(`${+x.reps} 下`);
+  if (+x.sets > 0) parts.push(`${+x.sets} 組`);
+  return parts.length ? `${name} · ${parts.join(" × ")}` : name;
+}
+
+/** 存起來的公版菜單。網頁與 iOS 共用 settings 的同一個鍵。 */
+const menuTemplates = () => {
+  const list = S.settings.trainingMenuTemplates;
+  return Array.isArray(list) ? list : [];
+};
+
+/** 「4 個動作 · 槓鈴臥推、滑輪下拉…」（同 iOS 的 MenuTemplate.subtitle） */
+function templateSubtitle(t) {
+  const items = Array.isArray(t.items) ? t.items : [];
+  if (!items.length) return "尚無動作";
+  const names = items.slice(0, 3).map((i) => (i.name || "").trim() || "未命名動作").join("、");
+  return `${items.length} 個動作 · ${names}${items.length > 3 ? "…" : ""}`;
+}
+
+function menuPanel(student) {
+  const rows = menuOf(student);
+  const tpls = menuTemplates();
+  const actions = `
+    <div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end">
+      ${tpls.length ? `<button class="btn btn-sm" type="button"
+        data-detail-action="apply-menu">套用公版</button>` : ""}
+      ${rows.length ? `<button class="btn btn-sm" type="button"
+        data-detail-action="save-menu-template">存成公版</button>` : ""}
+      <button class="btn btn-sm btn-primary" type="button" data-detail-action="add-exercise">
+        ${icon("plus", 14)}新增動作</button>
+    </div>`;
+
+  if (!rows.length) {
+    return `
+      <p class="empty">還沒有訓練菜單。</p>
+      <div style="display:flex;justify-content:center">${actions}</div>
+      ${tpls.length ? `<p class="hint" style="margin-top:12px">
+        已經存了 ${tpls.length} 份公版，按「套用公版」可以整套帶進來再微調。</p>` : `
+        <p class="hint" style="margin-top:12px">
+        排好一份菜單之後可以「存成公版」，下一位學生直接套用，不用重打。</p>`}`;
+  }
+
+  return `
+    <div class="sec-head" style="margin-bottom:8px">
+      <span class="sec-sub">${rows.length} 個動作</span>
+      ${actions}
+    </div>
+
+    ${rows.map((x, i) => `
+      <div class="row">
+        <div class="row-main">
+          <div class="row-title">${esc(exerciseSummary(x))}</div>
+        </div>
+        <div class="row-end">
+          <div style="display:flex;gap:4px;justify-content:flex-end;align-items:center">
+            ${/* 上下移動：網頁沒有拖曳，用兩顆按鈕排順序就夠了 */""}
+            <button class="btn btn-sm btn-ghost" type="button" data-detail-action="move-exercise"
+                    data-id="${x.id}" data-dir="-1" ${i === 0 ? "disabled" : ""}
+                    aria-label="往上移">↑</button>
+            <button class="btn btn-sm btn-ghost" type="button" data-detail-action="move-exercise"
+                    data-id="${x.id}" data-dir="1" ${i === rows.length - 1 ? "disabled" : ""}
+                    aria-label="往下移">↓</button>
+            <button class="btn btn-sm" type="button" data-detail-action="edit-exercise"
+                    data-id="${x.id}">編輯</button>
+            <button class="btn btn-sm btn-ghost" type="button" data-detail-action="delete-exercise"
+                    data-id="${x.id}">刪除</button>
+          </div>
+        </div>
+      </div>`).join("")}`;
+}
+
+/** 新增／編輯一個動作 */
+function exerciseSheet(student, record = null) {
+  const x = record || { id: uid(), name: "", weight: 0, unit: "kg", reps: 0, sets: 0,
+                        order: menuOf(student).length, createdAt: new Date().toISOString() };
+  openSheet({
+    title: record ? "編輯動作" : "新增動作",
+    body: `
+      ${fieldText("ex_name", "動作或器材", x.name, { placeholder: "槓鈴臥推", required: true })}
+      <div class="grid-2">
+        ${fieldText("ex_weight", "重量", x.weight || "", { type: "number", step: "0.5",
+            placeholder: "徒手就留空" })}
+        ${fieldSelect("ex_unit", "單位", Object.entries(WEIGHT_UNITS)
+            .map(([v, t]) => [v, `${t}（${v}）`]), x.unit || "kg")}
+      </div>
+      <div class="grid-2">
+        ${fieldText("ex_reps", "每組次數", x.reps || "", { type: "number", placeholder: "8" })}
+        ${fieldText("ex_sets", "組數", x.sets || "", { type: "number", placeholder: "3" })}
+      </div>
+      <p class="hint">重量留空或填 0 就是徒手。次數與組數沒填的話那一段不會顯示，不會印成「0 下 × 0 組」。</p>`,
+    confirmLabel: record ? "儲存" : "新增",
+    onConfirm: (f) => {
+      const name = (f.ex_name || "").trim();
+      if (!name) { toast("要填動作名稱"); return false; }
+      const next = { ...x, name,
+        weight: Math.max(0, +f.ex_weight || 0),
+        unit: f.ex_unit === "lb" ? "lb" : "kg",
+        reps: Math.max(0, parseInt(f.ex_reps, 10) || 0),
+        sets: Math.max(0, parseInt(f.ex_sets, 10) || 0) };
+
+      student.exercises = student.exercises || [];
+      const i = student.exercises.findIndex((e) => e.id === x.id);
+      if (i >= 0) student.exercises[i] = next; else student.exercises.push(next);
+      student.updatedAt = new Date().toISOString();
+      save();
+      toast(record ? "已儲存" : "已新增動作");
+      closeSheet();
+      studentDetailSheet(student);
+      return false;
+    },
+  });
+}
+
+/** 把這位學生的菜單存成公版 */
+function saveMenuTemplateSheet(student) {
+  const rows = menuOf(student);
+  openSheet({
+    title: "存成公版",
+    body: `
+      ${fieldText("tpl_name", "公版名稱", "", { placeholder: "上肢日", required: true })}
+      <p class="hint">會存下現在這 ${rows.length} 個動作。之後在別的學生按「套用公版」就整套帶過去。</p>`,
+    confirmLabel: "儲存",
+    onConfirm: (f) => {
+      const name = (f.tpl_name || "").trim();
+      if (!name) { toast("要幫公版取個名字"); return false; }
+      const list = menuTemplates().slice();
+      list.push({
+        // id 一定要是標準 UUID，不能用 uid() —— 原因見 uuid() 的說明
+        id: uuid(), name,
+        items: rows.map((x) => ({ id: uuid(), name: x.name, weight: x.weight,
+                                  unit: x.unit, reps: x.reps, sets: x.sets })),
+      });
+      S.settings.trainingMenuTemplates = list;
+      save();
+      toast(`已存成公版「${name}」`);
+      closeSheet();
+      studentDetailSheet(student);
+      return false;
+    },
+  });
+}
+
+/** 套用一份公版 */
+function applyMenuTemplateSheet(student) {
+  const tpls = menuTemplates();
+  const has = menuOf(student).length;
+  openSheet({
+    title: "套用公版",
+    body: `
+      ${fieldSelect("tpl_id", "要套用哪一份", tpls.map((t) => [t.id, t.name]), tpls[0]?.id || "")}
+      ${has ? `
+        ${fieldSelect("tpl_mode", "現在的菜單怎麼辦",
+            [["append", `保留，把公版接在後面（現在有 ${has} 個動作）`],
+             ["replace", "整份換掉"]], "append")}` : ""}
+      <div class="hint" style="margin-top:8px">
+        ${tpls.map((t) => `<div style="margin-bottom:4px"><strong>${esc(t.name)}</strong>：${
+          esc(templateSubtitle(t))}</div>`).join("")}
+      </div>`,
+    confirmLabel: "套用",
+    onConfirm: (f) => {
+      const t = tpls.find((x) => x.id === f.tpl_id);
+      if (!t) { toast("找不到那份公版"); return false; }
+      const items = (t.items || []).map((it, i) => ({
+        id: uid(), name: it.name || "", weight: +it.weight || 0,
+        unit: it.unit === "lb" ? "lb" : "kg",
+        reps: +it.reps || 0, sets: +it.sets || 0, order: 0,
+        createdAt: new Date().toISOString(),
+      }));
+      const keep = f.tpl_mode === "replace" ? [] : menuOf(student);
+      student.exercises = [...keep, ...items].map((x, i) => ({ ...x, order: i }));
+      student.updatedAt = new Date().toISOString();
+      save();
+      toast(`已套用「${t.name}」`);
+      closeSheet();
+      studentDetailSheet(student);
+      return false;
+    },
+  });
+}
+
+/* ── InBody ─────────────────────────────────── */
+// 學生的體組成量測。跟 iOS 的 InBodySectionView 是同一份東西，
+// 差別只有**照片**：網頁存不了（localStorage 幾 MB，一張 base64 就幾百 KB）。
+
+/** 新的一筆量測。日期預設今天，時間預設現在 —— 量完馬上記是常態。 */
+function newInbody(over = {}) {
+  const now = new Date();
+  return {
+    id: uid(), date: today(),
+    time: `${pad(now.getHours())}:${pad(now.getMinutes())}`,
+    weight: null, bodyFat: null, muscleMass: null, visceralFat: null, bmr: null,
+    notes: "", createdAt: now.toISOString(), ...over,
+  };
+}
+
+const inbodyOf = (student) => (student.inbody || []).slice()
+  .sort((a, b) => (b.date + " " + b.time).localeCompare(a.date + " " + a.time));
+
+/** 「62.5 kg」。沒填就是「—」，不要印成 0 —— 體脂 0% 是假資料。 */
+function inbodyValue(rec, f) {
+  const v = rec[f.key];
+  if (v === null || v === undefined || v === "") return "—";
+  return `${v}${f.unit === "%" ? "" : " "}${f.unit}`;
+}
+
+/**
+ * 兩筆之間的變化。
+ *
+ * 「好」的方向每個欄位不一樣（體脂降是好、骨骼肌升是好），體重則**不判斷** ——
+ * 增肌的人變重是好事，減脂的人變重不是，這件事只有教練知道，
+ * 標成紅色會是在替她下判斷。
+ */
+function inbodyDelta(newer, older, f) {
+  const a = newer[f.key], b = older[f.key];
+  if (a === null || a === undefined || b === null || b === undefined) return null;
+  const d = +a - +b;
+  if (!Number.isFinite(d)) return null;
+  const r = Math.round(d * 10) / 10;
+  const tone = !f.better || r === 0 ? "var(--muted)"
+    : (r > 0) === (f.better === "up") ? "var(--good)" : "var(--bad)";
+  return { text: `${r > 0 ? "+" : ""}${r}`, tone };
+}
+
+function inbodyPanel(student) {
+  const rows = inbodyOf(student);
+  if (!rows.length) {
+    return `
+      <p class="empty">還沒有 InBody 紀錄。</p>
+      <div style="text-align:center">
+        <button class="btn btn-primary" type="button" data-detail-action="add-inbody">
+          ${icon("plus", 15)}新增一筆</button>
+      </div>
+      <p class="hint" style="margin-top:12px">
+        網頁版記數字（體重、體脂率、骨骼肌、內臟脂肪、基礎代謝），
+        <strong>不存照片</strong> —— 瀏覽器的儲存空間只有幾 MB，一張 InBody 照片就幾百 KB，
+        存進去會把整份資料擠爆。要留照片請用 App 版。
+      </p>`;
+  }
+
+  // 最新的兩筆直接比給她看：一筆一筆點開自己對照是這一頁最花時間的事
+  const [newest, prev] = rows;
+  return `
+    ${prev ? `
+      <div class="row-title" style="font-size:13px;margin:0 0 8px">
+        最近兩筆的變化
+        <span class="muted" style="font-weight:400">${esc(prev.date)} → ${esc(newest.date)}</span>
+      </div>
+      <div class="bars" style="margin-bottom:14px">
+        ${INBODY_FIELDS.map((f) => {
+          const d = inbodyDelta(newest, prev, f);
+          return `
+          <div class="row">
+            <div class="row-main">${f.label}</div>
+            <div class="row-end mono">
+              ${inbodyValue(newest, f)}
+              ${d ? `<span style="color:${d.tone};font-size:12px;margin-left:8px">${d.text}</span>`
+                  : `<span class="muted" style="font-size:12px;margin-left:8px">—</span>`}
+            </div>
+          </div>`;
+        }).join("")}
+      </div>` : ""}
+
+    <div class="sec-head" style="margin-bottom:8px">
+      <span class="sec-sub">${rows.length} 筆紀錄</span>
+      <button class="btn btn-sm btn-primary" type="button" data-detail-action="add-inbody">
+        ${icon("plus", 14)}新增</button>
+    </div>
+
+    ${rows.map((r) => `
+      <div class="row">
+        <div class="row-main">
+          <div class="row-title mono">${esc(r.date)}${r.time ? `　${esc(r.time)}` : ""}</div>
+          ${/* 一項包一個 nowrap：不包的話「基礎代謝 1334 kcal」會從中間斷成
+                「基礎 / 代謝 1334 kcal」，中文沒有詞邊界，瀏覽器哪裡都能斷 */""}
+          <div class="row-sub mono">${INBODY_FIELDS
+            .filter((f) => r[f.key] !== null && r[f.key] !== undefined && r[f.key] !== "")
+            .map((f) => `<span style="white-space:nowrap">${f.label} ${inbodyValue(r, f)}</span>`)
+            .join("　") || "沒有填數字"}</div>
+          ${r.notes ? `<div class="row-sub">${esc(r.notes)}</div>` : ""}
+        </div>
+        <div class="row-end">
+          <div style="display:flex;gap:4px;justify-content:flex-end">
+            <button class="btn btn-sm" type="button" data-detail-action="edit-inbody"
+                    data-id="${r.id}">編輯</button>
+            <button class="btn btn-sm btn-ghost" type="button" data-detail-action="delete-inbody"
+                    data-id="${r.id}">刪除</button>
+          </div>
+        </div>
+      </div>`).join("")}
+
+    <p class="hint" style="margin-top:10px">
+      網頁版<strong>不存照片</strong>。從 App 匯進來的照片不會帶過來，
+      這份備份拿回 App 用「取代」還原也不會有照片 —— 照片只有 App 自己的備份救得回來。
+    </p>`;
+}
+
+/** 新增／編輯一筆 InBody */
+function inbodySheet(student, record = null) {
+  const rec = record || newInbody();
+  openSheet({
+    title: record ? "編輯 InBody" : "新增 InBody",
+    body: `
+      <div class="grid-2">
+        ${fieldText("ib_date", "量測日期", rec.date, { type: "date" })}
+        ${fieldText("ib_time", "時間", rec.time, { type: "time" })}
+      </div>
+      <div class="grid-2">
+        ${INBODY_FIELDS.map((f) => fieldText(`ib_${f.key}`, `${f.label}（${f.unit}）`,
+            rec[f.key] === null || rec[f.key] === undefined ? "" : rec[f.key],
+            { type: "number", step: f.step, placeholder: "沒量就留空" })).join("")}
+      </div>
+      ${fieldText("ib_notes", "備註", rec.notes, { placeholder: "其他觀察…" })}
+      <p class="hint">留空的欄位不會存成 0 —— 「沒量」跟「量出來是 0」是兩件事。</p>`,
+    confirmLabel: record ? "儲存" : "新增",
+    onConfirm: (f) => {
+      const date = (f.ib_date || "").trim();
+      if (!date) { toast("要填量測日期"); return false; }
+      const next = {
+        ...rec, date, time: (f.ib_time || "").trim(),
+        notes: (f.ib_notes || "").trim(),
+      };
+      for (const fd of INBODY_FIELDS) next[fd.key] = numOrNull(f[`ib_${fd.key}`]);
+
+      student.inbody = student.inbody || [];
+      const i = student.inbody.findIndex((x) => x.id === rec.id);
+      if (i >= 0) student.inbody[i] = next; else student.inbody.push(next);
+      student.updatedAt = new Date().toISOString();
+      save();
+      toast(record ? "已儲存" : "已新增一筆 InBody");
+      // 存完把詳情頁重開，數字才會更新（sheet 是一次性算好的字串）
+      closeSheet();
+      studentDetailSheet(student);
+      return false;
+    },
+  });
+}
+
 function studentDetailSheet(student) {
   const ls = lessonsOf(student.id)
     .slice()
@@ -3484,7 +3964,8 @@ function studentDetailSheet(student) {
       </div>
 
       <div class="seg" style="margin-bottom:12px">
-        ${[["lessons", "課程紀錄"], ["payments", "收費紀錄"], ["stats", "統計"]].map(([v, t], i) =>
+        ${[["lessons", "課程紀錄"], ["payments", "收費紀錄"], ["stats", "統計"],
+           ["inbody", "InBody"], ["menu", "菜單"]].map(([v, t], i) =>
           `<button type="button" data-detail-tab="${v}" aria-pressed="${i === 0}">${t}</button>`).join("")}
       </div>
 
@@ -3573,6 +4054,14 @@ function studentDetailSheet(student) {
           <div class="row-end mono" style="font-weight:600">${money(paid)}</div>
         </div>
         <p class="hint">缺席與遲到都是從課程紀錄實算的，不是另外一組計數，所以跟上面那排一定對得起來。續約的每一筆明細在「編輯」裡。</p>
+      </div>
+
+      <div data-panel="inbody" hidden>
+        ${inbodyPanel(student)}
+      </div>
+
+      <div data-panel="menu" hidden>
+        ${menuPanel(student)}
       </div>`,
     onMount: (root) => {
       root.addEventListener("click", (e) => {
@@ -3597,6 +4086,61 @@ function studentDetailSheet(student) {
         const payment = a === "edit-payment"
           ? (student.payments || []).find((p) => p.id === act.dataset.id)
           : null;
+        // InBody 同理：先把那一筆撈出來再關 sheet
+        const inbodyRec = (a === "edit-inbody" || a === "delete-inbody")
+          ? (student.inbody || []).find((b) => b.id === act.dataset.id)
+          : null;
+        const exRec = (a === "edit-exercise" || a === "delete-exercise" || a === "move-exercise")
+          ? (student.exercises || []).find((x) => x.id === act.dataset.id)
+          : null;
+        if (a === "add-exercise") { closeSheet(); exerciseSheet(student); return; }
+        if (a === "edit-exercise") {
+          if (!exRec) return;
+          closeSheet(); exerciseSheet(student, exRec); return;
+        }
+        if (a === "delete-exercise") {
+          if (!exRec) return;
+          student.exercises = (student.exercises || []).filter((x) => x.id !== exRec.id);
+          student.updatedAt = new Date().toISOString();
+          save();
+          toast("已刪除");
+          studentDetailSheet(student);
+          return;
+        }
+        if (a === "move-exercise") {
+          if (!exRec) return;
+          // 照現在畫面上的順序重排，再跟隔壁那個換位置
+          const list = menuOf(student);
+          const i = list.findIndex((x) => x.id === exRec.id);
+          const j = i + (+act.dataset.dir);
+          if (i < 0 || j < 0 || j >= list.length) return;
+          [list[i], list[j]] = [list[j], list[i]];
+          student.exercises = list.map((x, k) => ({ ...x, order: k }));
+          student.updatedAt = new Date().toISOString();
+          save();
+          studentDetailSheet(student);
+          return;
+        }
+        if (a === "save-menu-template") { closeSheet(); saveMenuTemplateSheet(student); return; }
+        if (a === "apply-menu") { closeSheet(); applyMenuTemplateSheet(student); return; }
+        if (a === "add-inbody") { closeSheet(); inbodySheet(student); return; }
+        if (a === "edit-inbody") {
+          if (!inbodyRec) return;
+          closeSheet(); inbodySheet(student, inbodyRec); return;
+        }
+        if (a === "delete-inbody") {
+          if (!inbodyRec) return;
+          // 量測資料刪掉就回不來了（照片本來就沒有，這幾個數字是全部）
+          confirmSheet("刪除這筆 InBody",
+            `${esc(inbodyRec.date)} 那一筆會被刪掉，救不回來。`, () => {
+              student.inbody = (student.inbody || []).filter((b) => b.id !== inbodyRec.id);
+              student.updatedAt = new Date().toISOString();
+              save();
+              toast("已刪除");
+              studentDetailSheet(student);
+            }, "刪除");
+          return;
+        }
         if (a === "toggle-awaiting") {
           const marking = student.status !== "awaiting";
           student.status = marking ? "awaiting" : "active";
@@ -7259,7 +7803,7 @@ function viewAnalysis() {
       ...(assessment ? [["sec-assessment", "檢測"]] : []),
       ["sec-conversion", "成交率"],
       ["sec-leads", "名單"], ["sec-profile", "客群"], ["sec-ranking", "排行榜"],
-      ["sec-metrics", "指標"],
+      ["sec-year", "年度"], ["sec-metrics", "指標"],
     ])}
 
     <div class="stack">
@@ -7351,6 +7895,7 @@ function viewAnalysis() {
       </div>
 
       ${rankingSection(students)}
+      ${yearSection()}
 
       <section class="card" id="sec-metrics">
         <div class="sec-head"><h2 class="sec-title">關鍵指標</h2></div>
@@ -7372,6 +7917,91 @@ function jumpBar(items) {
     ${items.map(([id, label]) =>
       `<button type="button" data-action="jump" data-value="${id}">${esc(label)}</button>`).join("")}
   </nav>`;
+}
+
+/**
+ * 年度彙總。跟 iOS 的「回顧 → 年度」同一份東西。
+ *
+ * 每月用**橫條**而不是 iOS 的 12 根直條：手機上 12 根直條每根只剩二十幾 px，
+ * 堂數的數字根本放不下，而橫條這個專案本來就有（銷售的逐月、各來源成交率），
+ * 看起來也是同一套東西。
+ */
+function yearSection() {
+  const now = new Date().getFullYear();
+  const y = yearSummary(analysisYear);
+  const prev = yearSummary(analysisYear - 1);
+  const isCompany = S.settings.employment === "company";
+  const maxAttended = Math.max(...y.months.map((m) => m.attended), 1);
+
+  // 成長率那一行。去年沒資料就說沒資料，不要印 0% 或 ∞%
+  const growthRow = (label, value, from, to) => {
+    const g = yearGrowth(from, to);
+    const tone = g === null ? "var(--muted)" : g >= 0 ? "var(--good)" : "var(--bad)";
+    const note = g === null ? `${analysisYear - 1} 年沒有資料`
+      : `${g >= 0 ? "↑" : "↓"} ${Math.abs(g).toFixed(0)}%　${analysisYear - 1} 年 ${
+          label === "課堂數" ? `${from} 堂` : money(from)}`;
+    return `
+      <div class="row">
+        <div class="row-main">${label}</div>
+        <div class="row-end">
+          <span class="mono" style="font-weight:650">${value}</span>
+          <div class="row-sub mono" style="color:${tone};font-size:11px;margin-top:3px">${note}</div>
+        </div>
+      </div>`;
+  };
+
+  const empty = !y.totalAttended && !y.totalIncome;
+
+  return `
+    <section class="card" id="sec-year">
+      <div class="sec-head">
+        <h2 class="sec-title">${analysisYear} 年</h2>
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:flex-end">
+          <span class="sec-sub">跟 ${analysisYear - 1} 年比</span>
+          <button class="btn btn-sm" type="button" data-action="analysis-year" data-value="-1"
+                  aria-label="看前一年">‹</button>
+          <button class="btn btn-sm" type="button" data-action="analysis-year" data-value="1"
+                  ${analysisYear >= now ? "disabled" : ""} aria-label="看後一年">›</button>
+          ${analysisYear === now ? "" : `<button class="btn btn-sm" type="button"
+                  data-action="analysis-year" data-value="0">回今年</button>`}
+        </div>
+      </div>
+
+      ${empty ? `<p class="empty">${analysisYear} 年沒有課也沒有收費紀錄。</p>` : `
+        ${growthRow("課堂數", `${y.totalAttended} 堂`, prev.totalAttended, y.totalAttended)}
+        ${growthRow("收入", money(y.totalIncome), prev.totalIncome, y.totalIncome)}
+        ${isCompany ? growthRow("預估薪資", money(y.totalSalary), prev.totalSalary, y.totalSalary) : ""}
+
+        ${y.totalAttended ? `
+        <div style="margin-top:16px">
+          <p class="sec-sub" style="margin:0 0 9px">每月課堂數</p>
+          <div class="bars">
+            ${y.months.map((m) => `
+              <div class="bar-row">
+                <span class="bar-label">${m.month} 月</span>
+                ${/* 0 堂就整條不畫 —— .bar-fill 有 min-width:3px，
+                      畫出來會變成一小截黃色，看起來像「有一點點課」 */""}
+                <span class="bar-track">${m.attended ? `<span class="bar-fill" style="width:${
+                  (m.attended / maxAttended * 100).toFixed(1)}%"></span>` : ""}</span>
+                <span class="bar-value">${m.attended ? `${m.attended} 堂` : "—"}</span>
+                <span class="bar-value">${m.income ? money(m.income) : ""}</span>
+              </div>`).join("")}
+          </div>
+        </div>
+
+        <div style="margin-top:16px">
+          <p class="sec-sub" style="margin:0 0 9px">重點</p>
+          ${y.busiest ? `<div class="row"><div class="row-main">最忙的月份</div>
+            <div class="row-end mono">${y.busiest.month} 月・${y.busiest.attended} 堂</div></div>` : ""}
+          ${y.bestIncome ? `<div class="row"><div class="row-main">收入最高</div>
+            <div class="row-end mono">${y.bestIncome.month} 月・${money(y.bestIncome.income)}</div></div>` : ""}
+          <div class="row"><div class="row-main">平均每月</div>
+            <div class="row-end mono">${y.avgPerActiveMonth.toFixed(1)} 堂</div></div>
+          ${/* 平均只算有課的月份，不講清楚會被當成除以 12 */""}
+          <p class="hint" style="margin:8px 0 0">平均只算 ${y.activeMonths} 個有課的月份，沒開工的月份不拉低平均。</p>
+        </div>` : `<p class="hint" style="margin-top:12px">${analysisYear} 年還沒有課程紀錄，只有收費。</p>`}
+      `}
+    </section>`;
 }
 
 /**
@@ -7983,8 +8613,28 @@ function buildBackup() {
       // 網頁不顯示這些，但從 iOS 匯入時原封收在 _carry，匯出時要攤回去。
       // 預設值放在 spread 前面：iOS 沒帶過這幾欄的學生（例如網頁自己建的）
       // 還是要有空陣列，不然 iOS 的 Codable 解不開。
-      inbody: [],
-      exercises: [],
+      inbody: (s.inbody || []).map((b) => ({
+        date: b.date || "", time: b.time || "",
+        weight: b.weight ?? null, bodyFat: b.bodyFat ?? null,
+        muscleMass: b.muscleMass ?? null, visceralFat: b.visceralFat ?? null,
+        bmr: b.bmr ?? null,
+        // 照片一律 null —— 網頁根本沒有它（匯入時就因為 localStorage 容量丟掉了）。
+        //
+        // **這一份備份拿回 iOS 用「取代」還原，InBody 照片會沒有**：
+        // iOS 的 replace 會先 wipe 再照備份重建，photoData 是 null 就真的是沒有。
+        // （改用「合併」的話，同名同電話的學生會被整個跳過，照片留著，
+        // 但網頁這邊改的 InBody 也一樣不會進去。）
+        // 照片只有 iOS 自己的備份救得回來。
+        photoData: null,
+        notes: b.notes || "", createdAt: b.createdAt || new Date().toISOString(),
+      })),
+      exercises: menuOf(s).map((x, i) => ({
+        name: x.name || "", weight: +x.weight || 0,
+        unitRaw: x.unit === "lb" ? "lb" : "kg",
+        reps: +x.reps || 0, sets: +x.sets || 0,
+        // order 照現在的排序重編，網頁拖動過順序也帶得回 iOS
+        order: i, createdAt: x.createdAt || new Date().toISOString(),
+      })),
       ...(s._carry || {}),
     })),
     lessons: S.lessons.map((l) => ({
@@ -8029,7 +8679,10 @@ function buildBackup() {
         id: t.id, name: t.name, colorHex: t.color,
       }))),
       colorTheme: "amber",
-      // iOS 專屬的設定原封帶回去（提醒、一天的起訖時間、訓練菜單範本…）
+      // 菜單公版。iOS 的 UserDefaults 存的是 JSON 字串不是陣列，
+      // 直接丟陣列過去它會整組讀不到（同 customFieldDefinitions 的處理）。
+      trainingMenuTemplates: JSON.stringify(menuTemplates()),
+      // iOS 專屬的設定原封帶回去（提醒、一天的起訖時間…）
       ...(S.settings._carry || {}),
     },
   };
@@ -8147,6 +8800,8 @@ const CARRY_STUDENT_KNOWN = new Set([
   "notes", "color", "packageExpiryDate", "customFieldsJSON", "renewalCount",
   "mayNotRenew", "acquisitionRaw", "statusRaw", "archivedAt", "createdAt",
   "updatedAt", "tagsCSV", "payments", "renewals",
+  // 2026-09-04 起網頁自己顯示 InBody 與訓練菜單，這兩個不再是「不認得的鍵」
+  "inbody", "exercises",
 ]);
 const CARRY_LESSON_KNOWN = new Set([
   "date", "startTime", "endTime", "statusRaw", "notes", "locationName",
@@ -8158,6 +8813,9 @@ const CARRY_SETTINGS_KNOWN = new Set([
   "employmentType", "userRole", "defaultLessonDurationMinutes", "lowSessionsThreshold",
   "idleDaysThreshold", "customFieldDefinitions", "customFieldSpecs", "coachPackages",
   "salaryRule", "studentTags", "colorTheme",
+  // 菜單範本：iOS 存在 UserDefaults 的 "trainingMenuTemplates"，
+  // 備份裡是設定的一個鍵。2026-09-04 起網頁自己也用它。
+  "trainingMenuTemplates",
 ]);
 
 /**
@@ -8167,14 +8825,43 @@ const CARRY_SETTINGS_KNOWN = new Set([
  * 但**要數出來告訴使用者**，不能默默拿掉。
  */
 let carriedPhotosDropped = 0;
-const stripPhotos = (carry) => {
-  if (!carry || !Array.isArray(carry.inbody)) return carry;
-  carry.inbody = carry.inbody.map((b) => {
-    if (b && b.photoData) { carriedPhotosDropped += 1; const { photoData, ...rest } = b; return rest; }
-    return b;
-  });
-  return carry;
+
+/** 數字欄位：空字串／null／NaN 一律當「沒填」，不要變成 0 —— 體脂 0% 是假資料 */
+const numOrNull = (v) => {
+  if (v === "" || v === null || v === undefined) return null;
+  const n = +v;
+  return Number.isFinite(n) ? n : null;
 };
+
+/**
+ * 備份裡的 InBody 讀成網頁的形狀。
+ *
+ * 照片（`photoData`，base64 的 JPEG）一律丟掉，但**要數出來告訴使用者** ——
+ * 一張就可能幾百 KB，而 localStorage 只有幾 MB，整份存進去會讓 save() 爆掉，
+ * 那等於這次匯入的所有資料都沒落地，比掉幾張照片嚴重得多。
+ */
+function parseInbody(list) {
+  if (!Array.isArray(list)) return [];
+  return list.map((b) => {
+    if (b && b.photoData) carriedPhotosDropped += 1;
+    return {
+      id: uid(), date: b.date || "", time: b.time || "",
+      weight: numOrNull(b.weight), bodyFat: numOrNull(b.bodyFat),
+      muscleMass: numOrNull(b.muscleMass), visceralFat: numOrNull(b.visceralFat),
+      bmr: numOrNull(b.bmr),
+      notes: b.notes || "", createdAt: b.createdAt || new Date().toISOString(),
+    };
+  }).sort((a, b) => (b.date + b.time).localeCompare(a.date + a.time));
+}
+
+/** InBody 的欄位定義。畫面、表單、比對表都從這一份長出來，不要各寫一份。 */
+const INBODY_FIELDS = [
+  { key: "weight", label: "體重", unit: "kg", step: "0.1", better: "" },
+  { key: "bodyFat", label: "體脂率", unit: "%", step: "0.1", better: "down" },
+  { key: "muscleMass", label: "骨骼肌", unit: "kg", step: "0.1", better: "up" },
+  { key: "visceralFat", label: "內臟脂肪", unit: "級", step: "1", better: "down" },
+  { key: "bmr", label: "基礎代謝", unit: "kcal", step: "1", better: "up" },
+];
 
 function parseBackup(raw) {
   if (!raw || typeof raw !== "object" || !Array.isArray(raw.students)) {
@@ -8188,10 +8875,6 @@ function parseBackup(raw) {
     const d = new Date(isoStr);
     return isNaN(d) ? "" : dayStr(d);
   };
-  const parseJSON = (s, fallback) => {
-    try { return JSON.parse(s); } catch { return fallback; }
-  };
-
   const students = raw.students.map((d, i) => ({
     id: uid(), _i: i,
     name: d.name || "", phone: d.phone || "", email: d.email || "",
@@ -8234,8 +8917,13 @@ function parseBackup(raw) {
       : [],
     createdAt: d.createdAt || new Date().toISOString(),
     updatedAt: d.updatedAt || new Date().toISOString(),
-    // 網頁不顯示、但不能吃掉的欄位（pausedUntil／inbody／exercises…）
-    ...(() => { const c = stripPhotos(carryOf(d, CARRY_STUDENT_KNOWN)); return c ? { _carry: c } : {}; })(),
+    // InBody 量測。2026-09-04 起網頁真的顯示它了（以前只是原封收在 _carry
+    // 裡帶著走）。照片一律不帶進來 —— 幾百 KB 的 base64 會把 localStorage
+    // 撐爆，那比掉幾張照片嚴重得多；但要數出來告訴使用者。
+    inbody: parseInbody(d.inbody),
+    exercises: parseExercises(d.exercises),
+    // 網頁不顯示、但不能吃掉的欄位（pausedUntil／exercises…）
+    ...(() => { const c = carryOf(d, CARRY_STUDENT_KNOWN); return c ? { _carry: c } : {}; })(),
   }));
 
   // 名單要排在課程前面還原：檢測掛在名單上，順序反了就對不到人
@@ -8286,6 +8974,21 @@ function parseBackup(raw) {
   if (Array.isArray(fields)) settings.customFields = fields.filter((f) => typeof f === "string");
   const specs = parseJSON(rawSettings.customFieldSpecs, null);
   if (specs && typeof specs === "object") settings.customFieldSpecs = specs;
+  // 菜單公版。iOS 存的是 JSON 字串，壞掉或不是陣列就當作沒有 ——
+  // 一份解不開的公版不該讓整個匯入失敗。
+  const tpls = parseJSON(rawSettings.trainingMenuTemplates, null);
+  if (Array.isArray(tpls)) {
+    settings.trainingMenuTemplates = tpls
+      .filter((t) => t && typeof t === "object")
+      .map((t) => ({
+        id: t.id || uuid(), name: t.name || "未命名公版",
+        items: (Array.isArray(t.items) ? t.items : []).map((it) => ({
+          id: it.id || uuid(), name: it.name || "",
+          weight: +it.weight || 0, unit: it.unit === "lb" ? "lb" : "kg",
+          reps: +it.reps || 0, sets: +it.sets || 0,
+        })),
+      }));
+  }
   const pkgs = parseJSON(rawSettings.coachPackages, null);
   if (Array.isArray(pkgs)) {
     settings.packages = pkgs.map((p) => ({
@@ -8527,6 +9230,13 @@ document.addEventListener("click", (e) => {
     case "payment-range": paymentRange = value; render(); break;
     // 薪資試算翻月。跟總覽那張卡片一樣不給翻到未來 —— 下個月的薪水
     // 只有「已經簽的約」那一半，畫出來會被當成預估收入。
+    // 年度：不給看未來（今年還沒過完就是最後一年）
+    case "analysis-year": {
+      const now = new Date().getFullYear();
+      analysisYear = value === "0" ? now
+        : Math.min(now, analysisYear + (+value));
+      render(); break;
+    }
     case "salary-month": {
       salaryMonthOffset = value === "0" ? 0 : Math.max(0, salaryMonthOffset + +value);
       render(); break;
