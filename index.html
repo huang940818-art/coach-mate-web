@@ -865,7 +865,7 @@ const NOTICE_KEY = "coach-mate-web-notice-dismissed";
  * 版本標記。顯示在設定頁最下面，教練唸得出來就知道他手上是哪一版，
  * 不用再猜是不是拿到舊的快取。每次改版就把這個字串往上加。
  */
-const BUILD = "2026-09-04 · v99";
+const BUILD = "2026-09-08 · v100";
 
 /** 開發者署名，顯示在設定頁的「關於」 */
 const DEVELOPER = "杯子蛋糕好好吃";
@@ -3435,6 +3435,13 @@ function viewStudents() {
               <div class="row-title">
                 <button type="button" class="btn-plain" data-action="view-student" data-id="${s.id}"
                         style="font:inherit;color:inherit;cursor:pointer;text-align:left">${esc(s.name || "（未命名）")}</button>
+                ${// 標籤掛在名字這一行，**不要自己一行**（2026-09-08）：
+                  // 原本是名字／已上堂數／標籤三層，只有貼標籤的人多出第三行，
+                  // 於是同一片名單的列高參差不齊，右邊的剩餘堂數與按鈕跟著上下跳。
+                  // row-title 本來就 flex-wrap，貼兩個標籤也擺得下。
+                  // 學生詳情頁的標籤區沒有這個問題（整頁只有一列），維持原樣。
+                  tagsOf(s).map((t) =>
+                    `<span class="tag-chip tag-chip-sm" style="--tag:${esc(t.color)}"><span class="tag-dot"></span>${esc(t.name)}</span>`).join("")}
                 ${s.status === "archived" ? '<span class="pill pill-mute">封存</span>' : ""}
                 ${s.status === "awaiting" ? '<span class="pill pill-warn">課程結束待續約</span>' : ""}
                 ${s.mayNotRenew ? '<span class="pill pill-warn">可能不續約</span>' : ""}
@@ -3460,8 +3467,6 @@ function viewStudents() {
               <div class="row-sub">已上 ${used.count} 堂${
                 usedValue > 0 ? `・課程價值 ${money(usedValue)}` : ""}${
                 s.renewalCount > 0 ? `・續約 ${s.renewalCount} 次` : ""}</div>
-              ${tagsOf(s).length ? `<div class="tag-row">${tagsOf(s).map((t) =>
-                `<span class="tag-chip tag-chip-sm" style="--tag:${esc(t.color)}"><span class="tag-dot"></span>${esc(t.name)}</span>`).join("")}</div>` : ""}
             </div>
             <div class="row-end">
               <!-- 這個數字一直都是可以按的（按了開「調整剩餘堂數」），但它長得跟
