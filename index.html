@@ -631,6 +631,18 @@ dialog.sheet {
 .chip button { border: 0; background: none; cursor: pointer; color: var(--muted); padding: 0; line-height: 1; }
 .chip button:hover { color: var(--crit); }
 
+/* 用過的值，點一下就填進上面那個欄位。
+   為什麼不只靠 <datalist>：iOS Safari 根本不支援，桌機上看得到的下拉在
+   iPhone 上完全沒反應 —— 用手機的人只會覺得「這格只能手打」。 */
+.picks { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 2px; }
+.pick {
+  padding: 4px 10px; border-radius: var(--r-pill);
+  background: var(--surface-2); border: 1px solid var(--line);
+  font-size: 12.5px; color: var(--ink); cursor: pointer;
+  font-family: inherit;
+}
+.pick.on { border-color: var(--gold); color: var(--gold); }
+
 .tier-add { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; font-size: 13px; color: var(--muted); }
 .tier-add input { width: 62px; }
 
@@ -866,7 +878,7 @@ const NOTICE_KEY = "coach-mate-web-notice-dismissed";
  * 版本標記。顯示在設定頁最下面，教練唸得出來就知道他手上是哪一版，
  * 不用再猜是不是拿到舊的快取。每次改版就把這個字串往上加。
  */
-const BUILD = "2026-09-08 · v100";
+const BUILD = "2026-09-14 · v101";
 
 /** 開發者署名，顯示在設定頁的「關於」 */
 const DEVELOPER = "杯子蛋糕好好吃";
@@ -1886,14 +1898,28 @@ function roleOf() {
 }
 const isContractor = () => roleOf() === "contractor";
 
-/** 這位教練用過的上課地點，排課時給他直接選 */
+/**
+ * 這位教練的上課地點，排課時給他直接選。
+ *
+ * 兩個來源合起來：
+ *   1. 以前的課實際填過的地點（常用的排前面）
+ *   2. 從 iOS 匯入時帶過來的場館清單（iOS 設定頁可以自己維護一份）
+ *
+ * 第 2 項本來只是被原封收在 `_carryLocations` 裡等著匯出時攤回去，網頁從來沒拿出來用 ——
+ * 結果在 iOS 設定好三間場館、備份搬到網頁的人，這裡是一片空白，還是得重打一次。
+ */
 function knownLocations() {
   const seen = new Map();
   for (const l of S.lessons) {
     const name = (l.location || "").trim();
     if (name) seen.set(name, (seen.get(name) || 0) + 1);
   }
-  return [...seen.entries()].sort((a, b) => b[1] - a[1]).map(([name]) => name);
+  // 用過的排前面（次數多的更前面），再補上登記過但還沒排到課的場館
+  const used = [...seen.entries()].sort((a, b) => b[1] - a[1]).map(([name]) => name);
+  const registered = (S.settings._carryLocations || [])
+    .map((x) => ((x && x.name) || "").trim())
+    .filter(Boolean);
+  return [...new Set([...used, ...registered])];
 }
 
 function paymentsOf(studentId) {
@@ -2723,7 +2749,7 @@ function confirmSheet(title, message, onYes, yesLabel = "確定") {
 
 function fieldText(name, label, value = "", opts = {}) {
   const { type = "text", hint = "", placeholder = "", required = false, list = "",
-          disabled = false, step = "" } = opts;
+          disabled = false, step = "", after = "" } = opts;
   return `<div class="field">
     <label for="f-${name}">${esc(label)}</label>
     <input id="f-${name}" name="${name}" type="${type}" value="${esc(value)}"
@@ -2735,7 +2761,54 @@ function fieldText(name, label, value = "", opts = {}) {
                 體重 62.5 就打不進去 */""}
            ${type === "number" ? `inputmode="${step && step !== "1" ? "decimal" : "numeric"}"` : ""}>
     ${hint ? `<span class="hint">${hint}</span>` : ""}
+    ${/* 附在這一格底下的東西（例如「用過的值」那排按鈕）。放進 .field 裡面，
+         才會吃到欄位自己的 gap，而不是被夾在兩個欄位的 margin 中間 ——
+         不然按鈕會離上面的輸入框很遠，卻跟下一格黏在一起。 */""}
+    ${after}
   </div>`;
+}
+
+/**
+ * 上課地點：能打字，也能點。
+ *
+ * 原本只有 <datalist>。桌機沒問題，但 iOS Safari 不支援 datalist，
+ * 在 iPhone 上那一格就是一個純手打的輸入框 —— 每排一堂課都要重打一次場館名。
+ * 所以用過的地點另外排成一排按鈕，點一下填進去；要加新場館就照常打字。
+ */
+function locationField(value = "") {
+  const known = knownLocations();
+  const cur = (value || "").trim();
+  const picks = known.length ? `
+    <div class="picks" data-location-picks>
+      ${known.map((n) => `
+        <button type="button" class="pick ${n === cur ? "on" : ""}" data-pick="${esc(n)}">${esc(n)}</button>`).join("")}
+    </div>
+    <datalist id="known-locations">${
+      known.map((n) => `<option value="${esc(n)}"></option>`).join("")}</datalist>` : "";
+  return fieldText("location", "上課地點", value,
+    { placeholder: isContractor() ? "在哪個場館" : "選填",
+      list: known.length ? "known-locations" : "",
+      after: picks });
+}
+
+/** 把 locationField 的按鈕接到輸入框上 */
+function wireLocationPicks(root) {
+  const picks = root.querySelector("[data-location-picks]");
+  const input = root.querySelector('[name="location"]');
+  if (!picks || !input) return;
+  const sync = () => {
+    const cur = input.value.trim();
+    picks.querySelectorAll(".pick").forEach((b) => b.classList.toggle("on", b.dataset.pick === cur));
+  };
+  picks.addEventListener("click", (e) => {
+    const btn = e.target.closest(".pick");
+    if (!btn) return;
+    e.preventDefault();
+    // 再點一次同一個就取消，不然點錯了只能手動把字刪掉
+    input.value = input.value.trim() === btn.dataset.pick ? "" : btn.dataset.pick;
+    sync();
+  });
+  input.addEventListener("input", sync);
 }
 
 function fieldSelect(name, label, options, value, hint = "") {
@@ -4928,6 +5001,16 @@ function studentSheet(existing) {
         ${fieldText("phone", "電話", s.phone, { type: "tel" })}
         ${fieldText("rate", "每堂費用", s.rate || "", { type: "number", hint: "算收入與抽成用" })}
       </div>
+      ${// 新增學生＝這個人的第一份合約，所以要跟「續約」那張表一樣選得到方案。
+        // 2026-09-14 使用者回報：「在新增學員時 希望可以像續約裡面有他要上什麼課的
+        // 選擇 例如新增學員也會知道他要報名幾堂課多少錢？」——本來只有堂數，
+        // 錢是背地裡用「每堂費用 × 堂數」算出來的，畫面上從頭到尾沒出現過金額。
+        !existing && S.settings.packages.length
+          ? fieldSelect("pkg", "選擇方案",
+              [["", "自己填"], ...S.settings.packages.map(
+                (p) => [p.id, `${p.name}・${p.sessions} 堂・${money(p.price)}`])], "",
+              "選了會自動填好下面的堂數與金額，填完還可以再改。")
+          : ""}
       <div class="field-row">
         <input type="hidden" name="currentSessionsInitial" value="${currentPackageSessions(s)}">
         ${fieldText("currentSessions", "本期購買堂數", currentPackageSessions(s), {
@@ -4939,6 +5022,9 @@ function studentSheet(existing) {
         ${fieldText("remaining", "剩餘堂數", s.remaining || 0, { type: "number" })}
       </div>
       ${existing ? "" : `
+        ${fieldText("firstAmount", "本期金額", "", { type: "number",
+          hint: "這份合約總共收多少。留白就用「每堂費用 × 購買堂數」算。" })}
+        <p class="hint" data-amount-hint></p>
         ${fieldText("purchaseDate", "購買日期", today(), { type: "date" })}
         <p class="hint" data-purchase-hint></p>`}
       <div class="field-row">
@@ -5069,7 +5155,14 @@ function studentSheet(existing) {
       // 刻意不動 renewalCount：那個數字的意思是「續約過幾次」，
       // 第一次買不算續約。兩邊一致。
       if (!existing && typedCurrent > 0) {
-        const firstAmount = Math.max(0, (s.rate || 0) * typedCurrent);
+        // 金額以使用者填的為準。留白才退回「每堂費用 × 堂數」——
+        // 方案存的是整包總額（11,000 的 10 堂方案單價除不盡），
+        // 硬用單價乘回去會跟他實際收的錢差幾十塊，銷售統計與業績抽成就跟著歪。
+        const typedAmount = form.elements.firstAmount
+          ? form.elements.firstAmount.value.trim() : "";
+        const firstAmount = typedAmount !== ""
+          ? Math.max(0, Math.round(+typedAmount || 0))
+          : Math.max(0, (s.rate || 0) * typedCurrent);
         const rid = uid();
         const stamp = new Date().toISOString();
         // **購買日期要看得到、改得動。**
@@ -5134,6 +5227,51 @@ function studentSheet(existing) {
       root.addEventListener("input", refreshPurchase);
       root.addEventListener("change", refreshPurchase);
       refreshPurchase();
+
+      // 金額這格留白時，把「會拿去記帳的那個數字」先講出來 ——
+      // 使用者回報的正是「看不到他要報名幾堂課多少錢」。
+      const amountHint = root.querySelector("[data-amount-hint]");
+      const amountEl = root.querySelector('[name="firstAmount"]');
+      const rateEl = root.querySelector('[name="rate"]');
+      const refreshAmount = () => {
+        if (!amountHint || !amountEl || !boughtEl || !rateEl) return;
+        const sessions = +boughtEl.value || 0;
+        const typed = amountEl.value.trim();
+        if (sessions <= 0) { amountHint.textContent = "填了購買堂數才會建立這份合約。"; return; }
+        if (typed !== "") {
+          const total = Math.max(0, Math.round(+typed || 0));
+          amountHint.innerHTML = `這份合約記成 <strong>${money(total)}</strong>`
+            + `　·　平均一堂 ${money(total / sessions)}`;
+        } else {
+          const total = Math.max(0, (+rateEl.value || 0) * sessions);
+          amountHint.innerHTML = `留白：用每堂費用算成 <strong>${money(total)}</strong>`
+            + `（${money(+rateEl.value || 0)} × ${sessions} 堂）`;
+        }
+      };
+      root.addEventListener("input", refreshAmount);
+      root.addEventListener("change", refreshAmount);
+      refreshAmount();
+
+      // 選方案就把堂數、金額、每堂費用一次填好。
+      // 剩餘堂數只有在「還沒被動過」時才跟著走 —— 剛買完當然一堂都還沒上，
+      // 但補舊學生的人會自己把剩餘改成當時的數字，那個不能被蓋掉。
+      const pkgEl = root.querySelector('[name="pkg"]');
+      if (pkgEl && boughtEl && remainEl && amountEl && rateEl) {
+        let remainingTouched = false;
+        remainEl.addEventListener("input", () => { remainingTouched = true; });
+        pkgEl.addEventListener("change", () => {
+          const p = S.settings.packages.find((x) => x.id === pkgEl.value);
+          if (!p) return;
+          boughtEl.value = p.sessions;
+          amountEl.value = p.price;
+          // 每堂費用是「一堂多少錢」，抽成與收入預估在用。方案存的是整包總額，
+          // 除不盡就取整 —— 實際記帳的金額走上面那格，不受這個進位影響。
+          rateEl.value = p.sessions > 0 ? Math.round(p.price / p.sessions) : 0;
+          if (!remainingTouched) remainEl.value = p.sessions;
+          refreshAmount();
+          refreshPurchase();
+        });
+      }
 
       // 代表色
       const picker = root.querySelector("[data-color-picker]");
@@ -6066,14 +6204,7 @@ function lessonSheet(existing, presetKind = "lesson", presetStudentId = "") {
         : ""}
       ${// 一般教練不需要區分上課地點，那一格對他只是雜訊（跟 iOS 一致）。
         // 已經填過地點的課還是要看得到、改得到，不然換身份就等於把資料藏起來。
-        isContractor() || (l.location || "").trim() ? `
-        ${fieldText("location", "上課地點", l.location,
-            { placeholder: isContractor() ? "在哪個場館" : "選填",
-              list: knownLocations().length ? "known-locations" : "",
-              hint: knownLocations().length ? "打幾個字會從用過的地點裡挑" : "" })}
-        ${knownLocations().length ? `<datalist id="known-locations">${
-          knownLocations().map((n) => `<option value="${esc(n)}"></option>`).join("")}</datalist>` : ""}`
-      : ""}
+        isContractor() || (l.location || "").trim() ? locationField(l.location) : ""}
       ${fieldText("notes", "備註", l.notes)}
 
       ${existing ? `
@@ -6216,6 +6347,7 @@ function lessonSheet(existing, presetKind = "lesson", presetStudentId = "") {
     onMount: (root) => {
       wireDurationPicker(root);
       wireStudentSearch(root);
+      wireLocationPicks(root);
 
       // 已經過去的時段會直接記成「已上課」並扣堂數 —— 在按下確認之前就要講，
       // 不然補歷史的人會以為只是排了一堂，回頭才發現堂數少了。
