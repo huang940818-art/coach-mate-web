@@ -888,7 +888,7 @@ const NOTICE_KEY = "coach-mate-web-notice-dismissed";
  * 版本標記。顯示在設定頁最下面，教練唸得出來就知道他手上是哪一版，
  * 不用再猜是不是拿到舊的快取。每次改版就把這個字串往上加。
  */
-const BUILD = "2026-09-14 · v102";
+const BUILD = "2026-09-15 · v103";
 
 /** 開發者署名，顯示在設定頁的「關於」 */
 const DEVELOPER = "杯子蛋糕好好吃";
@@ -3608,8 +3608,13 @@ function viewStudents() {
     <div class="page-head">
       <div>
         <h1 class="page-title">學生</h1>
+        <!-- 待續約**是在檔的一部分**（onRoster 只排除封存），原本寫成
+             「在檔 45 位・待續約 6 位」，兩個數字並排看起來像兩堆不同的人，
+             使用者會以為總數是 51（2026-09-15 Bear 回報：「在檔應該是顯示
+             目前有課程的學生對吧，但他好像會把待續約的也算進去」）。
+             寫成「含」就不會被加起來。 -->
         <p class="page-sub">在檔 ${all.filter(onRoster).length} 位${
-          all.filter(needsRenewal).length ? `・待續約 ${all.filter(needsRenewal).length} 位` : ""
+          all.filter(needsRenewal).length ? `（含待續約 ${all.filter(needsRenewal).length} 位）` : ""
         }・封存 ${all.filter((s) => s.status === "archived").length} 位</p>
       </div>
       <div class="head-actions">
@@ -3646,8 +3651,8 @@ function viewStudents() {
           ${activeTagFilter.size ? `<button type="button" class="btn btn-sm btn-ghost" data-action="clear-tag-filter">清除篩選</button>` : ""}
         </div>` : ""}
 
-      <section class="card">
-        ${list.length ? list.map((s) => {
+      ${(() => {
+        const studentRow = (s) => {
           const used = consumedSessions(s);
           // 上掉的課值多少錢。公司教練的鐘點抽成就是拿這個去算的，
           // 所以「上了幾堂」旁邊直接把金額寫出來，不用自己乘。
@@ -3668,7 +3673,12 @@ function viewStudents() {
                   tagsOf(s).map((t) =>
                     `<span class="tag-chip tag-chip-sm" style="--tag:${esc(t.color)}"><span class="tag-dot"></span>${esc(t.name)}</span>`).join("")}
                 ${s.status === "archived" ? '<span class="pill pill-mute">封存</span>' : ""}
-                ${s.status === "awaiting" ? '<span class="pill pill-warn">課程結束待續約</span>' : ""}
+                ${// **不能只看 status === "awaiting"**。待續約有兩種來源：手動標的，
+                  // 以及堂數歸零自動算進來的（見 needsRenewal）。原本只有手動標的
+                  // 長得出這顆 pill，於是自動那半混在名單裡沒有任何記號，
+                  // 只有右邊數字寫 0 —— 滑過去認不出來（2026-09-15 Bear 回報）。
+                  needsRenewal(s) ? '<span class="pill pill-warn">課程結束待續約</span>' : ""}
+                ${s.status === "paused" ? '<span class="pill pill-mute">暫停中</span>' : ""}
                 ${s.mayNotRenew ? '<span class="pill pill-warn">可能不續約</span>' : ""}
                 ${// 太久沒上課只用一個 pill，**不寫進下面那行**。
                   // 這一行 2026-08-17 才因為「看起來很亂」精簡過，每一列都掛
@@ -3710,8 +3720,49 @@ function viewStudents() {
               </div>
             </div>
           </div>`;
-        }).join("") : `<p class="empty">還沒有學生。點右上角「新增學生」開始。</p>`}
-      </section>
+        };
+
+        if (!list.length) {
+          return `<section class="card"><p class="empty">${
+            studentFilter === "awaiting" ? "目前沒有待續約的學生。"
+            : studentFilter === "archived" ? "沒有封存的學生。"
+            : "還沒有學生。點右上角「新增學生」開始。"}</p></section>`;
+        }
+
+        // 「在檔」原本是一片平的名單，待續約的與暫停的混在裡面認不出來。
+        // **iOS 從一開始就是分區的**（StudentListView.groups：已上完課待續約／
+        // 進行中／暫停中／已封存），網頁版沒跟上 —— 這裡補的是那個落差，
+        // 不是改「待續約要不要看得見」（2026-08-17 那個決定沒變：照樣看得見，
+        // 而且被釘到最上面）。區塊標題與 iOS 逐字一致。
+        //
+        // 只有「在檔」分。待續約／封存那兩頁本來就只有一種人，
+        // 「全部」是刻意平鋪的（那頁的用途是「我要找某個人」，不是分類）。
+        if (studentFilter !== "active") {
+          return `<section class="card" data-student-section>${list.map(studentRow).join("")}</section>`;
+        }
+
+        const due = list.filter(needsRenewal);
+        const dueIds = new Set(due.map((s) => s.id));
+        const paused = list.filter((s) => s.status === "paused" && !dueIds.has(s.id));
+        const pausedIds = new Set(paused.map((s) => s.id));
+        const going = list.filter((s) => !dueIds.has(s.id) && !pausedIds.has(s.id));
+
+        const group = (rows, title, sub, footer = "") => rows.length ? `
+          <section class="card" data-student-section>
+            <div class="sec-head">
+              <h2 class="sec-title">${title}</h2>
+              <span class="sec-sub">${sub}</span>
+            </div>
+            ${rows.map(studentRow).join("")}
+            ${footer ? `<p class="hint" style="margin:10px 0 0">${footer}</p>` : ""}
+          </section>` : "";
+
+        return [
+          group(due, "已上完課，待續約", `${due.length} 位`, "點「續約」就能加堂數並記錄收費。"),
+          group(going, "進行中", `${going.length} 位`),
+          group(paused, "暫停中", `${paused.length} 位`),
+        ].join("");
+      })()}
     </div>`;
 }
 
@@ -9848,6 +9899,13 @@ function applyStudentSearch() {
     const hit = !q || (row.dataset.searchKey || "").includes(q);
     row.hidden = !hit;
     if (hit) shown++;
+  }
+  // 名單分區之後（待續約／進行中／暫停中），搜尋只藏列的話，
+  // 會留下光禿禿的區塊標題掛在那裡 —— 一片「進行中 12 位」底下什麼都沒有。
+  // 整區都被藏光就把區塊一起收掉。
+  for (const sec of $$("[data-student-section]")) {
+    const own = [...sec.querySelectorAll("[data-student-row]")];
+    sec.hidden = own.length > 0 && own.every((r) => r.hidden);
   }
   const note = $("[data-search-count]");
   if (note) {
