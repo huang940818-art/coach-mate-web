@@ -646,6 +646,16 @@ dialog.sheet {
 .tier-add { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; font-size: 13px; color: var(--muted); }
 .tier-add input { width: 62px; }
 
+/*
+ * 場館那一列。右邊最多掛三樣東西（成本模式、金額、刪除），
+ * 手機寬度下擠在 `.row-end` 裡會把場館名壓成逐字折行 —— 同 `.renewal-row`
+ * 的處理：讓它換行，成本那組整條落到下一行。
+ */
+.venue-row { flex-wrap: wrap; row-gap: 8px; }
+.venue-row .row-main { flex: 1 1 55%; }
+.venue-row .row-end { display: flex; align-items: center; gap: 6px; margin-left: auto; }
+.venue-row .row-end input { width: 76px; }
+
 /* ── 顏色標籤 ─────────────────────────────────
    --tag 由 inline style 帶進來，這樣一個類別就能吃各種顏色。 */
 .tag-filter { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
@@ -878,7 +888,7 @@ const NOTICE_KEY = "coach-mate-web-notice-dismissed";
  * 版本標記。顯示在設定頁最下面，教練唸得出來就知道他手上是哪一版，
  * 不用再猜是不是拿到舊的快取。每次改版就把這個字串往上加。
  */
-const BUILD = "2026-09-14 · v101";
+const BUILD = "2026-09-14 · v102";
 
 /** 開發者署名，顯示在設定頁的「關於」 */
 const DEVELOPER = "杯子蛋糕好好吃";
@@ -1063,6 +1073,13 @@ const DEFAULT_SETTINGS = {
   // `customFieldDefinitions`（純字串陣列）。改成物件 iOS 會整組讀不到。
   // 型別另外放，iOS 讀到不認得的鍵會直接忽略。
   customFieldSpecs: { "生日": { type: "date" } },
+  // 上課地點。承攬教練在別人的場館授課，每間的場租不一樣 ——
+  // 掛在這裡而不是掛在課上，是因為同一間場館換價錢時只要改一個地方。
+  //   costMode  fixed（每堂固定金額）／percent（抽課程收入的百分比）
+  //   costValue fixed 是金額、percent 是 0–100 的數字
+  // 這一份以前只是 iOS 備份帶過來、原封收在 `_carryLocations` 的暗格資料，
+  // 現在網頁自己也維護它（同一個鍵搬得過去，多出來的成本欄位 iOS 會忽略）。
+  locations: [],
   packages: [
     { id: "p1", name: "體驗", sessions: 1, price: 1200 },
     { id: "p2", name: "10 堂", sessions: 10, price: 11000 },
@@ -1082,6 +1099,37 @@ const DEFAULT_SETTINGS = {
 // 舊一點的 iOS Safari（15.4 以前）沒有 structuredClone，直接用會整頁白掉。
 // 這裡的資料都是純 JSON，用序列化複製就夠。
 const clone = (obj) => JSON.parse(JSON.stringify(obj));
+
+/**
+ * 把場館清單整理成網頁要的形狀。
+ *
+ * 來源有兩種：iOS 備份帶過來的（只有 `name` / `address` / `createdAt`），
+ * 以及網頁自己存的（多了 `id` 與場地成本）。缺的欄位一律補成「沒有成本」，
+ * 不是補成 0 就算了 —— `costMode` 沒帶到的話後面算成本會拿 undefined 去比，
+ * 整欄變 NaN，收費頁的數字會直接壞掉。
+ */
+function normalizeLocations(list) {
+  if (!Array.isArray(list)) return [];
+  return list
+    .map((x) => {
+      const name = ((x && x.name) || "").trim();
+      if (!name) return null;
+      const mode = (x && x.costMode) === "percent" ? "percent"
+                 : (x && x.costMode) === "fixed" ? "fixed" : "none";
+      // percent 夾在 0–100：備份帶進來的髒值（負數、120）會讓成本大過收入
+      const raw = Math.max(0, +((x && x.costValue)) || 0);
+      const value = mode === "percent" ? Math.min(100, raw) : Math.round(raw);
+      return {
+        id: (x && x.id) || uid(),
+        name,
+        address: (x && x.address) || "",
+        costMode: mode,
+        costValue: mode === "none" ? 0 : value,
+        ...(x && x.createdAt ? { createdAt: x.createdAt } : {}),
+      };
+    })
+    .filter(Boolean);
+}
 
 function blankState() {
   return { students: [], lessons: [], leads: [], settings: clone(DEFAULT_SETTINGS) };
@@ -1121,6 +1169,18 @@ function load() {
         settings.trainingMenuTemplates = [];
       }
     }
+    // 上課地點：同一招。以前只是 iOS 備份帶過來、原封收在 `_carryLocations`
+    // 等著匯出時攤回去，網頁沒有維護它的地方。現在網頁自己要存場地成本了，
+    // 搬進正式欄位並把暗格清掉 —— 留著的話 buildBackup 會拿舊的那份蓋回去。
+    //
+    // **要看 parsed 而不是 settings**：`locations` 在 DEFAULT_SETTINGS 裡有預設值
+    // （空陣列），所以 `settings.locations` 永遠是陣列，拿它判斷「有沒有存過」
+    // 永遠是有 —— 暗格那份就永遠搬不過來。上面的菜單公版沒這個問題是因為
+    // DEFAULT_SETTINGS 根本沒有那個鍵。
+    const savedVenues = (parsed.settings || {}).locations;
+    settings.locations = normalizeLocations(
+      Array.isArray(savedVenues) ? savedVenues : settings._carryLocations);
+    delete settings._carryLocations;
     return {
       students: (Array.isArray(parsed.students) ? parsed.students : []).map((s) => ({
         ...s,
@@ -1916,10 +1976,101 @@ function knownLocations() {
   }
   // 用過的排前面（次數多的更前面），再補上登記過但還沒排到課的場館
   const used = [...seen.entries()].sort((a, b) => b[1] - a[1]).map(([name]) => name);
-  const registered = (S.settings._carryLocations || [])
+  const registered = (S.settings.locations || [])
     .map((x) => ((x && x.name) || "").trim())
     .filter(Boolean);
   return [...new Set([...used, ...registered])];
+}
+
+/* ── 場地成本 ──────────────────────────────────────
+ *
+ * 自己接案的教練在別人的場館上課，場租是真的從收入裡扣掉的。以前「本月收入」
+ * 是毛的（收多少算多少），同一個人在 A 場館跟 B 場館各上十堂，實拿差幾千塊
+ * 也看不出來。公司教練不走這條 —— 他們的場地是公司的，成本早就反映在抽成裡了。
+ */
+
+/** 這堂課在哪個場館（找不到就是沒登記，不算成本） */
+function venueOf(lesson) {
+  const name = ((lesson && lesson.location) || "").trim();
+  if (!name) return null;
+  return (S.settings.locations || []).find((x) => x.name === name) || null;
+}
+
+/** 場地成本要不要算進來（只有自己接案的人在付場租） */
+const countsVenueCost = () => S.settings.employment === "independent";
+
+/**
+ * 場租照付的課。
+ *
+ * 跟「課程收入」是**不同的口徑**，這是故意的：
+ *   - 缺席算（學生沒來，場地還是租了）
+ *   - 取消不算（事先取消，人沒去）
+ *   - 檢測算（試教也要用場地，但它沒有收入 —— 抽成的那種算出來就是 0）
+ *   - 還沒上的排定課不算（還沒發生）
+ */
+const VENUE_BILLABLE = ["attended", "late", "absent"];
+
+/**
+ * 這一堂的場地成本。
+ *
+ * 兩種模式差在**共同課怎麼算**：
+ *   fixed   一堂課場地只租一次，兩個學生一起上也是一次（不能算兩份場租）
+ *   percent 抽的是課程收入的成，收入是兩位加起來的，所以兩位都算
+ */
+function lessonVenueCost(lesson) {
+  const venue = venueOf(lesson);
+  if (!venue || venue.costMode === "none") return 0;
+  if (venue.costMode === "fixed") return Math.round(venue.costValue || 0);
+  let revenue = 0;
+  if (LESSON_KIND[kindOf(lesson)].paid) {
+    for (const id of [lesson.studentId, lesson.partnerId]) {
+      const st = studentById(id);
+      if (st) revenue += sessionPrice(st);
+    }
+  }
+  return Math.round(revenue * (venue.costValue || 0) / 100);
+}
+
+/**
+ * 某個月的場地成本，按場館攤開。
+ *
+ * 回傳的 rows 只包含真的有成本的場館 —— 沒設成本的場館列出來是一排 $0，
+ * 佔畫面又講不出東西。
+ */
+function venueCostFor(ym) {
+  if (!countsVenueCost()) return { total: 0, sessions: 0, rows: [], unregistered: [] };
+  const byName = new Map();
+  const unknown = new Set();
+  let total = 0, sessions = 0;
+  for (const l of S.lessons) {
+    if (!(l.date || "").startsWith(ym)) continue;
+    if (!VENUE_BILLABLE.includes(l.status)) continue;
+    const name = (l.location || "").trim();
+    // 排課那格可以直接打字，打進去的地點不一定在場館清單裡 —— 那種課算不到
+    // 場地成本。**這件事一定要講出來**：畫面上有一張場地成本的卡片、數字也
+    // 對得起來，少掉的那幾堂完全看不出來，正是「看起來對、其實在漏」的類型。
+    if (name && !venueOf(l)) unknown.add(name);
+    const cost = lessonVenueCost(l);
+    if (!cost) continue;
+    const row = byName.get(name) || { name, sessions: 0, cost: 0 };
+    row.sessions += 1;
+    row.cost += cost;
+    byName.set(name, row);
+    total += cost;
+    sessions += 1;
+  }
+  return {
+    total, sessions,
+    rows: [...byName.values()].sort((a, b) => b.cost - a.cost),
+    unregistered: [...unknown],
+  };
+}
+
+/** 設定頁與收費頁共用的一句話描述 */
+function venueCostLabel(v) {
+  if (!v || v.costMode === "none") return "沒有場地成本";
+  if (v.costMode === "fixed") return `每堂 ${money(v.costValue)}`;
+  return `抽課程收入 ${v.costValue}%`;
 }
 
 function paymentsOf(studentId) {
@@ -6520,6 +6671,9 @@ function viewPayments() {
     ? rows.filter((p) => inPeriod(p.date, bounds.from, bounds.to))
     : rows;
   const isCompany = S.settings.employment === "company";
+  // 自己接案的人在別人的場館上課，場租是真的從口袋出去的。公司教練不算
+  // （場地是公司的，成本早就反映在抽成裡）—— venueCostFor 自己會擋。
+  const venueCost = venueCostFor(ym);
   // 上面那排方塊一律是本月（「本月實拿」就該是本月），薪資試算那張卡片
   // 才跟著 salaryMonthOffset 翻。兩個 salaryFor 是刻意分開的。
   const monthSal = isCompany ? salaryFor(ym) : null;
@@ -6573,7 +6727,40 @@ function viewPayments() {
                    note: `${monthSal.mode === "higherOf" ? "底薪補差額" : "底薪"} ${money(monthSal.baseSalary)}` })
           : tile({ value: money(S.students.reduce((a, s) => a + s.remaining * sessionPrice(s), 0)),
                    label: "未上課的預收", iconName: "clock", color: "var(--info)", note: "剩餘堂數 × 鐘點" })}
+        ${venueCost.total ? tile({
+          value: money(collectedThisMonth - venueCost.total), label: "本月淨收",
+          iconName: "money", color: "var(--info)",
+          note: `扣掉場地成本 ${money(venueCost.total)}` }) : ""}
       </div>
+
+      ${venueCost.total ? `
+      <section class="card">
+        <div class="sec-head">
+          <h2 class="sec-title">場地成本</h2>
+          <span class="sec-sub">${ym}　${venueCost.sessions} 堂</span>
+        </div>
+        ${venueCost.rows.map((r) => {
+          const v = (S.settings.locations || []).find((x) => x.name === r.name);
+          return `
+          <div class="row">
+            <div class="row-main">
+              <div class="row-title">${esc(r.name)}</div>
+              <div class="row-sub mono">${r.sessions} 堂・${esc(venueCostLabel(v))}</div>
+            </div>
+            <div class="row-end">${money(r.cost)}</div>
+          </div>`;
+        }).join("")}
+        <div class="row"><div class="row-main" style="font-weight:650">本月淨收</div>
+          <div class="row-end" style="font-weight:650">${money(collectedThisMonth - venueCost.total)}</div></div>
+        ${venueCost.unregistered.length ? `
+          <p class="hint" style="margin-top:9px">
+            <strong>${venueCost.unregistered.map(esc).join("、")}</strong>
+            ${venueCost.unregistered.length > 1 ? "這幾個地點" : "這個地點"}還沒登記在場館清單裡，
+            所以那幾堂沒有算場地成本。要算的話到設定頁的「上課場館」把它加進去。</p>` : ""}
+        <p class="hint">「本月收到」${money(collectedThisMonth)} 減掉這個月上的課的場地成本。
+          兩邊口徑不一樣是刻意的——錢看的是<strong>什麼時候收到</strong>（預收不算在這裡），
+          場租看的是<strong>什麼時候上的課</strong>。缺席照算（人沒來場地還是租了），事先取消不算。</p>
+      </section>` : ""}
 
       ${isCompany ? (() => {
         // 排完會是多少：已經上到的 ＋ 這個月還沒上的排定課。
@@ -8323,6 +8510,59 @@ function viewSettings() {
           : "獨立授課，不需區分上課地點（排課表單就不會出現那一格）。"}</p>
       </section>
 
+      ${isContractor() ? (() => {
+        // 場館清單。以前這一份只有 iOS 維護得到（網頁只是原封收著等匯出），
+        // 所以只用網頁的人排課時那一格永遠是空的、只能自己打。
+        const venues = S.settings.locations || [];
+        const independent = st.employment === "independent";
+        return `
+      <section class="card">
+        <div class="sec-head">
+          <h2 class="sec-title">上課場館</h2>
+          <span class="sec-sub">${independent ? "排課時可以選，還能各自設場地成本" : "排課時可以直接選"}</span>
+        </div>
+        ${venues.length ? venues.map((v) => `
+          <div class="row venue-row">
+            <div class="row-main">
+              <div class="row-title">${esc(v.name)}</div>
+              <div class="row-sub mono">${[v.address, independent ? venueCostLabel(v) : ""]
+                .filter(Boolean).map(esc).join("・")}</div>
+            </div>
+            <div class="row-end">
+              ${independent ? `
+                <select data-action="set-venue-mode" data-id="${v.id}" aria-label="${esc(v.name)} 的場地成本算法">
+                  ${[["none", "不算成本"], ["fixed", "每堂"], ["percent", "抽成"]].map(([val, label]) =>
+                    `<option value="${val}"${v.costMode === val ? " selected" : ""}>${label}</option>`).join("")}
+                </select>
+                ${v.costMode === "none" ? "" : `
+                  <input type="number" min="0" ${v.costMode === "percent" ? 'max="100"' : ""} inputmode="numeric"
+                         data-action="set-venue-cost" data-id="${v.id}" value="${v.costValue}"
+                         aria-label="${esc(v.name)} 的場地成本">
+                  <span class="muted">${v.costMode === "percent" ? "%" : "元"}</span>`}` : ""}
+              <button class="btn btn-sm btn-ghost" type="button" data-action="del-venue" data-id="${v.id}">刪除</button>
+            </div>
+          </div>`).join("") : `<p class="empty">還沒有場館。</p>`}
+        <form class="tier-add" data-form="add-venue" style="margin-top:11px">
+          <input type="text" name="name" placeholder="場館名稱" style="width:104px">
+          <input type="text" name="address" placeholder="地址（選填）" style="width:118px">
+          ${independent ? `
+            <select name="costMode" style="width:92px">
+              <option value="none">不算成本</option>
+              <option value="fixed">每堂固定</option>
+              <option value="percent">抽成</option>
+            </select>
+            <input type="number" name="costValue" placeholder="金額／%" inputmode="numeric" style="width:84px">` : ""}
+          <button class="btn btn-sm" type="submit">加入</button>
+        </form>
+        <p class="hint">${independent
+          ? "場地成本會從收費頁的「本月淨收」扣掉。抽成是抽那堂課的課程收入；" +
+            "每堂固定就是每上一堂付一次（共同課兩個人一起上也只算一次場租）。" +
+            "缺席照算（人沒來場地還是租了），事先取消不算。"
+          : "登記起來排課時就能直接點選，不用每次手打。公司教練的場地成本已經反映在抽成裡，" +
+            "所以這裡不問場租 —— 工作型態改成「自己接案」才會出現。"}</p>
+      </section>`;
+      })() : ""}
+
       <section class="card">
         <div class="sec-head"><h2 class="sec-title">一般</h2></div>
         <div class="row">
@@ -8796,7 +9036,9 @@ function buildBackup() {
       statusRaw: l.status, notes: l.notes || "",
       createdAt: iso(l.createdAt), updatedAt: iso(l.updatedAt),
     })),
-    locations: S.settings._carryLocations || [],
+    // 場地成本（costMode／costValue）是網頁多出來的欄位，iOS 讀到不認得的鍵
+    // 會直接忽略 —— 但它匯出時也不會帶回來，所以匯入那邊要按名字合併。
+    locations: S.settings.locations || [],
     settings: {
       employmentType: S.settings.employment,
       // 身份。iOS 用同一個鍵（一般教練／承攬教練），兩邊搬得過去。
@@ -9158,8 +9400,20 @@ function parseBackup(raw) {
   // iOS 專屬的設定（提醒、一天的起訖時間、訓練菜單範本…）原封帶著
   const settingsCarry = carryOf(rawSettings, CARRY_SETTINGS_KNOWN);
   if (settingsCarry) settings._carry = settingsCarry;
-  // 上課地點：網頁沒有這個頁面，但 iOS 有，不能弄丟
-  if (Array.isArray(raw.locations) && raw.locations.length) settings._carryLocations = raw.locations;
+  // 上課地點。**按名字合併，不是覆蓋**：iOS 還沒有場地成本這個欄位，
+  // 它匯出的場館只有名稱與地址。直接蓋過去的話，在網頁設好的每堂場租
+  // 會在「iOS 匯出→網頁匯入」走一趟之後整批歸零，而且畫面上看不出來
+  // （場館還在、名字也對，只有成本靜靜變成沒有）。
+  if (Array.isArray(raw.locations)) {
+    const incoming = normalizeLocations(raw.locations);
+    const mine = new Map((S.settings.locations || []).map((x) => [x.name, x]));
+    settings.locations = incoming.map((loc) => {
+      const kept = mine.get(loc.name);
+      // 備份自己帶了成本就用備份的（那是網頁匯出的）；沒帶才沿用本機設定
+      if (loc.costMode !== "none" || !kept) return loc;
+      return { ...loc, costMode: kept.costMode, costValue: kept.costValue };
+    });
+  }
 
   students.forEach((s) => delete s._i);
   // photosDropped 給匯入畫面用 —— InBody 照片是唯一沒帶過來的東西，要講出來
@@ -9543,6 +9797,18 @@ document.addEventListener("click", (e) => {
         }, "刪除");
       break;
     }
+    case "del-venue": {
+      const v = (S.settings.locations || []).find((x) => x.id === id);
+      confirmSheet("刪除場館", v
+        ? `「${esc(v.name)}」以後不會出現在排課的選單裡。已經排過的課還是留著這個地點，` +
+          `但它的場地成本不再算進淨收。`
+        : "",
+        () => {
+          S.settings.locations = (S.settings.locations || []).filter((x) => x.id !== id);
+          save(); render(); toast("已刪除場館");
+        }, "刪除");
+      break;
+    }
     case "del-tier":
       confirmSheet("刪除抽成級距", `滿 ${esc(value)} 堂那一級會拿掉，薪資會改用剩下的級距重算。`, () => {
         S.settings.salary.tiers = S.settings.salary.tiers.filter((t) => String(t.minSessions) !== value);
@@ -9675,6 +9941,27 @@ document.addEventListener("change", (e) => {
       save(); render();
       return;
     }
+    if (action === "set-venue-mode") {
+      const v = (S.settings.locations || []).find((x) => x.id === id);
+      if (!v) return;
+      v.costMode = el.value;
+      // 換模式時把數值歸零，不要把「每堂 800 元」原封變成「抽 800%」——
+      // 那個數字會讓整個月的淨收變成負幾十萬，而且畫面上只看得到一個 800。
+      v.costValue = 0;
+      save(); render();
+      return;
+    }
+    if (action === "set-venue-cost") {
+      const v = (S.settings.locations || []).find((x) => x.id === id);
+      if (!v) return;
+      const raw = Math.max(0, Math.round(+el.value) || 0);
+      v.costValue = v.costMode === "percent" ? Math.min(100, raw) : raw;
+      el.value = v.costValue;
+      save();
+      // 同 salary-num：**刻意不重畫**，重畫會讓輸入框失焦、數字打到一半被打斷。
+      // 這一格不影響同一張卡片上長出什麼，所以不用像底薪那樣有例外。
+      return;
+    }
     if (action === "set-low-sessions") {
       // 至少 1 —— 設成 0 的話這個提醒等於關掉，但畫面上看不出來是關的
       const v = Math.max(1, Math.round(+el.value) || 1);
@@ -9725,6 +10012,26 @@ document.addEventListener("submit", (e) => {
     S.settings.packages.push({ id: uid(), name, sessions, price });
     save(); render();
     toast(`已加入方案「${name}」・${sessions} 堂 ${money(price)}`);
+    return;
+  }
+
+  if (form.dataset.form === "add-venue") {
+    const name = form.elements.name.value.trim();
+    if (!name) { toast("場館要有名稱"); return; }
+    const list = S.settings.locations || (S.settings.locations = []);
+    // 名字是排課那格存進課裡的東西（課上存的是字串不是 id），重複的話
+    // 算成本時會挑到第一筆，第二筆設的價錢永遠不生效，畫面上卻看得到。
+    if (list.some((x) => x.name === name)) { toast(`「${name}」已經在清單裡了`); return; }
+    const mode = form.elements.costMode ? form.elements.costMode.value : "none";
+    const raw = form.elements.costValue ? Math.max(0, Math.round(+form.elements.costValue.value) || 0) : 0;
+    list.push({
+      id: uid(), name,
+      address: form.elements.address.value.trim(),
+      costMode: mode,
+      costValue: mode === "none" ? 0 : (mode === "percent" ? Math.min(100, raw) : raw),
+    });
+    save(); render();
+    toast(`已加入場館「${name}」`);
     return;
   }
 
