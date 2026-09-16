@@ -903,7 +903,7 @@ const NOTICE_KEY = "coach-mate-web-notice-dismissed";
  * 版本標記。顯示在設定頁最下面，教練唸得出來就知道他手上是哪一版，
  * 不用再猜是不是拿到舊的快取。每次改版就把這個字串往上加。
  */
-const BUILD = "2026-09-16 · v105";
+const BUILD = "2026-09-16 · v106";
 
 /** 開發者署名，顯示在設定頁的「關於」 */
 const DEVELOPER = "杯子蛋糕好好吃";
@@ -1547,6 +1547,9 @@ function newStudent(over = {}) {
     color: STUDENT_COLORS[S.students.length % STUDENT_COLORS.length],
     expiry: "", custom: {}, renewalCount: 0, mayNotRenew: false,
     acquisition: "selfDeveloped", status: "active",
+    // 這位學生算公司的還是自己接的。空字串＝跟著設定頁的全域身分走。
+    // 絕大多數教練只有一種身分，不該被逼著幫每位學生選一次。
+    employment: "",
     tags: [],
     payments: [], renewals: [], inbody: [], exercises: [],
     createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
@@ -2043,8 +2046,73 @@ function venueOf(lesson) {
   return (S.settings.locations || []).find((x) => x.name === name) || null;
 }
 
-/** 場地成本要不要算進來（只有自己接案的人在付場租） */
-const countsVenueCost = () => S.settings.employment === "independent";
+/**
+ * 這位學生算哪一邊的錢。
+ *
+ * 起源：Krystal（2026-09-14）同時是公司承攬教練與自由教練 ——
+ * 「某幾個學生算公司的，某幾個是自己場租的」，而且**地點是一樣的位置**。
+ * 所以切換掛在**學生**身上，不是場館（先前猜錯過一次）。
+ *
+ * 空字串＝跟全域走，這是預設。只有一種身分的教練完全不會碰到這個欄位，
+ * 算出來的數字也跟沒有這個功能時一模一樣。
+ *
+ * ⚠️ **不能拿「客戶來源」（acquisition）當這個開關。** 那是「誰帶來的」，
+ * 不是「錢進誰口袋」—— 自己開發的學生在公司制度下收費照樣走公司。
+ */
+function employmentOf(student) {
+  const own = student && student.employment;
+  if (own === "company" || own === "independent") return own;
+  return S.settings.employment;
+}
+
+/**
+ * 這位學生算不算「自己接的」—— **含全域**。場地成本用這把尺，
+ * 因為場地成本本來就是以全域身分為判準的（只有自己接案的人在付場租）。
+ */
+const isIndependentStudent = (s) => employmentOf(s) === "independent";
+
+/**
+ * 這位學生有沒有被**明確標記**成自己接的。薪資試算用這把尺。
+ *
+ * ⚠️ **這裡不能用 `employmentOf`。** `salaryFor()` 本來就不看全域身分 ——
+ * 全域是「自己接案」的人根本看不到薪資區，但函式照算，測試也是這樣寫的。
+ * 加上全域 fallback 的話，那些人的堂數會整片變成 0，而畫面上完全看不出來
+ * （2026-09-16 被既有測試擋下來的）。
+ * 所以薪資只排除「被指名不走公司」的那幾位，其他一律照舊。
+ */
+const isSelfEmployedStudent = (s) => !!s && s.employment === "independent";
+
+/** 有沒有人真的用了「逐位學生指定」。沒有的話畫面就不要多出兩邊的欄位。 */
+const hasMixedEmployment = () =>
+  S.students.some((s) => s.employment === "company" || s.employment === "independent");
+
+/**
+ * 學生表單要不要出現「這位算誰的」。
+ *
+ * 純自己接案又沒設過的人看不到 —— 對他來說那格永遠是同一個答案，只是雜訊。
+ * 公司教練會看到（他才可能有「自己另外接的」），已經設過的人一定看得到
+ * （不然改不回來，那比多一格嚴重得多）。
+ */
+const showEmploymentPicker = () =>
+  S.settings.employment === "company" || hasMixedEmployment();
+
+/**
+ * 有沒有「走公司」的那一半 —— 決定要不要畫薪資試算。
+ *
+ * 混合身分時薪資與場地成本**兩張卡都要出現**，各自只講自己那半。
+ * 兩個判斷刻意分開（這個 ／ `countsVenueCost`），因為兩半可以同時存在。
+ */
+const hasCompanySide = () =>
+  S.settings.employment === "company" || S.students.some((s) => s.employment === "company");
+
+/**
+ * 場地成本要不要算進來（只有自己接案的人在付場租）。
+ *
+ * 混合身分時這件事變成**逐堂**判斷 —— 同一間場館裡有些課走公司、
+ * 有些自己付場租，不能再按全域一刀切。
+ */
+const countsVenueCost = () =>
+  S.settings.employment === "independent" || S.students.some(isIndependentStudent);
 
 /**
  * 場租照付的課。
@@ -2067,13 +2135,24 @@ const VENUE_BILLABLE = ["attended", "late", "absent"];
 function lessonVenueCost(lesson) {
   const venue = venueOf(lesson);
   if (!venue || venue.costMode === "none") return 0;
+
+  // **只有「自己接案」那半的學生要付場租。** 混合身分的教練在同一間場館裡
+  // 有些課走公司（場地是公司的）、有些自己付 —— 按全域一刀切對她會全錯。
+  const mine = [lesson.studentId, lesson.partnerId]
+    .map(studentById).filter((st) => st && isIndependentStudent(st));
+
+  // 沒掛學生的舊資料：照舊按全域身分決定算不算，行為跟以前一樣
+  const noStudents = ![lesson.studentId, lesson.partnerId].some(studentById);
+  if (!mine.length && !(noStudents && S.settings.employment === "independent")) return 0;
+
+  // 一堂課場地只租一次，兩個學生一起上也是一次（不能算兩份場租）——
+  // 只有一位是自己接案的也一樣，場地還是租了
   if (venue.costMode === "fixed") return Math.round(venue.costValue || 0);
+
+  // 抽的是課程收入的成，所以只抽自己接案那幾位的收入
   let revenue = 0;
   if (LESSON_KIND[kindOf(lesson)].paid) {
-    for (const id of [lesson.studentId, lesson.partnerId]) {
-      const st = studentById(id);
-      if (st) revenue += sessionPrice(st);
-    }
+    for (const st of mine) revenue += sessionPrice(st);
   }
   return Math.round(revenue * (venue.costValue || 0) / 100);
 }
@@ -2169,11 +2248,17 @@ function salaryFor(ym, opts = {}) {
       if (!ok) continue;
       if (opts.projected && !attended) {
         // 幾堂是「還沒上、算進來的」—— 差額從哪來要講得出來
-        for (const id of [l.studentId, l.partnerId]) if (studentById(id)) pendingSessions += 1;
+        for (const id of [l.studentId, l.partnerId]) {
+          const st = studentById(id);
+          if (st && !isSelfEmployedStudent(st)) pendingSessions += 1;
+        }
       }
       for (const id of [l.studentId, l.partnerId]) {
         const st = studentById(id);
         if (!st) continue;
+        // **被指名「自己接的」那幾位不走薪資試算** —— 那筆錢直接進口袋，
+        // 算進抽成等於把自己的收入乘上公司的趴數（2026-09-14 Krystal）。
+        if (isSelfEmployedStudent(st)) continue;
         sessions += 1;
         lessonRevenue += rule.useStudentRate ? sessionPrice(st) : (rule.perLessonRate || 0);
       }
@@ -2200,6 +2285,8 @@ function salaryFor(ym, opts = {}) {
     // 不同的薪水。
     const selfAmounts = [], companyAmounts = [];
     for (const st of S.students) {
+      // 自己接的那半不進業績獎金（公司不會抽自己接的案子）
+      if (isSelfEmployedStudent(st)) continue;
       for (const r of st.renewals) {
         if (!(r.date || "").startsWith(ym)) continue;
         const isCompany = rule.separateCompanyLeadRate && st.acquisition === "companyLead";
@@ -3380,7 +3467,8 @@ function viewDashboard() {
   const ym = thisMonth();
   const revenue = monthRevenue(ym);
   const collected = allPayments().filter((p) => (p.date || "").startsWith(ym));
-  const isCompany = S.settings.employment === "company";
+  // 混合身分時也要畫薪資（只算公司那半）—— 見 hasCompanySide
+  const isCompany = hasCompanySide();
   const sal = isCompany ? salaryFor(ym) : null;
 
   const todays = S.lessons.filter((l) => l.date === today())
@@ -5303,6 +5391,17 @@ function studentSheet(existing) {
         ${fieldText("expiry", "方案到期日", s.expiry, { type: "date" })}
         ${fieldSelect("acquisition", "客戶來源", Object.entries(ACQUISITION), s.acquisition)}
       </div>
+      ${/* 這一格**只有承攬教練看得到**，而且預設「跟設定一樣」——
+           絕大多數教練只有一種身分，不該被逼著幫每位學生選一次。
+           ⚠️ 這跟上面的「客戶來源」是兩件事：那個是「誰帶來的」，
+           這個是「錢進誰口袋」。自己開發的學生在公司制度下收費照樣走公司。 */""}
+      ${showEmploymentPicker() ? `
+        ${fieldSelect("employment", "這位算誰的", [
+            ["", `跟設定一樣（${S.settings.employment === "company" ? "公司教練" : "自己接案"}）`],
+            ["company", "算公司的"],
+            ["independent", "自己接的"],
+          ], s.employment || "")}
+        <p class="hint">同時是承攬教練又自己接案才需要動這格。「算公司的」走薪資試算（底薪、鐘點抽成、業績獎金）；「自己接的」不進薪資，改成毛收入扣場地成本。</p>` : ""}
       <div class="field-row">
         ${fieldSelect("status", "狀態",
             [["active", "在檔"], ["paused", "暫停"], ["awaiting", "課程結束待續約"], ["archived", "封存"]],
@@ -5454,6 +5553,11 @@ function studentSheet(existing) {
       }
       s.expiry = form.elements.expiry.value;
       s.acquisition = form.elements.acquisition.value;
+      // 承攬教練才有這一格；不是承攬的話 elements.employment 不存在，維持原值
+      if (form.elements.employment) {
+        const v = form.elements.employment.value;
+        s.employment = (v === "company" || v === "independent") ? v : "";
+      }
       s.status = form.elements.status.value;
       // 只改次數，不碰 s.renewals。那個陣列是銷售統計的資料來源，
       // 在這裡補一筆假的續約紀錄會讓業績憑空多出一筆金額。
@@ -6791,7 +6895,8 @@ function viewPayments() {
   const listed = bounds
     ? rows.filter((p) => inPeriod(p.date, bounds.from, bounds.to))
     : rows;
-  const isCompany = S.settings.employment === "company";
+  // 混合身分時也要畫薪資（只算公司那半）—— 見 hasCompanySide
+  const isCompany = hasCompanySide();
   // 自己接案的人在別人的場館上課，場租是真的從口袋出去的。公司教練不算
   // （場地是公司的，成本早就反映在抽成裡）—— venueCostFor 自己會擋。
   const venueCost = venueCostFor(ym);
@@ -6878,6 +6983,8 @@ function viewPayments() {
             <strong>${venueCost.unregistered.map(esc).join("、")}</strong>
             ${venueCost.unregistered.length > 1 ? "這幾個地點" : "這個地點"}還沒登記在場館清單裡，
             所以那幾堂沒有算場地成本。要算的話到設定頁的「上課場館」把它加進去。</p>` : ""}
+        ${hasMixedEmployment() ? `
+          <p class="hint" style="margin:-2px 0 8px">只算<strong>標成「自己接的」</strong>那幾位學生。公司那半在薪資試算裡。</p>` : ""}
         <p class="hint">「本月收到」${money(collectedThisMonth)} 減掉這個月上的課的場地成本。
           兩邊口徑不一樣是刻意的——錢看的是<strong>什麼時候收到</strong>（預收不算在這裡），
           場租看的是<strong>什麼時候上的課</strong>。缺席照算（人沒來場地還是租了），事先取消不算。</p>
@@ -6949,6 +7056,12 @@ function viewPayments() {
           <div class="row"><div class="row-main">適用抽成</div><div class="row-end mono">${sal.pct}%</div></div>
           <div class="row"><div class="row-main">鐘點抽成</div><div class="row-end mono">${money(sal.lessonPay)}</div></div>` : ""}
 
+        ${/* ⚠️ **這句的後半段兩邊刻意不一樣**，不要「修正」成一致：
+              網頁的薪資試算與場地成本在同一頁（收費），所以說「在下面」；
+              iOS 的薪資在「回顧」、場地成本在「收費」，所以那邊說「在收費頁」。
+              指路一致的話會有一邊叫人去錯的地方。前半段一字不差。 */""}
+        ${hasMixedEmployment() ? `
+          <p class="hint" style="margin:-4px 0 10px">這張只算<strong>標成「算公司的」</strong>那幾位學生。自己接的那半在下面的場地成本與本月淨收。</p>` : ""}
         ${countsSales ? `
           <div class="row"><div class="row-main">${salIsNow ? "本月簽約" : "當月簽約"}</div><div class="row-end mono">${sal.saleCount} 筆・${money(sal.salesAmount)}</div></div>
           ${sal.companySalesAmount ? `
@@ -8392,7 +8505,8 @@ function yearSection() {
   const now = new Date().getFullYear();
   const y = yearSummary(analysisYear);
   const prev = yearSummary(analysisYear - 1);
-  const isCompany = S.settings.employment === "company";
+  // 混合身分時也要畫薪資（只算公司那半）—— 見 hasCompanySide
+  const isCompany = hasCompanySide();
   const maxAttended = Math.max(...y.months.map((m) => m.attended), 1);
 
   // 成長率那一行。去年沒資料就說沒資料，不要印 0% 或 ∞%
@@ -9128,6 +9242,9 @@ function buildBackup() {
       customFieldsJSON: JSON.stringify(s.custom || {}),
       renewalCount: s.renewalCount || 0, mayNotRenew: !!s.mayNotRenew,
       acquisitionRaw: s.acquisition, statusRaw: s.status,
+      // 這位算公司的還是自己接的。空字串＝跟全域走。
+      // 鍵名與 iOS 的 `employmentOverrideRaw` 一致，兩邊搬得過去。
+      employmentOverrideRaw: s.employment || "",
       pausedUntil: null, archivedAt: s.status === "archived" ? iso(s.updatedAt) : null,
       createdAt: iso(s.createdAt), updatedAt: iso(s.updatedAt),
       // 顏色標籤，逗號分隔（iOS 的 Student.tagsCSV）
@@ -9436,6 +9553,9 @@ function parseBackup(raw) {
     renewalCount: d.renewalCount || 0,
     mayNotRenew: !!d.mayNotRenew,
     acquisition: ACQUISITION[d.acquisitionRaw] ? d.acquisitionRaw : "selfDeveloped",
+    // 認不得的值一律當作「跟全域走」—— 舊備份沒有這個鍵，行為跟以前一樣
+    employment: (d.employmentOverrideRaw === "company" || d.employmentOverrideRaw === "independent")
+      ? d.employmentOverrideRaw : "",
     status: ["active", "paused", "awaiting", "archived"].includes(d.statusRaw) ? d.statusRaw : "active",
     ...(() => {
       // 續約要先有 id，收費才接得回去。舊備份沒有 renewalIndex，
