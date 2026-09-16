@@ -645,6 +645,15 @@ dialog.sheet {
 
 .tier-add { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; font-size: 13px; color: var(--muted); }
 .tier-add input { width: 62px; }
+/*
+ * 業績級距那排比堂數那排多一個「抽／給」的下拉。**select 一定要指定寬度** ——
+ * 上面那條 `input[…], select { width: 100% }` 會讓它獨佔一整行，
+ * 於是整排被撐成三行，而正上方的堂數那排是一行，看起來像兩個不同的東西。
+ * （jsdom 測不到這種事，是真的開瀏覽器看才發現的。）
+ */
+.tier-add select { width: auto; flex: 0 0 auto; padding: 7px 9px; }
+.tier-add input.w-amount { width: 94px; }
+.tier-add input.w-value { width: 70px; }
 
 /*
  * 場館那一列。右邊最多掛三樣東西（成本模式、金額、刪除），
@@ -894,7 +903,7 @@ const NOTICE_KEY = "coach-mate-web-notice-dismissed";
  * 版本標記。顯示在設定頁最下面，教練唸得出來就知道他手上是哪一版，
  * 不用再猜是不是拿到舊的快取。每次改版就把這個字串往上加。
  */
-const BUILD = "2026-09-15 · v104";
+const BUILD = "2026-09-16 · v105";
 
 /** 開發者署名，顯示在設定頁的「關於」 */
 const DEVELOPER = "杯子蛋糕好好吃";
@@ -1039,7 +1048,39 @@ const DEFAULT_SALARY = {
   salesPercent: 10,
   separateCompanyLeadRate: false,
   companyLeadSalesPercent: 5,
+  // 業績級距：當月業績總額滿 minAmount 之後改用這一級。
+  // 形狀刻意跟堂數的 `tiers` 對稱（salesPercent 之於 salesTiers，
+  // 就像 basePercent 之於 tiers）—— 空陣列＝行為跟沒有這個功能時一模一樣。
+  salesTiers: [],
 };
+
+/**
+ * 當月業績總額對應到哪一級。沒有級距、或還沒到最低那一級就回 null
+ * （回 null ＝ 照舊用 `rule.salesPercent` 逐筆抽，行為跟以前一模一樣）。
+ *
+ * **判定看的是整個月的業績總額**（自己開發＋公司名單），因為教練心裡的
+ * 「這個月做了多少業績」就是總額。但**套用只作用在自己開發那半** ——
+ * 公司名單本來就是另一套規則（公司不會因為你業績高就多給名單的抽成），
+ * 混在一起會讓開了「公司名單另算一組」的人在達標那個月數字暴跳。
+ * 沒開那個開關時全部都算「自己開發」，級距也就作用在全部，最直覺。
+ */
+function salesTierFor(rule, amount) {
+  return [...(rule.salesTiers || [])]
+    .filter((t) => amount >= (t.minAmount || 0))
+    .sort((a, b) => (b.minAmount || 0) - (a.minAmount || 0))[0] || null;
+}
+
+/** 還差多少錢跳到下一級。這是級距最值得看的地方，跟堂數那邊的 nextTier 同一個用途。 */
+function nextSalesTier(rule, amount) {
+  return [...(rule.salesTiers || [])]
+    .sort((a, b) => (a.minAmount || 0) - (b.minAmount || 0))
+    .find((t) => (t.minAmount || 0) > amount) || null;
+}
+
+/** 一級業績級距怎麼唸。設定頁與收費頁共用，免得兩邊各寫一次會漂。 */
+function salesTierLabel(t) {
+  return t.mode === "fixed" ? `給 ${money(t.value || 0)}` : `抽 ${t.value || 0}%`;
+}
 
 /**
  * 「達標後取消底薪」的堂數門檻。**所有讀這個值的地方都要走這裡。**
@@ -2151,17 +2192,39 @@ function salaryFor(ym, opts = {}) {
   // 「自己開發」那一半，名字看起來卻像總額 —— 一直沒人用所以沒爆，
   // 但收費頁現在要把三個數字都畫出來了（2026-08-30）。
   let selfSalesAmount = 0, companySalesAmount = 0, salesBonus = 0, saleCount = 0;
+  let salesTier = null, nextSales = null;
   if (countsSales) {
+    // **要跑兩趟。** 業績級距是按「當月業績總額」判定的，所以得先把整個月
+    // 加完才知道自己開發那半要用哪個算法 —— 邊加邊算的話，同一個月裡先輸入的
+    // 那幾筆會用還沒達標的趴數，後面的用達標的，同一份資料換個輸入順序就算出
+    // 不同的薪水。
+    const selfAmounts = [], companyAmounts = [];
     for (const st of S.students) {
       for (const r of st.renewals) {
         if (!(r.date || "").startsWith(ym)) continue;
         const isCompany = rule.separateCompanyLeadRate && st.acquisition === "companyLead";
-        const rate = isCompany ? rule.companyLeadSalesPercent : rule.salesPercent;
-        if (isCompany) companySalesAmount += r.amount; else selfSalesAmount += r.amount;
-        // 逐筆取整（同 iOS）：整批加完再取整會跟一筆一筆算的結果差幾元
-        salesBonus += Math.round(r.amount * rate / 100);
+        if (isCompany) { companyAmounts.push(r.amount); companySalesAmount += r.amount; }
+        else           { selfAmounts.push(r.amount);    selfSalesAmount += r.amount; }
         saleCount += 1;
       }
+    }
+
+    salesTier = salesTierFor(rule, selfSalesAmount + companySalesAmount);
+    nextSales = nextSalesTier(rule, selfSalesAmount + companySalesAmount);
+
+    // 公司名單那半照舊逐筆，級距管不到它（理由見 salesTierFor 的說明）
+    for (const amt of companyAmounts) {
+      salesBonus += Math.round(amt * rule.companyLeadSalesPercent / 100);
+    }
+
+    if (salesTier && salesTier.mode === "fixed") {
+      // 固定獎金是**整個月一筆**，不是逐筆 —— 而且它取代自己開發那半的抽成，
+      // 不是加在上面。「滿 30 萬給 1 萬」講的就是一萬，不是一萬再加趴數。
+      salesBonus += salesTier.value || 0;
+    } else {
+      // 逐筆取整（同 iOS）：整批加完再取整會跟一筆一筆算的結果差幾元
+      const rate = salesTier ? (salesTier.value || 0) : rule.salesPercent;
+      for (const amt of selfAmounts) salesBonus += Math.round(amt * rate / 100);
     }
   }
   const salesAmount = selfSalesAmount + companySalesAmount;
@@ -2205,6 +2268,7 @@ function salaryFor(ym, opts = {}) {
 
   return { sessions, pendingSessions, lessonRevenue, pct, lessonPay, salesAmount,
            selfSalesAmount, companySalesAmount, saleCount, salesBonus,
+           salesTier, nextSales,
            baseSalary, configuredBase, mode, threshold,
            earned, baseNote, total, nextTier };
 }
@@ -6890,7 +6954,23 @@ function viewPayments() {
           ${sal.companySalesAmount ? `
             <div class="row"><div class="row-main" style="padding-left:14px">自己開發</div><div class="row-end mono">${money(sal.selfSalesAmount)}</div></div>
             <div class="row"><div class="row-main" style="padding-left:14px">公司名單</div><div class="row-end mono">${money(sal.companySalesAmount)}</div></div>` : ""}
-          <div class="row"><div class="row-main">業績獎金</div><div class="row-end mono">${money(sal.salesBonus)}</div></div>` : ""}
+          <div class="row"><div class="row-main">業績獎金</div><div class="row-end mono">${money(sal.salesBonus)}</div></div>
+          ${/* 業績獎金是一個數字，但它背後可能是「逐筆抽 10%」也可能是
+                「這個月達標所以給一筆 1 萬」—— 不寫出來的話，達標那個月
+                數字突然變了會看起來像算錯（跟底薪的 baseNote 同一個理由）。 */""}
+          ${(() => {
+            if (sal.salesTier) {
+              const hit = `本月業績已達 ${money(sal.salesTier.minAmount)}，${esc(salesTierLabel(sal.salesTier))}`;
+              const more = sal.nextSales
+                ? `　再做 ${money(sal.nextSales.minAmount - sal.salesAmount)} 可以跳到「${esc(salesTierLabel(sal.nextSales))}」。`
+                : (S.settings.salary.salesTiers || []).length > 1 ? "　已達最高級距。" : "";
+              return `<p class="hint" style="margin:-6px 0 8px">${hit}。${more}</p>`;
+            }
+            if (sal.nextSales) {
+              return `<p class="hint" style="margin:-6px 0 8px">再做 ${money(sal.nextSales.minAmount - sal.salesAmount)} 可以跳到「${esc(salesTierLabel(sal.nextSales))}」。</p>`;
+            }
+            return "";
+          })()}` : ""}
 
         ${/* 「取高者」加上去的是**補到底薪的差額**，不是底薪本身。標成「底薪」
               會讓人以為底薪跟抽成相加了。0 就整列不畫 —— 原因寫在下面那行 note 裡。 */""}
@@ -8536,6 +8616,7 @@ function viewSettings() {
   const countsLessons = basis !== "onSale";
   const countsSales = basis !== "perLesson";
   const tiers = [...rule.tiers].sort((a, b) => a.minSessions - b.minSessions);
+  const salesTiers = [...(rule.salesTiers || [])].sort((a, b) => (a.minAmount || 0) - (b.minAmount || 0));
 
   return `
     <div class="page-head">
@@ -8839,6 +8920,35 @@ function viewSettings() {
           <p class="hint">${rule.separateCompanyLeadRate
             ? "公司給的名單通常抽比較少。學生資料裡的「客戶來源」決定走哪一組趴數。"
             : "學生每次續約／簽約的金額，抽這個趴數當獎金。"}</p>
+
+          ${/* 業績級距。形狀刻意跟上面的堂數級距長得一樣 ——
+                同一個畫面裡兩套級距，長得不一樣的話會被當成兩件事。 */""}
+          <p class="sec-sub" style="margin:13px 0 9px">業績級距</p>
+          ${salesTiers.map((t) => `
+            <div class="row">
+              <div class="row-main">滿 <span class="mono">${money(t.minAmount)}</span></div>
+              <div class="row-end">
+                <span class="mono" style="color:var(--gold);font-weight:650">${esc(salesTierLabel(t))}</span>
+                <button class="btn btn-sm btn-ghost" type="button" data-action="del-sales-tier" data-value="${t.minAmount}">刪除</button>
+              </div>
+            </div>`).join("")}
+          <form class="tier-add" data-form="add-sales-tier" style="margin-top:11px">
+            <span>滿</span>
+            <input class="w-amount" type="number" name="amount" placeholder="300000" inputmode="numeric">
+            <span>元</span>
+            <select name="mode" aria-label="獎金給法">
+              <option value="percent">抽</option>
+              <option value="fixed">給</option>
+            </select>
+            <input class="w-value" type="number" name="value" placeholder="15" inputmode="decimal" step="0.5">
+            <button class="btn btn-sm" type="submit">加入</button>
+          </form>
+          <p class="hint" style="margin-top:7px">
+            選「抽」填百分比、選「給」填固定金額。例如「滿 $300,000 抽 15%」或「滿 $300,000 給 $10,000」。
+            當月業績總額會對應到最高符合的那一級，沒有達到任何一級就用上面的簽約抽成。
+            <strong>想做成「達標才有獎金」的話，把上面的簽約抽成填 0 就好。</strong>
+            ${rule.separateCompanyLeadRate ? "（級距只作用在自己開發那半；公司名單照舊走它自己的趴數。）" : ""}
+          </p>
         ` : ""}
 
         <div class="divider" style="margin:12px 0"></div>
@@ -9440,6 +9550,15 @@ function parseBackup(raw) {
       tiers: Array.isArray(salary.tiers)
         ? salary.tiers.map((t) => ({ minSessions: t.minSessions || 0, percent: t.percent || 0 }))
         : DEFAULT_SALARY.tiers,
+      // 舊備份（含 iOS 還沒做這個欄位時匯出的）沒有這個鍵 —— 一律當作沒設級距，
+      // 行為就跟以前一模一樣。認不得的 mode 當成百分比。
+      salesTiers: Array.isArray(salary.salesTiers)
+        ? salary.salesTiers.map((t) => ({
+            minAmount: +t.minAmount || 0,
+            mode: t.mode === "fixed" ? "fixed" : "percent",
+            value: +t.value || 0,
+          })).filter((t) => t.minAmount > 0 && t.value > 0)
+        : [],
     };
     // iOS 的門檻是 Int，可以是 0。進來就正規化，存的、畫面上的、算薪用的
     // 才是同一個數字 —— 不然 0 會一路留在 localStorage 裡，只有讀的時候才被
@@ -9873,6 +9992,15 @@ document.addEventListener("click", (e) => {
       }, "刪除");
       break;
 
+    case "del-sales-tier":
+      confirmSheet("刪除業績級距",
+        `滿 ${esc(money(+value))} 那一級會拿掉，業績獎金會改用剩下的級距重算。`, () => {
+        S.settings.salary.salesTiers = (S.settings.salary.salesTiers || [])
+          .filter((t) => String(t.minAmount) !== value);
+        save(); render(); toast("已刪除業績級距");
+      }, "刪除");
+      break;
+
     case "export": exportData(); break;
     case "import": $("#import-file").click(); break;
     case "copy-backup": copyBackupSheet(); break;
@@ -10114,6 +10242,29 @@ document.addEventListener("submit", (e) => {
     const next = $('[data-form="add-tier"] [name="sessions"]');
     if (next) next.focus();
     toast(`已加入：滿 ${sessions} 堂抽 ${percent}%`);
+  }
+
+  if (form.dataset.form === "add-sales-tier") {
+    const amount = +form.elements.amount.value || 0;
+    const mode = form.elements.mode.value === "fixed" ? "fixed" : "percent";
+    const value = +form.elements.value.value || 0;
+    if (amount <= 0 || value <= 0) {
+      toast("請填有效的業績門檻與獎金");
+      return;
+    }
+    // 百分比才夾 100；固定獎金可以是任何金額（滿 30 萬給 5 萬完全合理）
+    if (mode === "percent" && value > 100) {
+      toast("抽成不能超過 100%");
+      return;
+    }
+    const salary = S.settings.salary;
+    salary.salesTiers = (salary.salesTiers || []).filter((t) => t.minAmount !== amount);
+    salary.salesTiers.push({ minAmount: amount, mode, value });
+    save();
+    render();
+    const next = $('[data-form="add-sales-tier"] [name="amount"]');
+    if (next) next.focus();
+    toast(`已加入：滿 ${money(amount)} ${salesTierLabel({ mode, value })}`);
   }
 });
 
