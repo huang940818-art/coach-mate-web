@@ -880,20 +880,18 @@ function showFatal(message, file, line) {
  * 換新公告時「一定要改 id」，否則之前按過「知道了」的人不會再看到。
  */
 const ANNOUNCEMENT = {
-  id: "2026-09-15",
-  title: "這幾天改了三件事",
+  id: "2026-09-18",
+  title: "多了單堂制",
   // 一段連續的文字（`.notice-text` 沒有 pre-wrap，換行會被吃掉）。
   // 順序照「多少人會用到」排：學生名單人人都看，場地成本只有自己接案的用得到。
-  body: "學生名單分區了：「在檔」現在分成「已上完課，待續約」「進行中」「暫停中」三區，" +
-        "待續約的排在最上面。以前他們跟正在上課的混在同一片名單裡，" +
-        "堂數剛好上完的人畫面上看不出來；表頭也改成「在檔 N 位（含待續約 M 位）」，" +
-        "那兩個數字本來就是同一批人，不用再加起來。" +
-        "自己接案的教練多了場地成本：設定頁的「上課場館」可以幫每一間設「每堂固定金額」" +
-        "或「抽成」，收費頁就會出現「本月淨收」與一張按場館攤開的明細，" +
-        "看得到每一間上了幾堂、花了多少（公司制的教練不受影響，場地成本本來就在抽成裡）。" +
-        "上課地點也不用再手打了：用過的場館變成一排按鈕，點一下就填進去" +
-        "（iPhone 上那一格以前只能純手打）；新增學生現在跟「續約」一樣選得到方案，" +
-        "選了會自動帶入堂數與金額。" +
+  body: "不收包堂費、上完一堂收一堂的學生，現在可以標成「單堂制」：" +
+        "學生資料裡多了一格「計費方式」，選了單堂制之後，" +
+        "他不會再被列進「待續約」（以前他的剩餘堂數永遠是 0，所以每天都被催一次），" +
+        "新增時也不用填堂數與金額，名單與詳情頁的「續約」換成「記收費」。" +
+        "兩種收法都有的話，設定頁可以選一個預設，" +
+        "少數不一樣的人再到他資料裡單獨指定。" +
+        "沒有動到任何一條算錢的算術 —— 收費本來就能獨立記，" +
+        "收入、薪資與業績跟以前一模一樣。" +
         "有問題到設定最下面「回報問題」告訴我。",
 };
 
@@ -903,7 +901,7 @@ const NOTICE_KEY = "coach-mate-web-notice-dismissed";
  * 版本標記。顯示在設定頁最下面，教練唸得出來就知道他手上是哪一版，
  * 不用再猜是不是拿到舊的快取。每次改版就把這個字串往上加。
  */
-const BUILD = "2026-09-16 · v106";
+const BUILD = "2026-09-18 · v107";
 
 /** 開發者署名，顯示在設定頁的「關於」 */
 const DEVELOPER = "杯子蛋糕好好吃";
@@ -1103,6 +1101,9 @@ function salaryThreshold(rule) {
 
 const DEFAULT_SETTINGS = {
   employment: "independent",       // independent | company
+  // 預設怎麼收費：package（買一期堂數）｜perSession（上一堂收一堂）。
+  // 逐位學生可以覆寫，見 billingModeOf()。
+  billingMode: "package",
   // 身份。跟 iOS 的 userRole 是同一個東西（備份也是用這個鍵搬）：
   // 承攬教練在健身房／場館授課，要登記上課地點；一般教練不必區分。
   role: "coach",                   // coach | contractor
@@ -1515,15 +1516,52 @@ const onRoster = (s) => s.status !== "archived";
 const activeStudents = () => S.students.filter((s) => onRoster(s));
 
 /**
+ * 計費方式：包堂制（買一期堂數慢慢扣）／單堂制（上一堂收一堂，不預繳）。
+ *
+ * 起源是 Krystal（2026-09-17 回報信）：
+ * 　> 我私接的學生是不收包堂費用的
+ * 　> 我都是上完一堂課才收該堂的費用，不知道未來有沒有機會關閉續約這個項目
+ *
+ * 她講的是「關掉一顆按鈕」，**真正煩到她的不是那顆按鈕**：單堂制的學生剩餘
+ * 堂數永遠是 0，於是每一位都被 `needsRenewal` 自動判成待續約、釘在名單最
+ * 上面，天天催她去續一份她根本不會續的約。
+ *
+ * ⚠️ **這一輪不動任何一條算術。** 收費本來就可以獨立記（收費頁的「新增收費」
+ * 不必經過續約），所以就算從不續約，收入、薪資、業績照樣算得出來。
+ * 改的只有「誰算待續約」與「堂數要不要拿出來講」。
+ *
+ * 空字串＝跟著設定頁的預設走，跟「這位算誰的」（employment）同一個形狀 ——
+ * 絕大多數教練只有一種收法，不該被逼著幫每位學生選一次。
+ */
+const BILLING_MODES = { package: "包堂制", perSession: "單堂制" };
+
+/** 設定頁的預設收法。認不得的值一律當包堂制（那是舊資料唯一的行為）。 */
+const globalBillingMode = () =>
+  S.settings.billingMode === "perSession" ? "perSession" : "package";
+
+const billingModeOf = (s) =>
+  s && BILLING_MODES[s.billingMode] ? s.billingMode : globalBillingMode();
+
+/** 這位學生是不是「上一堂收一堂」。單堂制沒有剩餘堂數，也沒有續約這回事。 */
+const isPerSession = (s) => billingModeOf(s) === "perSession";
+
+/** 有沒有人真的用了逐位指定。沒有的話畫面就不必解釋兩種收法的差別。 */
+const hasMixedBilling = () => S.students.some((s) => !!BILLING_MODES[s.billingMode]);
+
+/**
  * 要追續約的人：**手動標記的「課程結束待續約」，加上堂數已經用完的**。
  *
  * 暫停中的不算（他自己說先停一陣子），封存的更不算。
  * 跟 iOS 的 `Student.needsRenewal` 同一條規則 —— 標了之後要看得到人，
  * 而「堂數用完」本來就是同一件事的自動版本。
+ *
+ * **單堂制只關掉「堂數用完」那半，手動標的照樣算數**（2026-09-18）：
+ * 他的剩餘堂數本來就永遠是 0，自動判進來等於整批誤報；
+ * 但教練真的自己標了「這位要談續約」，那是明確的動作，不能靜靜吃掉。
  */
 const needsRenewal = (s) =>
   onRoster(s) && s.status !== "paused"
-  && (s.status === "awaiting" || (s.remaining || 0) <= 0);
+  && (s.status === "awaiting" || (!isPerSession(s) && (s.remaining || 0) <= 0));
 
 /**
  * 中文姓名照**筆畫**排。
@@ -1550,6 +1588,8 @@ function newStudent(over = {}) {
     // 這位學生算公司的還是自己接的。空字串＝跟著設定頁的全域身分走。
     // 絕大多數教練只有一種身分，不該被逼著幫每位學生選一次。
     employment: "",
+    // 這位學生怎麼收費：包堂制／單堂制。空字串＝跟著設定頁的預設走。
+    billingMode: "",
     tags: [],
     payments: [], renewals: [], inbody: [], exercises: [],
     createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
@@ -1581,6 +1621,11 @@ function setLessonStatus(lesson, status) {
   for (const [idKey, consumedKey, owedKey] of SESSION_SLOTS) {
     const st = studentById(lesson[idKey]);
     if (!st) continue;
+    // 單堂制沒有預繳的堂數可以扣（他上一堂收一堂）。
+    // 曾經是包堂制、後來改成單堂制的人，剩下的堂數要原封不動留著 ——
+    // 畫面上已經不顯示那個數字了，在背後把它扣掉等於靜靜改資料，
+    // 哪天他改回包堂制堂數就短了一截（2026-09-18）。
+    if (isPerSession(st)) { st.updatedAt = new Date().toISOString(); continue; }
     if (shouldConsume && !lesson[consumedKey]) {
       // **沒有「欠課」這件事**（2026-08-11）。以前剩餘是 0 卻標了已出席，
       // 會記一筆「欠一堂」，之後加堂數再自動還回去 —— 但實際上教練不是這樣
@@ -1794,7 +1839,9 @@ function hasUpcomingLesson(studentId) {
  */
 function idleStudents(minDays = idleDaysSetting()) {
   return activeStudents()
-    .filter((s) => (s.remaining || 0) > 0 && !hasUpcomingLesson(s.id))
+    // 單堂制的人剩餘堂數永遠是 0，但他正是最該被提醒「該約下一堂」的人 ——
+    // 條件 1 對他不成立，所以直接放行（2026-09-18）。
+    .filter((s) => ((s.remaining || 0) > 0 || isPerSession(s)) && !hasUpcomingLesson(s.id))
     .map((s) => {
       const last = lastAttendedDate(s.id);
       if (!last && consumedSessions(s).count > 0) return null;   // 上過課，只是沒記錄
@@ -3862,20 +3909,31 @@ function viewStudents() {
                 s.renewalCount > 0 ? `・續約 ${s.renewalCount} 次` : ""}</div>
             </div>
             <div class="row-end">
-              <!-- 這個數字一直都是可以按的（按了開「調整剩餘堂數」），但它長得跟
-                   純文字一樣，於是使用者根本不知道能按（2026-08-17：「沒找到」）。
-                   加上虛線底與鉛筆，讓它看起來像可以動的東西。 -->
-              <button class="mono btn-plain tap-adjust" type="button" data-action="adjust-sessions" data-id="${s.id}"
-                      title="點一下調整剩餘堂數" aria-label="${esc(s.name || "")} 剩餘 ${s.remaining} 堂，點一下調整"
-                      style="font-weight:600">
-                ${s.remaining}<span class="muted" style="font-size:12px"> / ${currentPackageTotal(s)} 堂</span>
-                ${icon("pencil", 12)}
-              </button>
-              ${packageBreakdown(s) ? `<div class="muted" style="font-size:11px;text-align:right;margin-top:2px">${packageBreakdown(s)}</div>` : ""}
-              <div style="display:flex;gap:6px;justify-content:flex-end;margin-top:5px">
-                <button class="btn btn-sm" type="button" data-action="renew" data-id="${s.id}">續約</button>
-                <button class="btn btn-sm" type="button" data-action="edit-student" data-id="${s.id}">編輯</button>
-              </div>
+              ${// 單堂制沒有「剩幾堂」這件事 —— 那個數字永遠是 0 / 0，寫出來只會
+                // 讓人以為課上完了。改成寫收法，續約也換成「記收費」（2026-09-18）。
+                // 刻意只寫「單堂制」三個字，**不加第二行說明** —— 包堂制那半右邊
+                // 是一行數字，多一行小字會讓這幾列比別人高，整片名單的按鈕跟著
+                // 上下跳（2026-09-08 標籤那次踩過同一個坑）。說明寫在詳情頁。
+                isPerSession(s) ? `
+                <div class="mono" style="font-weight:600">單堂制</div>
+                <div style="display:flex;gap:6px;justify-content:flex-end;margin-top:5px">
+                  <button class="btn btn-sm" type="button" data-action="pay-student" data-id="${s.id}">記收費</button>
+                  <button class="btn btn-sm" type="button" data-action="edit-student" data-id="${s.id}">編輯</button>
+                </div>` : `
+                <!-- 這個數字一直都是可以按的（按了開「調整剩餘堂數」），但它長得跟
+                     純文字一樣，於是使用者根本不知道能按（2026-08-17：「沒找到」）。
+                     加上虛線底與鉛筆，讓它看起來像可以動的東西。 -->
+                <button class="mono btn-plain tap-adjust" type="button" data-action="adjust-sessions" data-id="${s.id}"
+                        title="點一下調整剩餘堂數" aria-label="${esc(s.name || "")} 剩餘 ${s.remaining} 堂，點一下調整"
+                        style="font-weight:600">
+                  ${s.remaining}<span class="muted" style="font-size:12px"> / ${currentPackageTotal(s)} 堂</span>
+                  ${icon("pencil", 12)}
+                </button>
+                ${packageBreakdown(s) ? `<div class="muted" style="font-size:11px;text-align:right;margin-top:2px">${packageBreakdown(s)}</div>` : ""}
+                <div style="display:flex;gap:6px;justify-content:flex-end;margin-top:5px">
+                  <button class="btn btn-sm" type="button" data-action="renew" data-id="${s.id}">續約</button>
+                  <button class="btn btn-sm" type="button" data-action="edit-student" data-id="${s.id}">編輯</button>
+                </div>`}
             </div>
           </div>`;
         };
@@ -4374,20 +4432,28 @@ function studentDetailSheet(student) {
             })()}
         </div>
         <div class="row-end">
-          <button class="mono btn-plain tap-adjust" type="button" data-detail-action="adjust"
-                  title="點一下調整剩餘堂數" style="font-weight:600">${student.remaining}<span class="muted" style="font-size:12px"> / ${currentPackageTotal(student)} 堂</span>${icon("pencil", 12)}</button>
-          ${packageBreakdown(student)
-            ? `<div class="muted" style="font-size:11px">${packageBreakdown(student)}</div>`
-            : ""}
-          ${student.expiry ? `<div class="muted" style="font-size:12px">到期 ${esc(student.expiry)}</div>` : ""}
+          ${// 單堂制：剩餘堂數永遠 0 / 0，寫出來是誤導（見 isPerSession）
+            isPerSession(student) ? `
+            <div class="mono" style="font-weight:600">單堂制</div>
+            <div class="muted" style="font-size:11px">上一堂收一堂</div>` : `
+            <button class="mono btn-plain tap-adjust" type="button" data-detail-action="adjust"
+                    title="點一下調整剩餘堂數" style="font-weight:600">${student.remaining}<span class="muted" style="font-size:12px"> / ${currentPackageTotal(student)} 堂</span>${icon("pencil", 12)}</button>
+            ${packageBreakdown(student)
+              ? `<div class="muted" style="font-size:11px">${packageBreakdown(student)}</div>`
+              : ""}
+            ${student.expiry ? `<div class="muted" style="font-size:12px">到期 ${esc(student.expiry)}</div>` : ""}`}
         </div>
       </div>
       ${tagsOf(student).length ? `<div class="tag-row" style="margin-bottom:10px">${tagsOf(student).map((t) =>
         `<span class="tag-chip tag-chip-sm" style="--tag:${esc(t.color)}"><span class="tag-dot"></span>${esc(t.name)}</span>`).join("")}</div>` : ""}
 
       <div style="display:flex;gap:6px;margin-bottom:12px;flex-wrap:wrap">
+        ${// 單堂制沒有續約、也沒有堂數可調 —— 那兩顆換成一顆「記收費」。
+          // 這就是 Krystal 09-17 說的「關閉續約這個項目」（2026-09-18）。
+          isPerSession(student) ? `
+        <button type="button" class="btn btn-sm btn-primary" data-detail-action="pay">記收費</button>` : `
         <button type="button" class="btn btn-sm btn-primary" data-detail-action="renew">續約</button>
-        <button type="button" class="btn btn-sm" data-detail-action="adjust">調整堂數</button>
+        <button type="button" class="btn btn-sm" data-detail-action="adjust">調整堂數</button>`}
         <button type="button" class="btn btn-sm" data-detail-action="edit">編輯</button>
         <!-- 封存以前只藏在編輯表單下半部的「狀態」下拉裡 —— 想封存的時機是在
              名單上看到「這個人上完了、不續了」的當下，那時候不會有人想到要
@@ -4607,6 +4673,8 @@ function studentDetailSheet(student) {
         }
         closeSheet();
         if (a === "renew") renewSheet(student);
+        // 單堂制的詳情頁用這顆取代「續約」
+        else if (a === "pay") paymentSheet(student);
         else if (a === "edit") studentSheet(student);
         else if (a === "adjust") adjustSessionsSheet(student);
         else if (a === "edit-payment" && payment) paymentSheet(student, payment);
@@ -5361,36 +5429,48 @@ function studentSheet(existing) {
         ${fieldText("phone", "電話", s.phone, { type: "tel" })}
         ${fieldText("rate", "每堂費用", s.rate || "", { type: "number", hint: "算收入與抽成用" })}
       </div>
-      ${// 新增學生＝這個人的第一份合約，所以要跟「續約」那張表一樣選得到方案。
-        // 2026-09-14 使用者回報：「在新增學員時 希望可以像續約裡面有他要上什麼課的
-        // 選擇 例如新增學員也會知道他要報名幾堂課多少錢？」——本來只有堂數，
-        // 錢是背地裡用「每堂費用 × 堂數」算出來的，畫面上從頭到尾沒出現過金額。
-        !existing && S.settings.packages.length
-          ? fieldSelect("pkg", "選擇方案",
-              [["", "自己填"], ...S.settings.packages.map(
-                (p) => [p.id, `${p.name}・${p.sessions} 堂・${money(p.price)}`])], "",
-              "選了會自動填好下面的堂數與金額，填完還可以再改。")
-          : ""}
-      <div class="field-row">
-        <input type="hidden" name="currentSessionsInitial" value="${currentPackageSessions(s)}">
-        ${fieldText("currentSessions", "本期購買堂數", currentPackageSessions(s), {
-          type: "number",
-          hint: renewalsOf(s).length
-            ? `累計已購 ${s.totalPurchased || 0} 堂。改這格等於改最近一筆續約紀錄，累計會自動跟著調。`
-            : `還沒有續約紀錄，這格就是他目前的合約。`,
-        })}
-        ${fieldText("remaining", "剩餘堂數", s.remaining || 0, { type: "number" })}
+      ${/* 怎麼收費。**一律畫出來**（不像「這位算誰的」要看身分）——
+           單堂制的人如果看不到這一格，就永遠沒有地方把自己標出來，
+           那是雞生蛋。預設「跟設定一樣」，不選就跟以前一模一樣。 */""}
+      ${fieldSelect("billingMode", "計費方式", [
+          ["", `跟設定一樣（${BILLING_MODES[globalBillingMode()]}）`],
+          ["package", "包堂制（買一期堂數）"],
+          ["perSession", "單堂制（上一堂收一堂）"],
+        ], s.billingMode || "")}
+      <p class="hint">單堂制不預繳堂數，下面的堂數與金額都不用填，也不會被列進「待續約」。收費照樣在「收費」那頁一筆一筆記。</p>
+      <div data-package-fields${isPerSession(s) ? " hidden" : ""}>
+        ${// 新增學生＝這個人的第一份合約，所以要跟「續約」那張表一樣選得到方案。
+          // 2026-09-14 使用者回報：「在新增學員時 希望可以像續約裡面有他要上什麼課的
+          // 選擇 例如新增學員也會知道他要報名幾堂課多少錢？」——本來只有堂數，
+          // 錢是背地裡用「每堂費用 × 堂數」算出來的，畫面上從頭到尾沒出現過金額。
+          !existing && S.settings.packages.length
+            ? fieldSelect("pkg", "選擇方案",
+                [["", "自己填"], ...S.settings.packages.map(
+                  (p) => [p.id, `${p.name}・${p.sessions} 堂・${money(p.price)}`])], "",
+                "選了會自動填好下面的堂數與金額，填完還可以再改。")
+            : ""}
+        <div class="field-row">
+          <input type="hidden" name="currentSessionsInitial" value="${currentPackageSessions(s)}">
+          ${fieldText("currentSessions", "本期購買堂數", currentPackageSessions(s), {
+            type: "number",
+            hint: renewalsOf(s).length
+              ? `累計已購 ${s.totalPurchased || 0} 堂。改這格等於改最近一筆續約紀錄，累計會自動跟著調。`
+              : `還沒有續約紀錄，這格就是他目前的合約。`,
+          })}
+          ${fieldText("remaining", "剩餘堂數", s.remaining || 0, { type: "number" })}
+        </div>
+        ${existing ? "" : `
+          ${fieldText("firstAmount", "本期金額", "", { type: "number",
+            hint: "這份合約總共收多少。留白就用「每堂費用 × 購買堂數」算。" })}
+          <p class="hint" data-amount-hint></p>
+          ${fieldText("purchaseDate", "購買日期", today(), { type: "date" })}
+          <p class="hint" data-purchase-hint></p>`}
+        ${// 「方案到期日」講的是這一包方案什麼時候過期 —— 單堂制沒有方案，
+          // 所以它屬於這一區，跟著一起收起來（2026-09-18 從「客戶來源」
+          // 那一行搬過來的）。
+          fieldText("expiry", "方案到期日", s.expiry, { type: "date" })}
       </div>
-      ${existing ? "" : `
-        ${fieldText("firstAmount", "本期金額", "", { type: "number",
-          hint: "這份合約總共收多少。留白就用「每堂費用 × 購買堂數」算。" })}
-        <p class="hint" data-amount-hint></p>
-        ${fieldText("purchaseDate", "購買日期", today(), { type: "date" })}
-        <p class="hint" data-purchase-hint></p>`}
-      <div class="field-row">
-        ${fieldText("expiry", "方案到期日", s.expiry, { type: "date" })}
-        ${fieldSelect("acquisition", "客戶來源", Object.entries(ACQUISITION), s.acquisition)}
-      </div>
+      ${fieldSelect("acquisition", "客戶來源", Object.entries(ACQUISITION), s.acquisition)}
       ${/* 這一格**只有承攬教練看得到**，而且預設「跟設定一樣」——
            絕大多數教練只有一種身分，不該被逼著幫每位學生選一次。
            ⚠️ 這跟上面的「客戶來源」是兩件事：那個是「誰帶來的」，
@@ -5551,12 +5631,18 @@ function studentSheet(existing) {
                             createdAt: stamp });
         }
       }
-      s.expiry = form.elements.expiry.value;
+      // 單堂制時這一格只是被收起來（見 data-package-fields），值還在；
+      // 這個保護是給未來真的把它拿掉的人用的。
+      if (form.elements.expiry) s.expiry = form.elements.expiry.value;
       s.acquisition = form.elements.acquisition.value;
       // 承攬教練才有這一格；不是承攬的話 elements.employment 不存在，維持原值
       if (form.elements.employment) {
         const v = form.elements.employment.value;
         s.employment = (v === "company" || v === "independent") ? v : "";
+      }
+      if (form.elements.billingMode) {
+        const v = form.elements.billingMode.value;
+        s.billingMode = BILLING_MODES[v] ? v : "";
       }
       s.status = form.elements.status.value;
       // 只改次數，不碰 s.renewals。那個陣列是銷售統計的資料來源，
@@ -5584,6 +5670,22 @@ function studentSheet(existing) {
             : (existing ? "已更新學生資料" : `已新增 ${s.name}`));
     },
     onMount: (root) => {
+      // 選了單堂制就把整區堂數欄位收起來 —— 那些格子對他永遠是 0，
+      // 留在畫面上只會讓人以為非填不可（Krystal 2026-09-17 的正是這件事）。
+      // 只藏不移除：欄位還在 DOM 裡，onConfirm 讀得到，改回包堂制也不用重畫。
+      const billingEl = root.querySelector('[name="billingMode"]');
+      const pkgBox = root.querySelector("[data-package-fields]");
+      if (billingEl && pkgBox) {
+        const syncBilling = () => {
+          const v = billingEl.value;
+          const perSession = v === "perSession"
+            || (v === "" && globalBillingMode() === "perSession");
+          pkgBox.hidden = perSession;
+        };
+        billingEl.addEventListener("change", syncBilling);
+        syncBilling();
+      }
+
       // 剩餘比購買少，代表他早就上過課了 —— 那筆合約一定不是今天買的。
       // 一位一位把舊學生建進來的人最容易在這裡把日期留成今天，
       // 而那一筆會直接變成「這個月的業績」。
@@ -7202,8 +7304,11 @@ function paymentSheet(student = null, payment = null) {
              <div class="row-main"><div class="row-title">${esc(student.name || "（未命名）")}</div>
                <div class="row-sub">要換人請刪掉這筆，重新記一次</div></div>
            </div>`
-        : fieldSelect("studentId", "學生", studentOptions(false), activeStudentsByName()[0].id)}
-      <div data-renewal-pick>${renewalPickField(owner || activeStudentsByName()[0], editing ? payment.renewalId : "")}</div>
+        // 從學生那一列按「記收費」進來時，人已經指定好了，下拉要預先選他
+        // （還是可以改，因為這張表單本來就能幫任何人記一筆）。
+        : fieldSelect("studentId", "學生", studentOptions(false),
+                      (student || activeStudentsByName()[0]).id)}
+      <div data-renewal-pick>${renewalPickField(owner || student || activeStudentsByName()[0], editing ? payment.renewalId : "")}</div>
       <p class="hint" data-link-warn hidden></p>
       <div class="seg" style="max-width:260px;margin-bottom:8px" data-price-toggle hidden>
         ${[["total", "輸入總額"], ["unit", "輸入單價"]].map(([v, t], i) =>
@@ -8760,6 +8865,18 @@ function viewSettings() {
         <p class="row-sub" style="margin-top:9px">${isContractor()
           ? "在健身房或場館授課，排課時要登記上課地點。"
           : "獨立授課，不需區分上課地點（排課表單就不會出現那一格）。"}</p>
+
+        <div class="divider" style="margin:14px 0"></div>
+        <p class="sec-sub" style="margin:0 0 9px">計費方式</p>
+        <div class="seg" style="max-width:340px">
+          ${[["package", "包堂制"], ["perSession", "單堂制"]].map(([v, t]) =>
+            `<button type="button" data-action="set-billing-mode" data-value="${v}" aria-pressed="${globalBillingMode() === v}">${t}</button>`).join("")}
+        </div>
+        <p class="row-sub" style="margin-top:9px">${globalBillingMode() === "perSession"
+          ? "上一堂收一堂，不預繳。新學生預設不用填堂數，也不會被列進「待續約」。"
+          : "先買一包堂數再慢慢扣，堂數歸零就列進「待續約」。"}</p>
+        <p class="hint" style="margin-top:6px">這是<strong>預設值</strong>：兩種都有的話，到學生的「計費方式」那一格單獨指定。${
+          hasMixedBilling() ? `目前有 ${S.students.filter((x) => !!BILLING_MODES[x.billingMode]).length} 位學生自己指定了收法。` : ""}</p>
       </section>
 
       ${isContractor() ? (() => {
@@ -9245,6 +9362,9 @@ function buildBackup() {
       // 這位算公司的還是自己接的。空字串＝跟全域走。
       // 鍵名與 iOS 的 `employmentOverrideRaw` 一致，兩邊搬得過去。
       employmentOverrideRaw: s.employment || "",
+      // 這位怎麼收費（包堂／單堂）。空字串＝跟設定的預設走。
+      // 鍵名與 iOS 的 `billingModeRaw` 一致。
+      billingModeRaw: s.billingMode || "",
       pausedUntil: null, archivedAt: s.status === "archived" ? iso(s.updatedAt) : null,
       createdAt: iso(s.createdAt), updatedAt: iso(s.updatedAt),
       // 顏色標籤，逗號分隔（iOS 的 Student.tagsCSV）
@@ -9325,6 +9445,8 @@ function buildBackup() {
     locations: S.settings.locations || [],
     settings: {
       employmentType: S.settings.employment,
+      // 預設計費方式。iOS 用同一個鍵。
+      billingMode: globalBillingMode(),
       // 身份。iOS 用同一個鍵（一般教練／承攬教練），兩邊搬得過去。
       userRole: roleOf(),
       defaultLessonDurationMinutes: String(S.settings.defaultDuration),
@@ -9463,7 +9585,7 @@ const CARRY_STUDENT_KNOWN = new Set([
   "name", "phone", "email", "rate", "totalPurchasedSessions", "remainingSessions",
   "notes", "color", "packageExpiryDate", "customFieldsJSON", "renewalCount",
   "mayNotRenew", "acquisitionRaw", "statusRaw", "archivedAt", "createdAt",
-  "updatedAt", "tagsCSV", "payments", "renewals",
+  "updatedAt", "tagsCSV", "payments", "renewals", "billingModeRaw",
   // 2026-09-04 起網頁自己顯示 InBody 與訓練菜單，這兩個不再是「不認得的鍵」
   "inbody", "exercises",
 ]);
@@ -9474,7 +9596,7 @@ const CARRY_LESSON_KNOWN = new Set([
   "kindRaw", "outcomeRaw", "colorTag", "leadIndex",
 ]);
 const CARRY_SETTINGS_KNOWN = new Set([
-  "employmentType", "userRole", "defaultLessonDurationMinutes", "lowSessionsThreshold",
+  "employmentType", "billingMode", "userRole", "defaultLessonDurationMinutes", "lowSessionsThreshold",
   "idleDaysThreshold", "customFieldDefinitions", "customFieldSpecs", "coachPackages",
   "salaryRule", "studentTags", "colorTheme",
   // 菜單範本：iOS 存在 UserDefaults 的 "trainingMenuTemplates"，
@@ -9556,6 +9678,9 @@ function parseBackup(raw) {
     // 認不得的值一律當作「跟全域走」—— 舊備份沒有這個鍵，行為跟以前一樣
     employment: (d.employmentOverrideRaw === "company" || d.employmentOverrideRaw === "independent")
       ? d.employmentOverrideRaw : "",
+    // 同上：認不得就當作「跟設定的預設走」
+    billingMode: (d.billingModeRaw === "package" || d.billingModeRaw === "perSession")
+      ? d.billingModeRaw : "",
     status: ["active", "paused", "awaiting", "archived"].includes(d.statusRaw) ? d.statusRaw : "active",
     ...(() => {
       // 續約要先有 id，收費才接得回去。舊備份沒有 renewalIndex，
@@ -9624,6 +9749,9 @@ function parseBackup(raw) {
   const rawSettings = raw.settings || {};
   const settings = clone(DEFAULT_SETTINGS);
   if (rawSettings.employmentType) settings.employment = rawSettings.employmentType;
+  if (rawSettings.billingMode === "perSession" || rawSettings.billingMode === "package") {
+    settings.billingMode = rawSettings.billingMode;
+  }
   if (rawSettings.userRole) {
     settings.role = rawSettings.userRole === "contractor" ? "contractor" : "coach";
   }
@@ -9905,6 +10033,8 @@ document.addEventListener("click", (e) => {
     case "view-student": studentDetailSheet(studentById(id)); break;
     case "edit-student": studentSheet(studentById(id)); break;
     case "renew": renewSheet(studentById(id)); break;
+    // 單堂制那一列的「記收費」：直接把收費表單開在這位學生身上。
+    case "pay-student": paymentSheet(studentById(id)); break;
     case "student-filter": studentFilter = value; render(); break;
     case "toggle-tag-filter":
       if (activeTagFilter.has(id)) activeTagFilter.delete(id); else activeTagFilter.add(id);
@@ -10070,6 +10200,9 @@ document.addEventListener("click", (e) => {
     }
 
     case "set-employment": S.settings.employment = value; save(); render(); break;
+    case "set-billing-mode":
+      S.settings.billingMode = value === "perSession" ? "perSession" : "package";
+      save(); render(); break;
     case "set-role":
       S.settings.role = value === "contractor" ? "contractor" : "coach";
       save(); render();
