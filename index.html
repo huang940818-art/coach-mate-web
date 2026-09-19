@@ -901,7 +901,7 @@ const NOTICE_KEY = "coach-mate-web-notice-dismissed";
  * 版本標記。顯示在設定頁最下面，教練唸得出來就知道他手上是哪一版，
  * 不用再猜是不是拿到舊的快取。每次改版就把這個字串往上加。
  */
-const BUILD = "2026-09-18 · v107";
+const BUILD = "2026-09-20 · v108";
 
 /** 開發者署名，顯示在設定頁的「關於」 */
 const DEVELOPER = "杯子蛋糕好好吃";
@@ -7156,7 +7156,15 @@ function viewPayments() {
             salIsNow && proj.pendingSessions ? `<span class="muted" style="font-size:12px">（排完 ${proj.sessions}）</span>` : ""}</div></div>
           <div class="row"><div class="row-main">課程收入</div><div class="row-end mono">${money(sal.lessonRevenue)}</div></div>
           <div class="row"><div class="row-main">適用抽成</div><div class="row-end mono">${sal.pct}%</div></div>
-          <div class="row"><div class="row-main">鐘點抽成</div><div class="row-end mono">${money(sal.lessonPay)}</div></div>` : ""}
+          <div class="row"><div class="row-main">鐘點抽成</div><div class="row-end mono">${money(sal.lessonPay)}</div></div>
+          ${/* 抽成 0% 的時候課程收入整個進不了實拿。這一頁其他每一項都會解釋自己
+                （底薪有 baseNote、業績級距有「再做多少跳下一級」），**只有這裡漏了**，
+                於是畫面老實寫著「課程收入 $11,200」然後「實拿 $210」，看起來就是算錯。
+                2026-09-19 Krystal：未達門檻填 0%、一條級距都沒加，來信說「無法正常顯示實拿金額」。
+                lessonRevenue > 0 才講 —— 沒上課的月份跳這句只是噪音。
+                ⚠️ 這句**跟 iOS 一字不差**（MonthlyReviewView 的 salarySection）。 */""}
+          ${sal.pct === 0 && sal.lessonRevenue > 0 ? `
+            <p class="hint" style="margin:-6px 0 8px">抽成 0%，課程收入不會算進薪水。要改去「設定 → 薪資規則 → 抽成級距」。</p>` : ""}` : ""}
 
         ${/* ⚠️ **這句的後半段兩邊刻意不一樣**，不要「修正」成一致：
               網頁的薪資試算與場地成本在同一頁（收費），所以說「在下面」；
