@@ -880,18 +880,14 @@ function showFatal(message, file, line) {
  * 換新公告時「一定要改 id」，否則之前按過「知道了」的人不會再看到。
  */
 const ANNOUNCEMENT = {
-  id: "2026-09-18",
-  title: "多了單堂制",
+  id: "2026-09-23",
+  title: "學生頁可以直接改課，也能照時數扣堂",
   // 一段連續的文字（`.notice-text` 沒有 pre-wrap，換行會被吃掉）。
-  // 順序照「多少人會用到」排：學生名單人人都看，場地成本只有自己接案的用得到。
-  body: "不收包堂費、上完一堂收一堂的學生，現在可以標成「單堂制」：" +
-        "學生資料裡多了一格「計費方式」，選了單堂制之後，" +
-        "他不會再被列進「待續約」（以前他的剩餘堂數永遠是 0，所以每天都被催一次），" +
-        "新增時也不用填堂數與金額，名單與詳情頁的「續約」換成「記收費」。" +
-        "兩種收法都有的話，設定頁可以選一個預設，" +
-        "少數不一樣的人再到他資料裡單獨指定。" +
-        "沒有動到任何一條算錢的算術 —— 收費本來就能獨立記，" +
-        "收入、薪資與業績跟以前一模一樣。" +
+  // 順序照「多少人會用到」排：學生頁的編輯人人都用得到，照時數扣堂要自己去開。
+  body: "學生資料的「課程紀錄」每一堂都多了「編輯」，要改時間不用再回課表找那一天。" +
+        "另外設定頁「一般」多了「照時數扣堂」：選「一堂 1 小時」之後，上 2 小時就扣 2 堂，" +
+        "課程收入與薪資也照堂數算（不滿一堂的零頭不算）。" +
+        "只影響之後上的課，已經記過的不會重算；沒去設定的話一切跟以前一樣。" +
         "有問題到設定最下面「回報問題」告訴我。",
 };
 
@@ -901,7 +897,7 @@ const NOTICE_KEY = "coach-mate-web-notice-dismissed";
  * 版本標記。顯示在設定頁最下面，教練唸得出來就知道他手上是哪一版，
  * 不用再猜是不是拿到舊的快取。每次改版就把這個字串往上加。
  */
-const BUILD = "2026-09-20 · v108";
+const BUILD = "2026-09-23 · v109";
 
 /** 開發者署名，顯示在設定頁的「關於」 */
 const DEVELOPER = "杯子蛋糕好好吃";
@@ -1108,6 +1104,8 @@ const DEFAULT_SETTINGS = {
   // 承攬教練在健身房／場館授課，要登記上課地點；一般教練不必區分。
   role: "coach",                   // coach | contractor
   defaultDuration: 90,             // 分鐘
+  // 照時數算堂數：一堂＝幾分鐘。0＝不照時數，一次課就是一堂（見 unitsOf）。
+  sessionMinutes: 0,
   // 總覽頁「堂數快用完」從剩幾堂開始提醒。教練的方案差很多（10 堂與 36 堂
   // 的「快用完」不是同一個數字），寫死 3 對買大包的人來說太晚了。
   lowSessions: 3,
@@ -1425,6 +1423,15 @@ const money = (n) => "$" + Math.round(n || 0).toLocaleString("en-US");
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) =>
   ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
+/* 照時數扣堂時，「一堂」可以是這幾種長度（設定頁的選單） */
+const SESSION_MINUTE_CHOICES = [30, 45, 50, 60, 90, 120];
+const normalizeSessionMinutes = (v) => SESSION_MINUTE_CHOICES.includes(+v) ? +v : 0;
+/** 備份裡的正整數欄位：認不得、0、負數一律當作沒有這個鍵 */
+const posInt = (key, v) => {
+  const n = Math.round(+v);
+  return n > 0 ? { [key]: Math.min(n, 99) } : {};
+};
+
 /* 課程時長：只留 1 小時與 1.5 小時，其他走自訂 */
 const DURATIONS = [60, 90];
 const DURATION_MIN = 10, DURATION_MAX = 480;
@@ -1597,11 +1604,51 @@ function newStudent(over = {}) {
   };
 }
 
-/** 共同課兩位學生各記各的：[學生欄位, 已扣旗標, 欠課旗標] */
+/** 共同課兩位學生各記各的：[學生欄位, 已扣旗標, 欠課旗標, 扣了幾堂] */
 const SESSION_SLOTS = [
-  ["studentId", "consumed", "owed"],
-  ["partnerId", "partnerConsumed", "partnerOwed"],
+  ["studentId", "consumed", "owed", "consumedUnits"],
+  ["partnerId", "partnerConsumed", "partnerOwed", "partnerConsumedUnits"],
 ];
+
+/**
+ * 照時數算堂數：設定裡的「一堂＝幾分鐘」換算出來，這一次課算幾堂。
+ *
+ * 起源是 Jia（2026-09-22 回報信）：
+ *   > 課堂時數自訂120分鐘（2小時）但不會扣除兩堂課
+ *   > 看能不能設定成該課堂以一小時計算 輸入兩小時可以自動扣除兩堂課
+ *
+ * `sessionMinutes` 是 0（出廠值）＝不照時數算，一次就是一堂，跟以前一模一樣。
+ *
+ * **無條件捨去、最少 1 堂**：一堂 60 分鐘時 90 分鐘算 1 堂、120 算 2 堂。
+ * 捨去是因為多扣比少扣傷：多扣是憑空吃掉學生買的課，少扣頂多少記一點收入。
+ * 跨午夜的課 `durationOf` 是 0，也還是 1 堂。
+ */
+function liveUnitsOf(lesson) {
+  const per = S.settings.sessionMinutes;
+  if (!(per > 0)) return 1;
+  return Math.max(1, Math.floor(durationOf(lesson) / per));
+}
+
+/**
+ * 這一次課算幾堂。扣堂數、已上堂數、課程收入、薪資堂數全部用這一支。
+ *
+ * **已經發生的課用當時記下來的 `units`**，不跟著設定走 —— 改了「一堂＝幾分鐘」
+ * 之後，上個月的收入與薪資不能自己跳動，扣掉的堂數也不會跟著變，兩邊會對不起來。
+ * 還沒上的（已排定）照現在的設定即時算，所以開了這個設定之後，
+ * 已經排好的 2 小時課到時候就會扣 2 堂。
+ * 沒記過 `units` 的舊紀錄一律 1 堂（那是這個功能出現以前的規則）。
+ */
+function unitsOf(lesson) {
+  if (!lesson) return 1;
+  if (lesson.status === "scheduled") return liveUnitsOf(lesson);
+  return lesson.units > 0 ? lesson.units : 1;
+}
+
+/** 這一格實際扣過幾堂（舊資料只有旗標沒有數字＝1 堂） */
+function deductedOf(lesson, consumedKey, unitsKey) {
+  if (!lesson[consumedKey]) return 0;
+  return lesson[unitsKey] > 0 ? lesson[unitsKey] : 1;
+}
 
 /**
  * 換課程狀態時同步扣還堂數。
@@ -1617,8 +1664,10 @@ function setLessonStatus(lesson, status) {
     lesson.status = status;
     return;
   }
+  stampUnits(lesson, status);
+  const units = unitsOf({ ...lesson, status });
   const shouldConsume = CONSUMING.includes(status);
-  for (const [idKey, consumedKey, owedKey] of SESSION_SLOTS) {
+  for (const [idKey, consumedKey, owedKey, unitsKey] of SESSION_SLOTS) {
     const st = studentById(lesson[idKey]);
     if (!st) continue;
     // 單堂制沒有預繳的堂數可以扣（他上一堂收一堂）。
@@ -1631,21 +1680,63 @@ function setLessonStatus(lesson, status) {
       // 會記一筆「欠一堂」，之後加堂數再自動還回去 —— 但實際上教練不是這樣
       // 記帳的，那個紅字只會讓人以為資料壞了。現在扣到 0 就停：課照樣是
       // 已上課，只是沒有堂數可扣。
-      if (st.remaining > 0) {
-        st.remaining -= 1;
+      // 照時數算的時候一次可能要扣好幾堂；剩的不夠就扣到 0 為止，
+      // 扣了幾堂記在這一格，改回來時才還得回正確的數字。
+      const take = Math.min(st.remaining, units);
+      if (take > 0) {
+        st.remaining -= take;
         lesson[consumedKey] = true;
+        lesson[unitsKey] = take;
       }
       lesson[owedKey] = false;
     } else if (!shouldConsume) {
       if (lesson[consumedKey]) {
-        st.remaining += 1;
+        st.remaining += deductedOf(lesson, consumedKey, unitsKey);
         lesson[consumedKey] = false;
       }
+      delete lesson[unitsKey];
       lesson[owedKey] = false;
     }
     st.updatedAt = new Date().toISOString();
   }
   lesson.status = status;
+}
+
+/**
+ * 課從「已排定」變成已經發生（出席、遲到、缺席、取消）的那一刻，
+ * 把「這一次算幾堂」記在課上；改回已排定就拿掉，回到即時算。
+ * 已經發生過、只是換個狀態（出席 → 遲到）的不重記 —— 同一堂課不會因為
+ * 中間改過設定就變了堂數。
+ */
+function stampUnits(lesson, status) {
+  if (status === "scheduled") { delete lesson.units; return; }
+  if (lesson.status === "scheduled" || !(lesson.units > 0)) {
+    lesson.units = liveUnitsOf(lesson);
+  }
+}
+
+/**
+ * 已經發生的課改了時間：重記這一次算幾堂，已扣的堂數跟著補扣或退還。
+ *
+ * 只動**本來就扣過**的那幾格 —— 補歷史時刻意沒扣的課（見 isBackfilledRecord），
+ * 改個時間不能突然開始扣。
+ */
+function restampUnits(lesson) {
+  if (lesson.status === "scheduled" || !LESSON_KIND[kindOf(lesson)].consumes) return;
+  const next = liveUnitsOf(lesson);
+  if (next === unitsOf(lesson)) return;
+  lesson.units = next;
+  for (const [idKey, consumedKey, , unitsKey] of SESSION_SLOTS) {
+    if (!lesson[consumedKey]) continue;
+    const st = studentById(lesson[idKey]);
+    if (!st) continue;
+    st.remaining += deductedOf(lesson, consumedKey, unitsKey);
+    const take = Math.min(st.remaining, next);
+    st.remaining -= take;
+    if (take > 0) lesson[unitsKey] = take;
+    else { lesson[consumedKey] = false; delete lesson[unitsKey]; }
+    st.updatedAt = new Date().toISOString();
+  }
 }
 
 /**
@@ -1672,7 +1763,10 @@ function removeStudentEverywhere(student) {
       // 整堂要刪：同一堂如果也扣過共同上課那位的堂數，要還給他
       if (l.partnerId && l.partnerId !== student.id && l.partnerConsumed) {
         const p = studentById(l.partnerId);
-        if (p) { p.remaining += 1; p.updatedAt = new Date().toISOString(); refunded++; }
+        if (p) {
+          p.remaining += deductedOf(l, "partnerConsumed", "partnerConsumedUnits");
+          p.updatedAt = new Date().toISOString(); refunded++;
+        }
       }
       removed++;
       continue;
@@ -1681,6 +1775,7 @@ function removeStudentEverywhere(student) {
       // 這是別人的課，他只是被找來一起上。課留著，人拿掉。
       l.partnerId = "";
       l.partnerConsumed = false;
+      delete l.partnerConsumedUnits;
       l.partnerOwed = false;
       detached++;
     }
@@ -1693,12 +1788,13 @@ function removeStudentEverywhere(student) {
 
 /** 刪課要把已扣的堂數還回去；課都不存在了，欠課紀錄也跟著取消 */
 function releaseLesson(lesson) {
-  for (const [idKey, consumedKey, owedKey] of SESSION_SLOTS) {
+  for (const [idKey, consumedKey, owedKey, unitsKey] of SESSION_SLOTS) {
     if (lesson[consumedKey]) {
       const st = studentById(lesson[idKey]);
-      if (st) st.remaining += 1;
+      if (st) st.remaining += deductedOf(lesson, consumedKey, unitsKey);
     }
     lesson[consumedKey] = false;
+    delete lesson[unitsKey];
     lesson[owedKey] = false;
   }
 }
@@ -1732,7 +1828,7 @@ function autoMarkPastLessons() {
     // 上完課忘了按 → 補標並扣一堂（那堂課真的用掉了）。
     // 但**事後才補進來的紀錄不扣**（建立時間晚於課程結束）——那是在補歷史，
     // 剩餘堂數早就反映過了。不分這兩種的話，每次開 App 都會再犯一次。
-    if (isBackfilledRecord(l)) l.status = "attended";
+    if (isBackfilledRecord(l)) { stampUnits(l, "attended"); l.status = "attended"; }
     else setLessonStatus(l, "attended");
     changed++;
   }
@@ -1758,7 +1854,8 @@ function lessonsOf(studentId) {
  */
 function attendedCount(studentId) {
   return lessonsOf(studentId)
-    .filter((l) => !isAssessment(l) && CONSUMING.includes(l.status)).length;
+    .filter((l) => !isAssessment(l) && CONSUMING.includes(l.status))
+    .reduce((a, l) => a + unitsOf(l), 0);
 }
 
 /**
@@ -2199,7 +2296,7 @@ function lessonVenueCost(lesson) {
   // 抽的是課程收入的成，所以只抽自己接案那幾位的收入
   let revenue = 0;
   if (LESSON_KIND[kindOf(lesson)].paid) {
-    for (const st of mine) revenue += sessionPrice(st);
+    for (const st of mine) revenue += unitsOf(lesson) * sessionPrice(st);
   }
   return Math.round(revenue * (venue.costValue || 0) / 100);
 }
@@ -2293,11 +2390,13 @@ function salaryFor(ym, opts = {}) {
         ? (attended || l.status === "scheduled")
         : (rule.onlyAttended ? attended : l.status !== "cancelled");
       if (!ok) continue;
+      // 照時數算的話一次課可能是好幾堂（見 unitsOf）
+      const units = unitsOf(l);
       if (opts.projected && !attended) {
         // 幾堂是「還沒上、算進來的」—— 差額從哪來要講得出來
         for (const id of [l.studentId, l.partnerId]) {
           const st = studentById(id);
-          if (st && !isSelfEmployedStudent(st)) pendingSessions += 1;
+          if (st && !isSelfEmployedStudent(st)) pendingSessions += units;
         }
       }
       for (const id of [l.studentId, l.partnerId]) {
@@ -2306,8 +2405,8 @@ function salaryFor(ym, opts = {}) {
         // **被指名「自己接的」那幾位不走薪資試算** —— 那筆錢直接進口袋，
         // 算進抽成等於把自己的收入乘上公司的趴數（2026-09-14 Krystal）。
         if (isSelfEmployedStudent(st)) continue;
-        sessions += 1;
-        lessonRevenue += rule.useStudentRate ? sessionPrice(st) : (rule.perLessonRate || 0);
+        sessions += units;
+        lessonRevenue += units * (rule.useStudentRate ? sessionPrice(st) : (rule.perLessonRate || 0));
       }
     }
   }
@@ -2557,7 +2656,8 @@ function yearSummary(year) {
   for (let m = 1; m <= 12; m++) {
     const ym = `${year}-${pad(m)}`;
     const attended = S.lessons.filter((l) => (l.date || "").startsWith(ym)
-      && CONSUMING.includes(l.status) && LESSON_KIND[kindOf(l)].paid).length;
+      && CONSUMING.includes(l.status) && LESSON_KIND[kindOf(l)].paid)
+      .reduce((a, l) => a + unitsOf(l), 0);
     const income = pays.filter((p) => (p.date || "").startsWith(ym))
       .reduce((a, p) => a + (p.amount || 0), 0);
     months.push({ month: m, ym, attended, income, salary: salaryFor(ym).total });
@@ -2634,7 +2734,8 @@ const RANK_METRICS = [
      * **指定期間時只認課程紀錄** —— 推算出來的堂數沒有日期，分不到月份上。
      */
     rows: (students, from, to, opts = {}) => students.map((s) => {
-      const n = rangeLessons(s.id, from, to).filter((l) => CONSUMING.includes(l.status)).length;
+      const n = rangeLessons(s.id, from, to).filter((l) => CONSUMING.includes(l.status))
+        .reduce((a, l) => a + unitsOf(l), 0);
       if (opts.wholeTime) {
         const c = consumedSessions(s);
         if (c.count > n) {
@@ -4488,7 +4589,14 @@ function studentDetailSheet(student) {
                   ${isPartner ? '<span class="pill pill-mute">雙人課</span>' : ""}
                   
                 </div>
-                <div class="row-sub mono">${esc(l.start)}–${esc(l.end)}　${durationLabel(durationOf(l))}${l.location ? "　" + esc(l.location) : ""}</div>
+                <div class="row-sub mono">${esc(l.start)}–${esc(l.end)}　${durationLabel(durationOf(l))}${
+                  unitsOf(l) > 1 ? `（算 ${unitsOf(l)} 堂）` : ""}${l.location ? "　" + esc(l.location) : ""}</div>
+              </div>
+              <!-- 2026-09-22 Jia：「在學生總覽點擊該學生，可以看到全部幫他安排課程的日期與時段，
+                   可以編輯」。看得到的部分本來就有，只差這顆 —— 以前要改時間得回課表找那一天。 -->
+              <div class="row-end">
+                <button type="button" class="btn btn-sm" data-detail-action="edit-lesson"
+                        data-id="${l.id}">編輯</button>
               </div>
             </div>`;
           }).join("")}`).join("") : `<p class="empty">還沒有課程紀錄。</p>`}
@@ -4591,6 +4699,9 @@ function studentDetailSheet(student) {
         const payment = a === "edit-payment"
           ? (student.payments || []).find((p) => p.id === act.dataset.id)
           : null;
+        const lessonRec = a === "edit-lesson"
+          ? S.lessons.find((l) => l.id === act.dataset.id)
+          : null;
         // InBody 同理：先把那一筆撈出來再關 sheet
         const inbodyRec = (a === "edit-inbody" || a === "delete-inbody")
           ? (student.inbody || []).find((b) => b.id === act.dataset.id)
@@ -4678,6 +4789,7 @@ function studentDetailSheet(student) {
         else if (a === "edit") studentSheet(student);
         else if (a === "adjust") adjustSessionsSheet(student);
         else if (a === "edit-payment" && payment) paymentSheet(student, payment);
+        else if (a === "edit-lesson" && lessonRec) lessonSheet(lessonRec);
       });
     },
   });
@@ -6665,6 +6777,7 @@ function lessonSheet(existing, presetKind = "lesson", presetStudentId = "") {
         ${fieldText("start", "開始時間", l.start, { type: "time" })}
       </div>
       ${durationPicker(dur)}
+      ${S.settings.sessionMinutes > 0 && !assessing ? `<p class="hint" data-units-hint></p>` : ""}
       ${existing ? "" : `
         <p class="hint" data-past-hint></p>
         <div data-past-consume hidden>
@@ -6786,7 +6899,10 @@ function lessonSheet(existing, presetKind = "lesson", presetStudentId = "") {
       }
 
       if (existing) {
+        const timeChanged = start !== l.start || end !== l.end;
         Object.assign(l, { date, start, end, location, notes, studentId, partnerId, color });
+        // 已經上過的課改了時間，算幾堂要跟著變，已扣的堂數也要補扣或退還
+        if (timeChanged) restampUnits(l);
         const newStatus = form.elements.status.value;
         if (newStatus !== l.status) setLessonStatus(l, newStatus);
       } else {
@@ -6811,6 +6927,7 @@ function lessonSheet(existing, presetKind = "lesson", presetStudentId = "") {
             setLessonStatus(lesson, "attended");
           } else {
             // 只記錄，不動堂數
+            stampUnits(lesson, "attended");
             lesson.status = "attended";
           }
         }
@@ -6850,6 +6967,22 @@ function lessonSheet(existing, presetKind = "lesson", presetStudentId = "") {
       root.addEventListener("input", refreshPastHint);
       root.addEventListener("change", refreshPastHint);
       refreshPastHint();
+
+      // 照時數扣堂：選時長的當下就講這一次會扣幾堂，不要等上完才發現
+      const unitsHint = root.querySelector("[data-units-hint]");
+      if (unitsHint) {
+        const refreshUnits = () => {
+          const form = root.querySelector("#sheet-form");
+          if (!form || (kindEl && kindEl.value === "assessment")) { unitsHint.hidden = true; return; }
+          const mins = readDuration(form);
+          const n = liveUnitsOf({ start: "00:00", end: timeOf(mins) });
+          unitsHint.hidden = false;
+          unitsHint.textContent = `${durationLabel(mins)}，算 ${n} 堂（設定裡一堂是 ${durationLabel(S.settings.sessionMinutes)}）`;
+        };
+        root.addEventListener("input", refreshUnits);
+        root.addEventListener("change", refreshUnits);
+        refreshUnits();
+      }
 
       // 切換正課／檢測時換掉對應的欄位
       const kindSelect = root.querySelector('[name="kind"]');
@@ -7900,9 +8033,11 @@ function spanStats(span = "week", offset = 0) {
   for (const l of attended) {
     for (const id of [l.studentId, l.partnerId]) {
       const st = studentById(id);
-      if (st) revenue += sessionPrice(st);
+      if (st) revenue += unitsOf(l) * sessionPrice(st);
     }
   }
+  // 堂數跟薪資試算同一把尺：照時數算時一次課可能是好幾堂
+  const unitSum = (ls) => ls.reduce((a, l) => a + unitsOf(l), 0);
 
   // 這一週收到的錢（照收費日期，跟收費頁同一個口徑）
   const collected = allPayments()
@@ -7918,8 +8053,8 @@ function spanStats(span = "week", offset = 0) {
 
   return {
     span, offset, from, to, ym,
-    attended: attended.length,
-    scheduled: scheduled.length,
+    attended: unitSum(attended),
+    scheduled: unitSum(scheduled),
     cancelled: cancelled.length,
     assessments: assessments.length,
     people: people.size,
@@ -8955,6 +9090,21 @@ function viewSettings() {
         </div>
         <div class="row">
           <div class="row-main">
+            <div class="row-title">照時數扣堂</div>
+            <div class="row-sub">${st.sessionMinutes > 0
+              ? `一堂算 ${durationLabel(st.sessionMinutes)}，上 ${durationLabel(st.sessionMinutes * 2)} 扣 2 堂；不滿一堂的零頭不算`
+              : "目前不管上多久，一次課都只扣 1 堂"}</div>
+          </div>
+          <div class="row-end">
+            <select data-action="set-session-minutes" aria-label="照時數扣堂" style="width:auto">
+              ${[[0, "不照時數"], ...SESSION_MINUTE_CHOICES.map((m) => [m, `一堂 ${durationLabel(m)}`])]
+                .map(([v, t]) => `<option value="${v}" ${(+st.sessionMinutes || 0) === v ? "selected" : ""}>${t}</option>`).join("")}
+            </select>
+          </div>
+        </div>
+        ${st.sessionMinutes > 0 ? `<p class="hint" style="margin:-2px 0 8px">只影響<strong>之後</strong>上的課：已經記成出席的課不會重算，扣掉的堂數和以前的收入都不會變。</p>` : ""}
+        <div class="row">
+          <div class="row-main">
             <div class="row-title">堂數快用完的提醒</div>
             <div class="row-sub">總覽頁從剩幾堂開始提醒你該談續約</div>
           </div>
@@ -9432,6 +9582,10 @@ function buildBackup() {
       statusRaw: l.status, notes: l.notes || "", locationName: l.location || "",
       consumedSession: !!l.consumed, consumedPartnerSession: !!l.partnerConsumed,
       owedSession: !!l.owed, owedPartnerSession: !!l.partnerOwed,
+      // 照時數扣堂（iOS 同鍵）。0＝沒記過：這一次算 1 堂、扣過的話扣了 1 堂。
+      sessionUnits: l.units > 0 ? l.units : 0,
+      consumedSessionUnits: l.consumed && l.consumedUnits > 0 ? l.consumedUnits : 0,
+      consumedPartnerSessionUnits: l.partnerConsumed && l.partnerConsumedUnits > 0 ? l.partnerConsumedUnits : 0,
       createdAt: iso(l.createdAt), updatedAt: iso(l.createdAt),
       studentIndex: indexOf.has(l.studentId) ? indexOf.get(l.studentId) : null,
       partnerIndex: indexOf.has(l.partnerId) ? indexOf.get(l.partnerId) : null,
@@ -9458,6 +9612,8 @@ function buildBackup() {
       // 身份。iOS 用同一個鍵（一般教練／承攬教練），兩邊搬得過去。
       userRole: roleOf(),
       defaultLessonDurationMinutes: String(S.settings.defaultDuration),
+      // 照時數扣堂。iOS 用同一個鍵，"0"＝不照時數。
+      sessionUnitMinutes: String(normalizeSessionMinutes(S.settings.sessionMinutes)),
       // iOS 還沒有這個設定。讀到不認得的鍵會直接忽略，不會壞。
       lowSessionsThreshold: String(Math.max(1, +S.settings.lowSessions || 3)),
       idleDaysThreshold: String(idleDaysSetting()),
@@ -9600,11 +9756,13 @@ const CARRY_STUDENT_KNOWN = new Set([
 const CARRY_LESSON_KNOWN = new Set([
   "date", "startTime", "endTime", "statusRaw", "notes", "locationName",
   "consumedSession", "consumedPartnerSession", "owedSession", "owedPartnerSession",
+  "sessionUnits", "consumedSessionUnits", "consumedPartnerSessionUnits",
   "createdAt", "updatedAt", "studentIndex", "partnerIndex",
   "kindRaw", "outcomeRaw", "colorTag", "leadIndex",
 ]);
 const CARRY_SETTINGS_KNOWN = new Set([
-  "employmentType", "billingMode", "userRole", "defaultLessonDurationMinutes", "lowSessionsThreshold",
+  "employmentType", "billingMode", "userRole", "defaultLessonDurationMinutes", "sessionUnitMinutes",
+  "lowSessionsThreshold",
   "idleDaysThreshold", "customFieldDefinitions", "customFieldSpecs", "coachPackages",
   "salaryRule", "studentTags", "colorTheme",
   // 菜單範本：iOS 存在 UserDefaults 的 "trainingMenuTemplates"，
@@ -9745,6 +9903,10 @@ function parseBackup(raw) {
     partnerId: students[d.partnerIndex]?.id || "",
     consumed: !!d.consumedSession, partnerConsumed: !!d.consumedPartnerSession,
     owed: !!d.owedSession, partnerOwed: !!d.owedPartnerSession,
+    // 照時數扣堂。舊備份沒有這三個鍵＝1 堂（那是這個功能以前的規則）
+    ...posInt("units", d.sessionUnits),
+    ...(d.consumedSession ? posInt("consumedUnits", d.consumedSessionUnits) : {}),
+    ...(d.consumedPartnerSession ? posInt("partnerConsumedUnits", d.consumedPartnerSessionUnits) : {}),
     // 正課／檢測。舊備份沒有這幾欄，一律當正課。
     kind: d.kindRaw === "assessment" ? "assessment" : "lesson",
     outcome: OUTCOME[d.outcomeRaw] ? d.outcomeRaw : "pending",
@@ -9756,6 +9918,7 @@ function parseBackup(raw) {
 
   const rawSettings = raw.settings || {};
   const settings = clone(DEFAULT_SETTINGS);
+  settings.sessionMinutes = normalizeSessionMinutes(rawSettings.sessionUnitMinutes);
   if (rawSettings.employmentType) settings.employment = rawSettings.employmentType;
   if (rawSettings.billingMode === "perSession" || rawSettings.billingMode === "package") {
     settings.billingMode = rawSettings.billingMode;
@@ -10413,6 +10576,14 @@ document.addEventListener("change", (e) => {
       save();
       // 同 salary-num：**刻意不重畫**，重畫會讓輸入框失焦、數字打到一半被打斷。
       // 這一格不影響同一張卡片上長出什麼，所以不用像底薪那樣有例外。
+      return;
+    }
+    if (action === "set-session-minutes") {
+      S.settings.sessionMinutes = normalizeSessionMinutes(el.value);
+      save(); render();
+      toast(S.settings.sessionMinutes
+        ? `之後上的課，每 ${durationLabel(S.settings.sessionMinutes)} 扣 1 堂`
+        : "改回不照時數，一次課扣 1 堂");
       return;
     }
     if (action === "set-low-sessions") {
