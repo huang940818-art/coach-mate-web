@@ -937,7 +937,7 @@ const NOTICE_KEY = "coach-mate-web-notice-dismissed";
  * 版本標記。顯示在設定頁最下面，教練唸得出來就知道他手上是哪一版，
  * 不用再猜是不是拿到舊的快取。每次改版就把這個字串往上加。
  */
-const BUILD = "2026-10-03 · v110";
+const BUILD = "2026-10-03 · v111";
 
 /** 開發者署名，顯示在設定頁的「關於」 */
 const DEVELOPER = "杯子蛋糕好好吃";
@@ -2256,15 +2256,65 @@ function employmentOf(student) {
 const isIndependentStudent = (s) => employmentOf(s) === "independent";
 
 /**
- * 這位學生有沒有被**明確標記**成自己接的。薪資試算用這把尺。
+ * 薪資試算要不要排除這位學生（算自己接的）。
  *
- * ⚠️ **這裡不能用 `employmentOf`。** `salaryFor()` 本來就不看全域身分 ——
+ * ⚠️ **不能無條件用 `employmentOf`。** `salaryFor()` 本來就不看全域身分 ——
  * 全域是「自己接案」的人根本看不到薪資區，但函式照算，測試也是這樣寫的。
- * 加上全域 fallback 的話，那些人的堂數會整片變成 0，而畫面上完全看不出來
+ * 無條件加上全域 fallback 的話，那些人的堂數會整片變成 0，而畫面上完全看不出來
  * （2026-09-16 被既有測試擋下來的）。
- * 所以薪資只排除「被指名不走公司」的那幾位，其他一律照舊。
+ *
+ * 但只認「明確標成 independent」也不對（2026-10-03 盤點）：全域自己接案、
+ * 部分學生標成公司時，沒指定的學生跟全域走＝自己接的，收費頁把他的錢算成
+ * 自己的收入，薪資試算卻又把他的課與業績算進去，同一位學生算了兩次。
+ *
+ * 所以：**至少有一位學生被明確標成公司**時，照「未指定就跟全域」判斷
+ * （跟收費那邊同一把尺）；一位都沒有時照舊，只排除明確標 independent 的。
+ * 全域是公司時兩種判斷結果一樣（未指定＝公司），差別只在全域自己接案的人。
+ *
+ * 回傳一支判斷函式，讓 salaryFor 一次算好「有沒有人標公司」，不必每堂課重算。
  */
-const isSelfEmployedStudent = (s) => !!s && s.employment === "independent";
+function selfEmployedTest() {
+  const anyCompany = S.students.some((s) => s.employment === "company");
+  return anyCompany
+    ? (s) => !!s && employmentOf(s) === "independent"
+    : (s) => !!s && s.employment === "independent";
+}
+
+/**
+ * 這筆收費算誰的：`"own"`＝自己的學生繳的（錢進教練口袋），
+ * `"venue"`＝場館／公司的學生繳的（繳給場館，教練只拿薪資）。
+ *
+ * 收費頁、總覽、分析、學生詳情都用這一支，不要一頁一套（2026-10-03 盤點）。
+ * 判斷沿用 employmentOf（學生沒指定就跟全域）；找不到學生的收費也跟全域走。
+ * 全域身分是認不得的值時回傳空字串，兩邊都不算（同收費頁原本的行為）。
+ */
+function paymentSide(p) {
+  return incomeSideOf(studentById(p && p.studentId));
+}
+
+/**
+ * 這位學生的錢算誰的（`"own"`／`"venue"`／`""`）。paymentSide 的學生版：
+ * 總覽的「課程收入」是照上到的課算，沒有收費紀錄可看，就直接問學生。
+ * 兩邊是同一把尺，不要另寫一套。
+ */
+function incomeSideOf(student) {
+  const e = employmentOf(student);
+  return e === "independent" ? "own" : e === "company" ? "venue" : "";
+}
+
+/** 一串收費（要帶 studentId，見 allPayments）拆成自己的與繳給場館的 */
+function splitPayments(pays) {
+  const own = [], venue = [];
+  for (const p of pays) {
+    const side = paymentSide(p);
+    if (side === "own") own.push(p);
+    else if (side === "venue") venue.push(p);
+  }
+  return { own, venue };
+}
+
+/** 金額加總 */
+const sumAmount = (pays) => pays.reduce((a, p) => a + (p.amount || 0), 0);
 
 /** 有沒有人真的用了「逐位學生指定」。沒有的話畫面就不要多出兩邊的欄位。 */
 const hasMixedEmployment = () =>
@@ -2420,6 +2470,8 @@ function salaryFor(ym, opts = {}) {
   const countsSales = basis !== "perLesson";
 
   let sessions = 0, lessonRevenue = 0, pendingSessions = 0;
+  // 誰算自己接的（不走薪資試算），見 selfEmployedTest
+  const isSelfEmployedStudent = selfEmployedTest();
   if (countsLessons) {
     for (const l of S.lessons) {
       if (!l.date.startsWith(ym)) continue;
@@ -2691,16 +2743,18 @@ function salesByMonth(from, to) {
 //   salary 用同一支 salaryFor，所以會跟收費頁的薪資試算逐月對得起來。
 
 function yearSummary(year) {
-  const pays = allPayments();
+  // 2026-10-03：income 只算自己的學生；場館學生繳的另外記在 venueIncome，
+  // 畫面另列一行「繳給場館」，不算進收入、收入最高與成長率。
+  const { own: pays, venue: venuePays } = splitPayments(allPayments());
   const months = [];
   for (let m = 1; m <= 12; m++) {
     const ym = `${year}-${pad(m)}`;
     const attended = S.lessons.filter((l) => (l.date || "").startsWith(ym)
       && CONSUMING.includes(l.status) && LESSON_KIND[kindOf(l)].paid)
       .reduce((a, l) => a + unitsOf(l), 0);
-    const income = pays.filter((p) => (p.date || "").startsWith(ym))
-      .reduce((a, p) => a + (p.amount || 0), 0);
-    months.push({ month: m, ym, attended, income, salary: salaryFor(ym).total });
+    const income = sumAmount(pays.filter((p) => (p.date || "").startsWith(ym)));
+    const venueIncome = sumAmount(venuePays.filter((p) => (p.date || "").startsWith(ym)));
+    months.push({ month: m, ym, attended, income, venueIncome, salary: salaryFor(ym).total });
   }
   const sum = (k) => months.reduce((a, x) => a + x[k], 0);
   const active = months.filter((x) => x.attended > 0);
@@ -2709,6 +2763,7 @@ function yearSummary(year) {
   return {
     year, months,
     totalAttended: sum("attended"), totalIncome: sum("income"), totalSalary: sum("salary"),
+    totalVenueIncome: sum("venueIncome"),
     // 只算有課的月份 —— 一月才開始接案的人除以 12 會被稀釋成沒意義的數字
     avgPerActiveMonth: active.length ? sum("attended") / active.length : 0,
     activeMonths: active.length,
@@ -3658,6 +3713,13 @@ function viewDashboard() {
   // 混合身分時也要畫薪資（只算公司那半）—— 見 hasCompanySide
   const isCompany = hasCompanySide();
   const sal = isCompany ? salaryFor(ym) : null;
+  // 2026-10-03：混合身分（有公司那半、也有自己的學生）時，最上面那張拆成兩張：
+  // 「本月實拿」＝公司那半的薪資試算，「本月收到」＝自己學生本月已收的錢
+  // （預收不算，跟收費頁的「本月收到」同一個口徑）。只有一種身分時維持原本的樣子。
+  const mixed = isCompany && S.students.some((s) => incomeSideOf(s) === "own");
+  const ownMonth = mixed ? splitPayments(collected).own : [];
+  const ownCollected = sumAmount(ownMonth.filter((p) => (p.date || "") <= today()));
+  const ownUpcoming = sumAmount(ownMonth.filter((p) => (p.date || "") > today()));
 
   const todays = S.lessons.filter((l) => l.date === today())
     .sort((a, b) => minutesOf(a.start) - minutesOf(b.start));
@@ -3686,6 +3748,10 @@ function viewDashboard() {
         ${tile({ value: money(isCompany ? sal.total : revenue), label: isCompany ? "本月實拿" : "本月收入",
                  iconName: "money", color: "var(--good)",
                  note: isCompany ? `鐘點 ${sal.pct}%・${sal.sessions} 堂` : `${collected.length} 筆收費` })}
+        ${mixed ? tile({ value: money(ownCollected), label: "本月收到", iconName: "money", color: "var(--good)",
+                         note: ownUpcoming
+                           ? `${ownMonth.length} 筆・另有預收 ${money(ownUpcoming)}`
+                           : `${ownMonth.length} 筆` }) : ""}
         ${tile({ value: students.length, unit: "位", label: "學生總數", iconName: "people", color: "var(--accent)",
                  note: `${students.filter((s) => s.remaining > 0).length} 位還有堂數` })}
         ${tile({ value: upcoming.length, unit: "堂", label: "待上課程", iconName: "upcoming", color: "var(--warn)",
@@ -4542,6 +4608,9 @@ function studentDetailSheet(student) {
   const looseIds = new Set(
     renewalsOf(student).length ? unlinkedPayments(student).map((p) => p.id) : []);
   const paid = pays.reduce((a, p) => a + (p.amount || 0), 0);
+  // 場館／公司的學生把錢繳給場館，不是教練收的 —— 「累計」「累計收費」改叫
+  // 「繳給場館」（跟 iOS 一致，2026-10-03）。判斷用共用的 incomeSideOf。
+  const paidLabel = incomeSideOf(student) === "venue" ? "繳給場館" : "累計收費";
   const fields = Object.entries(student.custom || {}).filter(([, v]) => v);
 
   const byMonth = {};
@@ -4655,7 +4724,7 @@ function studentDetailSheet(student) {
 
       <div data-panel="payments" hidden>
         ${pays.length ? `
-          <p class="hint" style="margin:0 0 8px">共 ${pays.length} 筆・累計 ${money(paid)}</p>
+          <p class="hint" style="margin:0 0 8px">共 ${pays.length} 筆・${paidLabel === "繳給場館" ? "繳給場館" : "累計"} ${money(paid)}</p>
           ${pays.map((p) => `
             <div class="row" style="padding:6px 0">
               <div class="row-main">
@@ -4714,7 +4783,7 @@ function studentDetailSheet(student) {
           <div class="row-end mono" style="font-weight:600">${student.totalPurchased || 0} 堂</div>
         </div>
         <div class="row" style="padding:5px 0">
-          <div class="row-main"><span class="muted" style="font-size:13px">累計收費</span></div>
+          <div class="row-main"><span class="muted" style="font-size:13px">${paidLabel}</span></div>
           <div class="row-end mono" style="font-weight:600">${money(paid)}</div>
         </div>
         <p class="hint">缺席與遲到都是從課程紀錄實算的，不是另外一組計數，所以跟上面那排一定對得起來。續約的每一筆明細在「編輯」裡。</p>
@@ -7170,9 +7239,8 @@ function viewPayments() {
   const monthRows = rows.filter((p) => (p.date || "").startsWith(ym));
   // 2026-10-03：上面的方塊只算「自己的學生」繳的錢。場館的學生把錢繳給場館，
   // 場館再撥抽成給教練 —— 那筆錢教練拿不到，不能算成教練的收入。
-  // 判斷沿用 employmentOf（學生沒指定就跟全域）。下面的收費紀錄清單照列全部。
-  const ownRows = rows.filter((p) => employmentOf(studentById(p.studentId)) === "independent");
-  const venueRows = rows.filter((p) => employmentOf(studentById(p.studentId)) === "company");
+  // 判斷用共用的 paymentSide（學生沒指定就跟全域）。下面的收費紀錄清單照列全部。
+  const { own: ownRows, venue: venueRows } = splitPayments(rows);
   const ownMonthRows = ownRows.filter((p) => (p.date || "").startsWith(ym));
   // 「收到」就是真的已經收到的。日期還沒到的是預收（教練常常先把下個月的
   // 課錢記進來），混在一起會讓這個數字比實際入帳的多 —— iOS 早就分開算了，
@@ -8092,20 +8160,23 @@ function spanStats(span = "week", offset = 0) {
   // 上到的課值多少錢。用每個學生自己的單價，共同課兩個人各算一份 ——
   // 跟薪資試算同一套算法（salaryFor），兩邊數字才對得起來。
   // （attended 已經只剩會算錢的課，這裡不必再濾一次檢測）
+  // 2026-10-03：只算自己的學生。場館學生的課錢是繳給場館的，教練拿的是薪資，
+  // 不是這個數字（判斷用共用的 incomeSideOf）。
   let revenue = 0;
   for (const l of attended) {
     for (const id of [l.studentId, l.partnerId]) {
       const st = studentById(id);
-      if (st) revenue += unitsOf(l) * sessionPrice(st);
+      if (st && incomeSideOf(st) === "own") revenue += unitsOf(l) * sessionPrice(st);
     }
   }
   // 堂數跟薪資試算同一把尺：照時數算時一次課可能是好幾堂
   const unitSum = (ls) => ls.reduce((a, l) => a + unitsOf(l), 0);
 
-  // 這一週收到的錢（照收費日期，跟收費頁同一個口徑）
-  const collected = allPayments()
-    .filter((p) => inPeriod(p.date, from, to))
-    .reduce((a, p) => a + (p.amount || 0), 0);
+  // 這一週收到的錢（照收費日期，跟收費頁同一個口徑）。
+  // 2026-10-03：只算自己的學生，場館學生繳的另外算，卡片附註會寫出來。
+  const spanPays = splitPayments(allPayments().filter((p) => inPeriod(p.date, from, to)));
+  const collected = sumAmount(spanPays.own);
+  const venueCollected = sumAmount(spanPays.venue);
 
   // 這一週簽的約（照合約日期）
   const contracts = S.students.flatMap((st) =>
@@ -8123,6 +8194,7 @@ function spanStats(span = "week", offset = 0) {
     people: people.size,
     revenue,
     collected,
+    venueCollected,
     contracts: contracts.length,
     contractAmount: contracts.reduce((a, r) => a + (r.amount || 0), 0),
     isFuture: offset < 0,
@@ -8179,7 +8251,7 @@ function weekCard(w) {
           ${tile({ value: money(w.revenue), label: "課程收入", iconName: "money", color: "var(--accent)",
                    note: "照每位學生的單價" })}
           ${tile({ value: money(w.collected), label: "收到的錢", iconName: "money", color: "var(--info)",
-                   note: "照收費日期" })}
+                   note: w.venueCollected ? `照收費日期・另有繳給場館 ${money(w.venueCollected)}` : "照收費日期" })}
           ${w.contracts ? tile({ value: w.contracts, unit: "筆", label: "簽的約", iconName: "money",
                                  color: "var(--accent)", note: money(w.contractAmount) }) : ""}
         </div>
@@ -8665,7 +8737,8 @@ function viewAnalysis() {
   // 待追蹤 ＝ 還值得再追的（跟 iOS 的 Lead.Status.isOpen 同一條規則）。
   // 檢測過但還沒買的算，明確婉拒與已轉正式的不算。
   const openLeads = S.leads.filter((l) => l.status !== "converted" && l.status !== "lost");
-  const totalRevenue = allPayments().reduce((a, p) => a + p.amount, 0);
+  // 2026-10-03：「總營收」只算自己的學生（場館學生的錢繳給場館，不是教練的營收）
+  const totalRevenue = sumAmount(splitPayments(allPayments()).own);
   const avgSessions = students.length
     ? students.reduce((a, s) => a + s.totalPurchased, 0) / students.length : 0;
 
@@ -8837,7 +8910,8 @@ function yearSection() {
       </div>`;
   };
 
-  const empty = !y.totalAttended && !y.totalIncome;
+  // 只有場館學生收費的年份也不是「沒有收費紀錄」
+  const empty = !y.totalAttended && !y.totalIncome && !y.totalVenueIncome;
 
   return `
     <section class="card" id="sec-year">
@@ -8857,6 +8931,9 @@ function yearSection() {
       ${empty ? `<p class="empty">${analysisYear} 年沒有課也沒有收費紀錄。</p>` : `
         ${growthRow("課堂數", `${y.totalAttended} 堂`, prev.totalAttended, y.totalAttended)}
         ${growthRow("收入", money(y.totalIncome), prev.totalIncome, y.totalIncome)}
+        ${/* 2026-10-03：場館學生繳的錢不是教練的收入，另列一行讓帳對得起來 */""}
+        ${y.totalVenueIncome ? `<div class="row"><div class="row-main">繳給場館</div>
+          <div class="row-end mono">${money(y.totalVenueIncome)}</div></div>` : ""}
         ${isCompany ? growthRow("預估薪資", money(y.totalSalary), prev.totalSalary, y.totalSalary) : ""}
 
         ${y.totalAttended ? `
