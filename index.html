@@ -5,8 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>教練小幫手</title>
 <meta name="description" content="給教練管學生、課表、收費的小工具。資料存在你自己的瀏覽器，不會上傳。">
-<meta name="theme-color" content="#A8721B" media="(prefers-color-scheme: light)">
-<meta name="theme-color" content="#14110D" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#F3F5F9" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0E1422" media="(prefers-color-scheme: dark)">
 <!-- 加到主畫面之後像 App 一樣全螢幕開啟 -->
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="教練小幫手">
@@ -22,58 +22,69 @@
 <style>
 /* ───────────────────────────────────────────────
    教練小幫手 · 網頁版
-   色彩沿用 iOS App 的琥珀金，中性色帶暖調偏向主色。
-   數字一律等寬，讓欄位對得起來。
+   2026-09-28 換裝：深藍字＋黃色主按鈕（小春挑的 B 方向，iOS 用同一組色）。
+   原本的米白＋咖啡＋琥珀金是 AI 產品最常見的那組暖色，她覺得「太 AI」。
+   --accent 是深藍（連結、目前分頁、進度條），--cta 是黃（只給主按鈕與公告），
+   黃色上面一律放深藍字 —— 黃底白字看不清楚。
+   數字不再用等寬字，改用內文字體＋tabular-nums，位數照樣對齊。
    ─────────────────────────────────────────────── */
 
 :root {
   /* 讓原生控制項（下拉、日期選擇器、捲軸）跟著主題走，深色底下才不會整片變白 */
   color-scheme: light;
 
-  --paper:      #FBF9F6;
+  --paper:      #F3F5F9;
   --surface:    #FFFFFF;
-  --surface-2:  #F4F0E9;
-  --ink:        #221D16;
-  --ink-2:      #5C5348;
-  --muted:      #8A8074;
-  --line:       #E7E1D8;
-  --line-2:     #D6CEC2;
-  --gold:       #A8721B;
-  --gold-soft:  rgba(168, 114, 27, 0.10);
-  --gold-line:  rgba(168, 114, 27, 0.35);
+  --surface-2:  #E9EDF4;
+  --ink:        #16213A;
+  --ink-2:      #465169;
+  --muted:      #6B7488;
+  --line:       #DDE2EB;
+  --line-2:     #C9D0DC;
+  --accent:       #1B3A8C;
+  --accent-soft:  rgba(27, 58, 140, 0.08);
+  --accent-line:  rgba(27, 58, 140, 0.30);
+  --cta:        #F2B705;
+  --cta-soft:   rgba(242, 183, 5, 0.16);
+  --cta-line:   rgba(214, 160, 0, 0.55);
   --good:       #15803D;
   --good-soft:  rgba(21, 128, 61, 0.10);
-  --warn:       #B45309;
-  --warn-soft:  rgba(180, 83, 9, 0.10);
+  --warn:       #C2410C;
+  --warn-soft:  rgba(194, 65, 12, 0.10);
   --crit:       #BE123C;
   --crit-soft:  rgba(190, 18, 60, 0.10);
   --info:       #2563EB;
   --info-soft:  rgba(37, 99, 235, 0.10);
-  --shadow:     0 1px 2px rgba(34, 29, 22, .05), 0 8px 24px -16px rgba(34, 29, 22, .25);
+  --shadow:     0 1px 2px rgba(22, 33, 58, .05);
+  --on-cta:    #16213A;
 
-  --r-card: 14px;
-  --r-in:   10px;
+  --r-card: 12px;
+  --r-in:   9px;
+  --r-btn:  10px;
   --r-pill: 999px;
 
   --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang TC",
           "Noto Sans TC", "Microsoft JhengHei", "Helvetica Neue", sans-serif;
-  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  --mono: var(--sans);
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
     color-scheme: dark;
-    --paper:     #14110D;
-    --surface:   #1D1913;
-    --surface-2: #262019;
-    --ink:       #F2ECE3;
-    --ink-2:     #C6BCAE;
-    --muted:     #9A9083;
-    --line:      #2E2820;
-    --line-2:    #3D3529;
-    --gold:      #E4A94A;
-    --gold-soft: rgba(228, 169, 74, 0.12);
-    --gold-line: rgba(228, 169, 74, 0.38);
+    --paper:     #0E1422;
+    --surface:   #172036;
+    --surface-2: #1F2A42;
+    --ink:       #E8ECF4;
+    --ink-2:     #B4BDD0;
+    --muted:     #8690A6;
+    --line:      #26314A;
+    --line-2:    #34405C;
+    --accent:      #8FB0FF;
+    --accent-soft: rgba(143, 176, 255, 0.14);
+    --accent-line: rgba(143, 176, 255, 0.40);
+    --cta:       #F5C22E;
+    --cta-soft:  rgba(245, 194, 46, 0.14);
+    --cta-line:  rgba(245, 194, 46, 0.45);
     --good:      #5CD98A;
     --good-soft: rgba(92, 217, 138, 0.12);
     --warn:      #FB923C;
@@ -82,24 +93,27 @@
     --crit-soft: rgba(251, 113, 133, 0.12);
     --info:      #6BA6FF;
     --info-soft: rgba(107, 166, 255, 0.12);
-    --shadow:    0 1px 2px rgba(0, 0, 0, .3), 0 8px 24px -16px rgba(0, 0, 0, .7);
+    --shadow:    0 1px 2px rgba(0, 0, 0, .3);
   }
 }
 
 /* 使用者手動切換主題時要蓋過系統偏好，兩個方向都要 */
 :root[data-theme="dark"] {
   color-scheme: dark;
-  --paper:     #14110D;
-  --surface:   #1D1913;
-  --surface-2: #262019;
-  --ink:       #F2ECE3;
-  --ink-2:     #C6BCAE;
-  --muted:     #9A9083;
-  --line:      #2E2820;
-  --line-2:    #3D3529;
-  --gold:      #E4A94A;
-  --gold-soft: rgba(228, 169, 74, 0.12);
-  --gold-line: rgba(228, 169, 74, 0.38);
+  --paper:     #0E1422;
+  --surface:   #172036;
+  --surface-2: #1F2A42;
+  --ink:       #E8ECF4;
+  --ink-2:     #B4BDD0;
+  --muted:     #8690A6;
+  --line:      #26314A;
+  --line-2:    #34405C;
+  --accent:      #8FB0FF;
+  --accent-soft: rgba(143, 176, 255, 0.14);
+  --accent-line: rgba(143, 176, 255, 0.40);
+  --cta:       #F5C22E;
+  --cta-soft:  rgba(245, 194, 46, 0.14);
+  --cta-line:  rgba(245, 194, 46, 0.45);
   --good:      #5CD98A;
   --good-soft: rgba(92, 217, 138, 0.12);
   --warn:      #FB923C;
@@ -108,30 +122,33 @@
   --crit-soft: rgba(251, 113, 133, 0.12);
   --info:      #6BA6FF;
   --info-soft: rgba(107, 166, 255, 0.12);
-  --shadow:    0 1px 2px rgba(0, 0, 0, .3), 0 8px 24px -16px rgba(0, 0, 0, .7);
+  --shadow:    0 1px 2px rgba(0, 0, 0, .3);
 }
 :root[data-theme="light"] {
   color-scheme: light;
-  --paper:     #FBF9F6;
-  --surface:   #FFFFFF;
-  --surface-2: #F4F0E9;
-  --ink:       #221D16;
-  --ink-2:     #5C5348;
-  --muted:     #8A8074;
-  --line:      #E7E1D8;
-  --line-2:    #D6CEC2;
-  --gold:      #A8721B;
-  --gold-soft: rgba(168, 114, 27, 0.10);
-  --gold-line: rgba(168, 114, 27, 0.35);
-  --good:      #15803D;
-  --good-soft: rgba(21, 128, 61, 0.10);
-  --warn:      #B45309;
-  --warn-soft: rgba(180, 83, 9, 0.10);
-  --crit:      #BE123C;
-  --crit-soft: rgba(190, 18, 60, 0.10);
-  --info:      #2563EB;
-  --info-soft: rgba(37, 99, 235, 0.10);
-  --shadow:    0 1px 2px rgba(34, 29, 22, .05), 0 8px 24px -16px rgba(34, 29, 22, .25);
+  --paper:      #F3F5F9;
+  --surface:    #FFFFFF;
+  --surface-2:  #E9EDF4;
+  --ink:        #16213A;
+  --ink-2:      #465169;
+  --muted:      #6B7488;
+  --line:       #DDE2EB;
+  --line-2:     #C9D0DC;
+  --accent:       #1B3A8C;
+  --accent-soft:  rgba(27, 58, 140, 0.08);
+  --accent-line:  rgba(27, 58, 140, 0.30);
+  --cta:        #F2B705;
+  --cta-soft:   rgba(242, 183, 5, 0.16);
+  --cta-line:   rgba(214, 160, 0, 0.55);
+  --good:       #15803D;
+  --good-soft:  rgba(21, 128, 61, 0.10);
+  --warn:       #C2410C;
+  --warn-soft:  rgba(194, 65, 12, 0.10);
+  --crit:       #BE123C;
+  --crit-soft:  rgba(190, 18, 60, 0.10);
+  --info:       #2563EB;
+  --info-soft:  rgba(37, 99, 235, 0.10);
+  --shadow:     0 1px 2px rgba(22, 33, 58, .05);
 }
 
 * { box-sizing: border-box; }
@@ -149,7 +166,7 @@ body {
 button, input, select, textarea { font: inherit; color: inherit; }
 
 :focus-visible {
-  outline: 2px solid var(--gold);
+  outline: 2px solid var(--accent);
   outline-offset: 2px;
   border-radius: 4px;
 }
@@ -183,10 +200,10 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .brand-mark {
   width: 30px; height: 30px; flex: none;
   border-radius: 9px;
-  background: var(--gold-soft);
-  border: 1px solid var(--gold-line);
+  background: var(--accent-soft);
+  border: 1px solid var(--accent-line);
   display: grid; place-items: center;
-  color: var(--gold);
+  color: var(--accent);
 }
 .brand-name { font-weight: 700; letter-spacing: .01em; }
 .brand-sub { font-size: 11px; color: var(--muted); letter-spacing: .06em; }
@@ -206,15 +223,9 @@ button, input, select, textarea { font: inherit; color: inherit; }
 }
 .nav-btn:hover { background: var(--surface-2); color: var(--ink); }
 .nav-btn[aria-current="page"] {
-  background: var(--gold-soft);
-  color: var(--gold);
+  background: var(--accent-soft);
+  color: var(--accent);
   font-weight: 600;
-}
-.nav-btn[aria-current="page"]::before {
-  content: "";
-  position: absolute; left: -12px; top: 8px; bottom: 8px;
-  width: 3px; border-radius: 0 3px 3px 0;
-  background: var(--gold);
 }
 .nav-btn svg { flex: none; }
 .rail-foot { margin-top: auto; display: flex; flex-direction: column; gap: 6px; }
@@ -231,7 +242,8 @@ main {
   gap: 14px; flex-wrap: wrap;
   margin-bottom: 18px;
 }
-.page-title { font-size: 22px; font-weight: 700; margin: 0; letter-spacing: -.01em; }
+/* 層次靠字的大小粗細，不靠框：頁面標題要一眼就是最大的那個 */
+.page-title { font-size: 28px; font-weight: 800; margin: 0; letter-spacing: -.015em; line-height: 1.15; }
 .page-sub { color: var(--muted); font-size: 13px; margin: 2px 0 0; }
 .head-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 
@@ -245,7 +257,7 @@ main {
   padding: 8px 4px;
   overflow-x: auto;
   scrollbar-width: none;
-  background: var(--bg);
+  background: var(--paper);
   border-bottom: 1px solid var(--line);
 }
 .jumpbar::-webkit-scrollbar { display: none; }
@@ -259,7 +271,7 @@ main {
   color: var(--ink-2);
   cursor: pointer;
 }
-.jumpbar button:hover { color: var(--ink); border-color: var(--gold-line); }
+.jumpbar button:hover { color: var(--ink); border-color: var(--accent-line); }
 /* 跳過去時要留出捷徑列本身的高度，不然標題正好被它蓋住 */
 [id^="sec-"] { scroll-margin-top: 58px; }
 
@@ -276,28 +288,29 @@ main {
   font-size: 10px; padding: 6px 2px;
   justify-content: center; text-align: center;
 }
-.tabbar .nav-btn::before { display: none; }
+.tabbar .nav-btn[aria-current="page"] { background: transparent; font-weight: 700; }
 
 @media (max-width: 860px) {
   .rail { display: none; }
   .tabbar { display: flex; }
   main { padding: 18px 14px 96px; }
-  .page-title { font-size: 20px; }
+  .page-title { font-size: 26px; }
 }
 
 /* ── 元件 ───────────────────────────────────── */
 
+/* 白色面板直接放在淡藍灰底上，不加框線不加陰影（像 iPhone 的「設定」分組）。
+   框線＋陰影＋圓角全部疊上去，是每個區塊都在喊「我是一張卡片」。 */
 .card {
   background: var(--surface);
-  border: 1px solid var(--line);
+  border: 0;
   border-radius: var(--r-card);
   padding: 16px;
-  box-shadow: var(--shadow);
 }
 .stack { display: flex; flex-direction: column; gap: 14px; }
 
 .sec-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin-bottom: 12px; }
-.sec-title { font-size: 15px; font-weight: 650; margin: 0; }
+.sec-title { font-size: 16px; font-weight: 700; margin: 0; }
 .sec-sub { font-size: 12px; color: var(--muted); }
 
 /* 統計格：一律等高，這是 App 版本最常被抱怨的地方 */
@@ -309,29 +322,47 @@ main {
    影響的不只搜尋：單價切換、收費日期、詳情頁分頁那些也都是靠 hidden 收合的。 */
 [hidden] { display: none !important; }
 
+/* 統計數字是一整條，不是四張小卡片（2026-09-28 換裝）。
+   以前每格一張卡、頂上一個小圖示，是 AI 做儀表板的固定樣子。
+   現在整排共用一塊面板，格子之間只有一條細線；窄螢幕折成兩排時，
+   第二排上緣也是一條線。做法：每格都畫左線和上線，再用 -1px 的外距
+   讓第一欄的左線、第一排的上線藏到面板外面（overflow: hidden 切掉）。 */
 .tiles {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(158px, 1fr));
-  gap: 12px;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 0;
   align-items: stretch;
-}
-.tile {
   background: var(--surface);
-  border: 1px solid var(--line);
   border-radius: var(--r-card);
-  padding: 14px;
-  min-height: 118px;
+  overflow: hidden;
+}
+/* 放在白色面板裡面的那種（這禮拜、成交率）不用再墊一層底；
+   格子窄一點，三格在手機上也排得進一行，才不會落單一格 */
+.card .tiles { background: transparent; border-radius: 0; grid-template-columns: repeat(auto-fit, minmax(92px, 1fr)); }
+.tile {
+  background: transparent;
+  border: 0;
+  border-left: 1px solid var(--line);
+  border-top: 1px solid var(--line);
+  margin: -1px 0 0 -1px;
+  border-radius: 0;
+  padding: 14px 16px 13px;
   display: flex;
   flex-direction: column;
-  gap: 2px;
-  box-shadow: var(--shadow);
+  gap: 1px;
   text-align: left;
+  color: inherit;
 }
-.tile-icon { color: var(--tile-color, var(--gold)); margin-bottom: 6px; }
+.card .tile { padding: 10px 12px 8px; }
+.card .tile-value { font-size: 22px; }
+.card .tile-value--sm { font-size: 19px; }
+.card .tile-value--xs { font-size: 16px; }
+/* 小圖示拿掉了，函式還是會輸出那個 span（其他地方不用改），這裡藏起來 */
+.tile-icon { display: none; }
 .tile-value {
-  font-family: var(--mono);
-  font-size: 25px;
-  font-weight: 600;
+  font-family: var(--sans);
+  font-size: 26px;
+  font-weight: 800;
   letter-spacing: -.02em;
   font-variant-numeric: tabular-nums;
   line-height: 1.15;
@@ -339,21 +370,22 @@ main {
 }
 /* 位數多的數字自己降一級，不要折成「$150,00 / 0」。
    以月為單位看的時候金額比週大一個數量級（週收 3 萬、月收 15 萬），
-   25px 的等寬字在四欄並排時就放不下了（2026-09-04 截圖抓到）。 */
-.tile-value--sm { font-size: 21px; }
+   四欄並排時就放不下了（2026-09-04 截圖抓到）。 */
+.tile-value--sm { font-size: 22px; }
 .tile-value--xs { font-size: 18px; }
-.tile-unit { font-size: 12px; color: var(--muted); font-family: var(--sans); margin-left: 2px; }
-.tile-label { font-size: 12.5px; color: var(--ink-2); }
-/* 說明行永遠佔位，四格才不會一高一矮 */
-.tile-note { font-size: 11px; color: var(--muted); margin-top: auto; min-height: 1.4em; font-family: var(--mono); font-variant-numeric: tabular-nums; }
-button.tile { cursor: pointer; font: inherit; transition: border-color .12s ease, transform .12s ease; }
-button.tile:hover { border-color: var(--gold-line); }
-button.tile:active { transform: translateY(1px); }
+.tile-unit { font-size: 12px; font-weight: 500; color: var(--muted); font-family: var(--sans); margin-left: 2px; letter-spacing: 0; }
+.tile-label { font-size: 12.5px; color: var(--ink-2); font-weight: 600; }
+/* 說明行永遠佔位，格子才不會一高一矮 */
+.tile-note { font-size: 11px; color: var(--muted); margin-top: auto; min-height: 1.4em; font-variant-numeric: tabular-nums; }
+button.tile { cursor: pointer; font: inherit; transition: background .12s ease; }
+button.tile:hover { background: var(--accent-soft); }
+button.tile:active { background: var(--accent-soft); }
 
 .btn {
   display: inline-flex; align-items: center; gap: 6px;
   padding: 7px 13px;
-  border-radius: var(--r-pill);
+  /* 按鈕用圓角方形，膠囊只留給可以篩選的標籤，兩種東西一眼分得出來 */
+  border-radius: var(--r-btn);
   border: 1px solid var(--line-2);
   background: var(--surface);
   color: var(--ink);
@@ -362,17 +394,19 @@ button.tile:active { transform: translateY(1px); }
   transition: background .12s ease, border-color .12s ease;
 }
 .btn:hover { background: var(--surface-2); }
-/* 主色按鈕的文字色跟著主題走：淺色底用白字，深色底的金色較亮要用深字 */
-:root { --on-gold: #FFFFFF; }
-@media (prefers-color-scheme: dark) { :root { --on-gold: #17130C; } }
-:root[data-theme="dark"] { --on-gold: #17130C; }
-:root[data-theme="light"] { --on-gold: #FFFFFF; }
+/* 用 --accent 當底色的小東西（今天的日期圈、排行第一名）上面的字色：
+   淺色主題的深藍配白字，深色主題的淺藍配深字 */
+:root { --on-accent: #FFFFFF; }
+@media (prefers-color-scheme: dark) { :root { --on-accent: #0E1422; } }
+:root[data-theme="dark"] { --on-accent: #0E1422; }
+:root[data-theme="light"] { --on-accent: #FFFFFF; }
 
+/* 主按鈕是黃底深藍字，兩個主題都一樣（黃底放白字看不清楚） */
 .btn-primary {
-  background: var(--gold); border-color: var(--gold);
-  color: var(--on-gold); font-weight: 600;
+  background: var(--cta); border-color: var(--cta);
+  color: var(--on-cta); font-weight: 700;
 }
-.btn-primary:hover { filter: brightness(1.06); background: var(--gold); }
+.btn-primary:hover { filter: brightness(1.04); background: var(--cta); }
 .btn-ghost { border-color: transparent; background: transparent; color: var(--muted); }
 .btn-ghost:hover { background: var(--surface-2); color: var(--ink); }
 .btn-danger { color: var(--crit); border-color: var(--line-2); }
@@ -380,20 +414,26 @@ button.tile:active { transform: translateY(1px); }
 .btn-sm { padding: 4px 10px; font-size: 12.5px; }
 .btn:disabled { opacity: .45; cursor: not-allowed; }
 
+/* 狀態標示（剩幾堂、待續約、已付清）。只是告訴你狀態、不能按，
+   所以不做成膠囊 —— 小色點＋有顏色的字。膠囊留給能按的篩選標籤。 */
 .pill {
-  display: inline-flex; align-items: center; gap: 4px;
-  padding: 2px 9px;
-  border-radius: var(--r-pill);
-  font-size: 11.5px;
-  font-weight: 550;
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 0;
+  font-size: 12px;
+  font-weight: 650;
   white-space: nowrap;
+  color: var(--muted);
 }
-.pill-good { background: var(--good-soft); color: var(--good); }
-.pill-warn { background: var(--warn-soft); color: var(--warn); }
-.pill-crit { background: var(--crit-soft); color: var(--crit); }
-.pill-info { background: var(--info-soft); color: var(--info); }
-.pill-gold { background: var(--gold-soft); color: var(--gold); }
-.pill-mute { background: var(--surface-2); color: var(--muted); }
+.pill::before {
+  content: ""; width: 6px; height: 6px; border-radius: 50%;
+  background: currentColor; flex: none;
+}
+.pill-good { color: var(--good); }
+.pill-warn { color: var(--warn); }
+.pill-crit { color: var(--crit); }
+.pill-info { color: var(--info); }
+.pill-accent { color: var(--accent); }
+.pill-mute { color: var(--muted); }
 
 .row {
   display: flex; align-items: center; gap: 11px;
@@ -443,7 +483,7 @@ button.tile:active { transform: translateY(1px); }
   border-bottom: 1px dashed var(--line);
   cursor: pointer;
 }
-.tap-adjust:hover { background: var(--surface-2); border-bottom-color: var(--gold); }
+.tap-adjust:hover { background: var(--surface-2); border-bottom-color: var(--accent); }
 .tap-adjust svg { color: var(--muted); }
 
 .empty {
@@ -499,7 +539,7 @@ textarea { min-height: 66px; resize: vertical; }
 .switch { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 7px 0; }
 .switch input { width: 42px; height: 24px; appearance: none; background: var(--line-2); border-radius: 999px; position: relative; cursor: pointer; transition: background .15s ease; flex: none; }
 .switch input::after { content: ""; position: absolute; top: 2px; left: 2px; width: 20px; height: 20px; border-radius: 50%; background: #fff; transition: transform .15s ease; }
-.switch input:checked { background: var(--gold); }
+.switch input:checked { background: var(--accent); }
 .switch input:checked::after { transform: translateX(18px); }
 
 /* 對話框 */
@@ -596,7 +636,7 @@ dialog.sheet {
 .bars { display: flex; flex-direction: column; gap: 9px; }
 .bar-row { display: grid; grid-template-columns: 84px 1fr auto; gap: 10px; align-items: center; }
 .bar-track { display: block; height: 8px; background: var(--surface-2); border-radius: 4px; overflow: hidden; }
-.bar-fill { display: block; height: 100%; background: var(--gold); border-radius: 4px; min-width: 3px; }
+.bar-fill { display: block; height: 100%; background: var(--accent); border-radius: 4px; min-width: 3px; }
 .bar-label { font-size: 12.5px; color: var(--ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .bar-value { font-family: var(--mono); font-size: 12px; font-variant-numeric: tabular-nums; color: var(--muted); }
 @media (max-width: 480px) { .bar-row { grid-template-columns: 68px 1fr auto; } }
@@ -611,14 +651,14 @@ dialog.sheet {
   color: var(--ink-2);
 }
 .day:hover { background: var(--surface-2); }
-.day[aria-pressed="true"] { background: var(--gold-soft); border-color: var(--gold-line); color: var(--gold); }
+.day[aria-pressed="true"] { background: var(--accent-soft); border-color: var(--accent-line); color: var(--accent); }
 .day-name { font-size: 10.5px; color: var(--muted); }
 .day-num { font-family: var(--mono); font-size: 15px; font-variant-numeric: tabular-nums; }
-.day.today .day-num { background: var(--gold); color: var(--on-gold); border-radius: 50%; width: 26px; height: 26px; display: grid; place-items: center; }
+.day.today .day-num { background: var(--accent); color: var(--on-accent); border-radius: 50%; width: 26px; height: 26px; display: grid; place-items: center; }
 /* 有課一個點，有檢測再多一個紫點。最多兩個 —— 「每堂一個色點」試過，
    照學生代表色畫出來是一排彩虹，又雜又看不出重點。 */
 .day-dots { display: flex; gap: 3px; align-items: center; height: 6px; }
-.day-dot { width: 5px; height: 5px; border-radius: 50%; background: var(--gold); opacity: .55; }
+.day-dot { width: 5px; height: 5px; border-radius: 50%; background: var(--accent); opacity: .55; }
 .day-dot-assess { background: #8B5CF6; opacity: .75; }
 
 .chips { display: flex; flex-wrap: wrap; gap: 6px; }
@@ -641,7 +681,7 @@ dialog.sheet {
   font-size: 12.5px; color: var(--ink); cursor: pointer;
   font-family: inherit;
 }
-.pick.on { border-color: var(--gold); color: var(--gold); }
+.pick.on { border-color: var(--accent); color: var(--accent); }
 
 .tier-add { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; font-size: 13px; color: var(--muted); }
 .tier-add input { width: 62px; }
@@ -677,16 +717,16 @@ dialog.sheet {
 }
 .tag-chip .tag-dot {
   width: 8px; height: 8px; border-radius: 50%;
-  background: var(--tag, var(--gold)); flex: none;
+  background: var(--tag, var(--accent)); flex: none;
 }
 .tag-chip.on {
-  border-color: var(--tag, var(--gold));
-  background: color-mix(in srgb, var(--tag, var(--gold)) 16%, transparent);
-  color: var(--tag, var(--gold)); font-weight: 600;
+  border-color: var(--tag, var(--accent));
+  background: color-mix(in srgb, var(--tag, var(--accent)) 16%, transparent);
+  color: var(--tag, var(--accent)); font-weight: 600;
 }
 .tag-chip-sm { padding: 2px 7px; font-size: 11px; cursor: default;
-  background: color-mix(in srgb, var(--tag, var(--gold)) 15%, transparent);
-  color: var(--tag, var(--gold)); }
+  background: color-mix(in srgb, var(--tag, var(--accent)) 15%, transparent);
+  color: var(--tag, var(--accent)); }
 
 .tag-editor { padding: 10px 0; border-bottom: 1px solid var(--line); }
 .tag-editor:last-child { border-bottom: 0; }
@@ -694,7 +734,7 @@ dialog.sheet {
 .tag-editor-head input { flex: 1; min-width: 0; }
 .tag-editor-head .tag-dot {
   width: 12px; height: 12px; border-radius: 50%;
-  background: var(--tag, var(--gold)); flex: none;
+  background: var(--tag, var(--accent)); flex: none;
 }
 
 /* ── 顏色挑選 ───────────────────────────────── */
@@ -721,7 +761,7 @@ dialog.sheet {
   z-index: 60;
   display: flex; align-items: center; gap: 10px;
   padding: 12px 14px;
-  background: var(--surface); border: 1px solid var(--gold);
+  background: var(--surface); border: 1px solid var(--accent);
   border-radius: var(--r-card, 14px);
   box-shadow: 0 6px 24px rgba(0,0,0,.18);
   animation: update-in .25s ease-out;
@@ -745,8 +785,8 @@ dialog.sheet {
 .bar-row:has(.bar-value + .bar-value) { grid-template-columns: 48px 1fr auto auto; }
 
 .note-box {
-  background: var(--gold-soft);
-  border: 1px solid var(--gold-line);
+  background: var(--accent-soft);
+  border: 1px solid var(--accent-line);
   border-radius: var(--r-in);
   padding: 11px 13px;
   font-size: 12.5px;
@@ -755,8 +795,8 @@ dialog.sheet {
 /* 公告：擺在每一頁最上面，看過按「知道了」就收起來 */
 .notice {
   display: flex; gap: 12px;
-  background: var(--gold-soft);
-  border: 1px solid var(--gold-line);
+  background: var(--cta-soft);
+  border: 1px solid var(--cta-line);
   border-radius: var(--r-card);
   padding: 14px 16px;
   margin-bottom: 16px;
@@ -774,7 +814,7 @@ dialog.sheet {
 .guide h3 {
   font-size: 14.5px; font-weight: 650; margin: 26px 0 8px;
   padding-top: 14px; border-top: 1px solid var(--line);
-  color: var(--gold);
+  color: var(--accent);
 }
 .guide h2 + h3 { margin-top: 18px; }
 .guide p { margin: 0 0 11px; font-size: 14px; line-height: 1.75; color: var(--ink-2); }
@@ -785,7 +825,7 @@ dialog.sheet {
 .guide blockquote {
   margin: 0 0 12px;
   padding: 10px 12px;
-  border-left: 3px solid var(--gold);
+  border-left: 3px solid var(--accent);
   background: var(--surface-2);
   border-radius: 0 var(--r-in) var(--r-in) 0;
 }
@@ -796,7 +836,7 @@ dialog.sheet {
   border-radius: 5px; padding: 1px 5px;
 }
 .guide hr { border: 0; border-top: 1px solid var(--line); margin: 18px 0; }
-.guide a { color: var(--gold); }
+.guide a { color: var(--accent); }
 
 .divider { height: 1px; background: var(--line); margin: 4px 0; }
 .mono { font-family: var(--mono); font-variant-numeric: tabular-nums; }
@@ -857,10 +897,10 @@ function showFatal(message, file, line) {
   box.innerHTML =
     '<h1 style="font-size:18px;margin:0 0 8px">這頁沒能正常開起來</h1>' +
     '<p style="margin:0 0 14px;color:#5C5348">把下面這段截圖傳回來就能修。</p>' +
-    '<pre style="white-space:pre-wrap;word-break:break-word;background:#F4F0E9;padding:12px;' +
+    '<pre style="white-space:pre-wrap;word-break:break-word;background:#E9EDF4;padding:12px;' +
     'border-radius:10px;font-size:12px;margin:0 0 14px"></pre>' +
-    '<button style="padding:8px 16px;border-radius:999px;border:1px solid #A8721B;' +
-    'background:#A8721B;color:#fff;font:inherit">重新載入</button>';
+    '<button style="padding:8px 16px;border-radius:10px;border:1px solid #F2B705;' +
+    'background:#F2B705;color:#16213A;font:inherit;font-weight:700">重新載入</button>';
   // 版本在下面才宣告，萬一是載入到一半就出錯，讀不到就算了
   let build = "";
   try { build = "版本 " + BUILD; } catch (e) { build = "版本 未知（載入未完成）"; }
@@ -897,7 +937,7 @@ const NOTICE_KEY = "coach-mate-web-notice-dismissed";
  * 版本標記。顯示在設定頁最下面，教練唸得出來就知道他手上是哪一版，
  * 不用再猜是不是拿到舊的快取。每次改版就把這個字串往上加。
  */
-const BUILD = "2026-09-23 · v109";
+const BUILD = "2026-10-03 · v110";
 
 /** 開發者署名，顯示在設定頁的「關於」 */
 const DEVELOPER = "杯子蛋糕好好吃";
@@ -906,7 +946,7 @@ const DEVELOPER = "杯子蛋糕好好吃";
 const DEVELOPER_EMAIL = "huang940818@gmail.com";
 
 /** 示範學生的名字。公告用它判斷這台裝置上還留著示範資料。 */
-const DEMO_NAMES = ["林佳蓉", "陳彥廷", "黃郁婷", "張家豪", "吳孟儒", "李思穎", "王柏翰", "劉宜靜"];
+const DEMO_NAMES = ["林佳蓉", "陳彥廷", "黃郁婷", "張家豪", "吳孟儒", "李思穎", "王柏翰", "劉宜靜", "許雅筑", "蔡宗翰"];
 
 /**
  * 使用說明。刻意用 Markdown 寫，之後要搬到 App 內的說明頁、
@@ -3562,7 +3602,7 @@ async function saveFile(filename, text) {
   }
 }
 
-function tile({ value, unit = "", label, note = "", iconName = "clock", color = "var(--gold)", action = "" }) {
+function tile({ value, unit = "", label, note = "", iconName = "clock", color = "var(--accent)", action = "" }) {
   const tag = action ? "button" : "div";
   // 單位（「堂」「位」）是小字，不佔位數，所以只量 value 本身
   const len = String(value).length;
@@ -3646,7 +3686,7 @@ function viewDashboard() {
         ${tile({ value: money(isCompany ? sal.total : revenue), label: isCompany ? "本月實拿" : "本月收入",
                  iconName: "money", color: "var(--good)",
                  note: isCompany ? `鐘點 ${sal.pct}%・${sal.sessions} 堂` : `${collected.length} 筆收費` })}
-        ${tile({ value: students.length, unit: "位", label: "學生總數", iconName: "people", color: "var(--gold)",
+        ${tile({ value: students.length, unit: "位", label: "學生總數", iconName: "people", color: "var(--accent)",
                  note: `${students.filter((s) => s.remaining > 0).length} 位還有堂數` })}
         ${tile({ value: upcoming.length, unit: "堂", label: "待上課程", iconName: "upcoming", color: "var(--warn)",
                  note: upcoming.length ? `最近 ${esc(upcoming.map((l) => l.date).sort()[0])}` : "目前沒有排課" })}
@@ -3692,7 +3732,7 @@ function viewDashboard() {
           ${conv.total ? `
             <div class="tiles" style="grid-template-columns:1fr 1fr">
               ${tile({ value: conv.rate === null ? "—" : conv.rate.toFixed(0) + "%", label: "累計成交率",
-                       iconName: "target", color: "var(--gold)", note: `${conv.converted} / ${conv.total} 筆` })}
+                       iconName: "target", color: "var(--accent)", note: `${conv.converted} / ${conv.total} 筆` })}
               ${tile({ value: conv.monthRate === null ? "—" : conv.monthRate.toFixed(0) + "%", label: "本月成交率",
                        iconName: "target", color: "var(--good)",
                        note: conv.addedThisMonth ? `${conv.convertedThisMonth} / ${conv.addedThisMonth} 筆` : "本月沒有新名單" })}
@@ -3768,7 +3808,7 @@ function welcomeView() {
         <div class="sec-head"><h2 class="sec-title">先做這三件事</h2></div>
         <div class="row">
           <span class="mono" style="width:22px;height:22px;border-radius:50%;display:grid;place-items:center;
-            font-size:11px;font-weight:700;background:var(--gold);color:var(--on-gold);flex:none">1</span>
+            font-size:11px;font-weight:700;background:var(--accent);color:var(--on-accent);flex:none">1</span>
           <div class="row-main">
             <div class="row-title">新增你的學生</div>
             <div class="row-sub">姓名、每堂費用、購買與剩餘堂數。自訂欄位（性別、職業、生日…）填了才會進客群分析</div>
@@ -3799,7 +3839,7 @@ function welcomeView() {
         <section class="card">
           <div class="sec-head"><h2 class="sec-title">想先看看長什麼樣子？</h2></div>
           <p class="row-sub" style="margin:0 0 12px">
-            載入一份示範資料（8 位學生、約 60 堂課、7 筆名單），把各頁面逛過一輪。
+            載入一份示範資料（10 位學生、半年的課、9 筆名單），每個功能都有東西可以看。
             隨時可以在設定頁清掉，換成你自己的。
           </p>
           <button class="btn" type="button" data-action="seed">${icon("refresh", 15)}載入示範資料</button>
@@ -4074,8 +4114,19 @@ function viewStudents() {
             ${footer ? `<p class="hint" style="margin:10px 0 0">${footer}</p>` : ""}
           </section>` : "";
 
+        // 待續約不再整區攤開在最上面，只留一行，點了切到「待續約」那一格。
+        // 2026-09-28 小春：一多起來會「把原本有在上課的學生擠掉」。iOS 同一輪改成一樣。
+        const dueLine = due.length ? `
+          <section class="card" data-student-section>
+            <button class="row btn-plain" type="button" data-due-line data-action="student-filter" data-value="awaiting"
+              style="width:100%;border-bottom:0;padding:2px 0;text-align:left">
+              <div class="row-main"><div class="row-title" style="color:var(--accent)">已上完課，待續約</div></div>
+              <div class="row-end muted">${due.length} 位 ›</div>
+            </button>
+          </section>` : "";
+
         return [
-          group(due, "已上完課，待續約", `${due.length} 位`, "點「續約」就能加堂數並記錄收費。"),
+          dueLine,
           group(going, "進行中", `${going.length} 位`),
           group(paused, "暫停中", `${paused.length} 位`),
         ].join("");
@@ -7117,13 +7168,19 @@ function viewPayments() {
   const ym = thisMonth();
   const rows = allPayments().sort((a, b) => (b.date || "").localeCompare(a.date || ""));
   const monthRows = rows.filter((p) => (p.date || "").startsWith(ym));
+  // 2026-10-03：上面的方塊只算「自己的學生」繳的錢。場館的學生把錢繳給場館，
+  // 場館再撥抽成給教練 —— 那筆錢教練拿不到，不能算成教練的收入。
+  // 判斷沿用 employmentOf（學生沒指定就跟全域）。下面的收費紀錄清單照列全部。
+  const ownRows = rows.filter((p) => employmentOf(studentById(p.studentId)) === "independent");
+  const venueRows = rows.filter((p) => employmentOf(studentById(p.studentId)) === "company");
+  const ownMonthRows = ownRows.filter((p) => (p.date || "").startsWith(ym));
   // 「收到」就是真的已經收到的。日期還沒到的是預收（教練常常先把下個月的
   // 課錢記進來），混在一起會讓這個數字比實際入帳的多 —— iOS 早就分開算了，
   // 這邊跟著對齊。整月的總額在總覽頁的「本月收入」看。
   const todayStr = today();
-  const collectedThisMonth = monthRows
+  const collectedThisMonth = ownMonthRows
     .filter((p) => (p.date || "") <= todayStr).reduce((a, p) => a + (p.amount || 0), 0);
-  const upcomingThisMonth = monthRows
+  const upcomingThisMonth = ownMonthRows
     .filter((p) => (p.date || "") > todayStr).reduce((a, p) => a + (p.amount || 0), 0);
   // 列表只顯示選到的那一段。整月／累計的數字在上面的方塊，不受這裡影響。
   const bounds = periodBounds(paymentRange);
@@ -7174,12 +7231,18 @@ function viewPayments() {
           </div>`;
       })()}
       <div class="tiles">
+        ${/* 2026-10-03：只算自己學生的收費（場館學生的錢不是教練的收入）。
+              全部都是場館學生的教練沒有自己的收費，就不出這兩張 0 元卡。 */""}
+        ${ownRows.length ? `
         ${tile({ value: money(collectedThisMonth), label: "本月收到", iconName: "money", color: "var(--good)",
                  note: upcomingThisMonth
-                   ? `${monthRows.length} 筆・另有預收 ${money(upcomingThisMonth)}`
-                   : `${monthRows.length} 筆` })}
-        ${tile({ value: money(rows.reduce((a, p) => a + p.amount, 0)), label: "累計收入", iconName: "money",
-                 color: "var(--gold)", note: `${rows.length} 筆` })}
+                   ? `${ownMonthRows.length} 筆・另有預收 ${money(upcomingThisMonth)}`
+                   : `${ownMonthRows.length} 筆` })}
+        ${tile({ value: money(ownRows.reduce((a, p) => a + p.amount, 0)), label: "累計收入", iconName: "money",
+                 color: "var(--accent)", note: `${ownRows.length} 筆` })}` : ""}
+        ${/* 2026-10-03：場館學生繳的錢另外列，讓教練對得起帳，但不算進收入 */""}
+        ${venueRows.length ? tile({ value: money(venueRows.reduce((a, p) => a + p.amount, 0)), label: "繳給場館",
+                 iconName: "money", color: "var(--muted)", note: `${venueRows.length} 筆` }) : ""}
         ${isCompany
           // 底薪印的是**實際加上去的金額**，不是設定值。原本寫
           // `sal.baseSalary || 設定值`，而「達標後取消底薪」算出來就是 0（falsy）——
@@ -7263,7 +7326,7 @@ function viewPayments() {
           ${tile({ value: money(sal.total), label: "已上課的部分", iconName: "money",
                    color: "var(--good)", note: `${sal.sessions} 堂・抽成 ${sal.pct}%` })}
           ${tile({ value: money(proj.total), label: "這個月排完", iconName: "target",
-                   color: "var(--gold)",
+                   color: "var(--accent)",
                    note: `${proj.sessions} 堂・抽成 ${proj.pct}%` })}
         </div>
         <p class="hint" style="margin:-4px 0 10px">
@@ -7335,7 +7398,7 @@ function viewPayments() {
             <div class="row-end mono">${money(sal.baseSalary)}</div></div>` : ""}
         ${sal.baseNote ? `<p class="hint" style="margin:-6px 0 8px">${sal.baseNote}</p>` : ""}
         <div class="row"><div class="row-main" style="font-weight:650">實拿合計</div>
-          <div class="row-end mono" style="font-weight:700;color:var(--gold)">${money(sal.total)}</div></div>
+          <div class="row-end mono" style="font-weight:700;color:var(--accent)">${money(sal.total)}</div></div>
       </section>`;
       })() : ""}
 
@@ -8110,15 +8173,15 @@ function weekCard(w) {
           </div>
         </div>
         ${empty ? `<p class="empty">${emptyWord}</p>` : `
-        <div class="tiles" style="grid-template-columns:repeat(auto-fit,minmax(120px,1fr))">
+        <div class="tiles">
           ${tile({ value: w.attended, unit: "堂", label: "上到的課", iconName: "clock", color: "var(--good)",
                    note: w.people ? `${w.people} 位學生` : "—" })}
-          ${tile({ value: money(w.revenue), label: "課程收入", iconName: "money", color: "var(--gold)",
+          ${tile({ value: money(w.revenue), label: "課程收入", iconName: "money", color: "var(--accent)",
                    note: "照每位學生的單價" })}
           ${tile({ value: money(w.collected), label: "收到的錢", iconName: "money", color: "var(--info)",
                    note: "照收費日期" })}
           ${w.contracts ? tile({ value: w.contracts, unit: "筆", label: "簽的約", iconName: "money",
-                                 color: "var(--gold)", note: money(w.contractAmount) }) : ""}
+                                 color: "var(--accent)", note: money(w.contractAmount) }) : ""}
         </div>
         <p class="hint">
           ${w.scheduled ? `還有 <strong>${w.scheduled}</strong> 堂排了沒上。` : ""}
@@ -8640,7 +8703,7 @@ function viewAnalysis() {
         ${conv.total ? `
           <div class="tiles">
             ${tile({ value: conv.rate === null ? "—" : conv.rate.toFixed(0) + "%", label: "累計成交率",
-                     iconName: "target", color: "var(--gold)", note: `${conv.converted} / ${conv.total} 筆` })}
+                     iconName: "target", color: "var(--accent)", note: `${conv.converted} / ${conv.total} 筆` })}
             ${tile({ value: conv.monthRate === null ? "—" : conv.monthRate.toFixed(0) + "%", label: "本月成交率",
                      iconName: "target", color: "var(--good)",
                      note: conv.addedThisMonth ? `${conv.convertedThisMonth} / ${conv.addedThisMonth} 筆` : "本月沒有新名單" })}
@@ -8908,7 +8971,7 @@ function rankingSection(students) {
 function rankRow(i, s, value, note, ranked = true) {
   return `<div class="row">
     <span class="mono" style="width:20px;height:20px;border-radius:50%;display:grid;place-items:center;font-size:11px;font-weight:700;
-      background:${i === 0 && ranked ? "var(--gold)" : "var(--surface-2)"};color:${i === 0 && ranked ? "var(--on-gold)" : "var(--muted)"}">${ranked ? i + 1 : "–"}</span>
+      background:${i === 0 && ranked ? "var(--accent)" : "var(--surface-2)"};color:${i === 0 && ranked ? "var(--on-accent)" : "var(--muted)"}">${ranked ? i + 1 : "–"}</span>
     <span class="dot" style="background:${esc(s.color)}"></span>
     <div class="row-main"><div class="row-title">${esc(s.name)}</div></div>
     <div class="row-end mono" style="font-weight:600">${esc(value)}${
@@ -9273,7 +9336,7 @@ function viewSettings() {
             <div class="row">
               <div class="row-main">滿 <span class="mono">${t.minSessions}</span> 堂</div>
               <div class="row-end">
-                <span class="mono" style="color:var(--gold);font-weight:650">${t.percent}%</span>
+                <span class="mono" style="color:var(--accent);font-weight:650">${t.percent}%</span>
                 <button class="btn btn-sm btn-ghost" type="button" data-action="del-tier" data-value="${t.minSessions}">刪除</button>
               </div>
             </div>`).join("")}
@@ -9317,7 +9380,7 @@ function viewSettings() {
             <div class="row">
               <div class="row-main">滿 <span class="mono">${money(t.minAmount)}</span></div>
               <div class="row-end">
-                <span class="mono" style="color:var(--gold);font-weight:650">${esc(salesTierLabel(t))}</span>
+                <span class="mono" style="color:var(--accent);font-weight:650">${esc(salesTierLabel(t))}</span>
                 <button class="btn btn-sm btn-ghost" type="button" data-action="del-sales-tier" data-value="${t.minAmount}">刪除</button>
               </div>
             </div>`).join("")}
@@ -9604,7 +9667,12 @@ function buildBackup() {
     })),
     // 場地成本（costMode／costValue）是網頁多出來的欄位，iOS 讀到不認得的鍵
     // 會直接忽略 —— 但它匯出時也不會帶回來，所以匯入那邊要按名字合併。
-    locations: S.settings.locations || [],
+    //
+    // **createdAt 一定要有。** iOS 的 Location 是必填，少了它整份備份匯入失敗
+    // （fieldMismatch「locations → Index 0 少了 createdAt」）。網頁新增場館時
+    // 以前沒寫這個欄位，所以在網頁加過場館的人，備份根本匯不進 App
+    // （2026-09-28 拿完整示範資料匯進 App 時才抓到）。補在匯出這裡，舊資料也一起救到。
+    locations: (S.settings.locations || []).map((x) => ({ ...x, createdAt: iso(x.createdAt) })),
     settings: {
       employmentType: S.settings.employment,
       // 預設計費方式。iOS 用同一個鍵。
@@ -9628,7 +9696,9 @@ function buildBackup() {
       studentTags: JSON.stringify(allTags().map((t) => ({
         id: t.id, name: t.name, colorHex: t.color,
       }))),
-      colorTheme: "amber",
+      // 網頁沒有主題色可以選，給 App 的預設值（2026-09-28 起是深藍）。
+      // 以前寫死 "amber"，從網頁匯入的人 App 會被帶回琥珀金，新預設等於沒生效。
+      colorTheme: "navy",
       // 菜單公版。iOS 的 UserDefaults 存的是 JSON 字串不是陣列，
       // 直接丟陣列過去它會整組讀不到（同 customFieldDefinitions 的處理）。
       trainingMenuTemplates: JSON.stringify(menuTemplates()),
@@ -10104,68 +10174,234 @@ function applyImport(parsed, mode) {
 
 /* ── 示範資料 ───────────────────────────────── */
 
+/**
+ * 示範資料。2026-09-28 補齊：**每一個功能打開都要有東西看**。
+ *
+ * 以前只有 8 位學生、三週的課、7 筆名單，很多頁是空的 —— InBody、訓練菜單、
+ * 檢測與成交、共同課、單堂制、封存、加購、結轉、場館成本、業績級距、
+ * 年度與逐月銷售（課只有三週，趨勢圖畫不出來）都看不到。
+ *
+ * 形狀：公司教練＋承攬（場館有成本），其中一位是私接的（混合身分）。
+ * 課往前排半年，分析頁的逐月、年度才有線可畫。
+ */
 function seedDemo() {
-  const names = DEMO_NAMES;
-  const jobs = ["工程師", "護理師", "老師", "業務", "設計師", "工程師", "自由業", "護理師"];
-  const genders = ["女", "男", "女", "男", "男", "女", "男", "女"];
-  const births = ["1994-03-12", "1988-11-02", "1999-06-25", "1985-01-30", "1996-09-08", "1992-12-19", "1979-04-14", "2001-07-07"];
+  const now = new Date();
+  const ago = (n) => dayStr(addDays(now, -n));
+  const iso = (n) => addDays(now, -n).toISOString();
 
-  const students = names.map((name, i) => {
-    const total = [10, 20, 10, 30, 20, 10, 20, 10][i];
-    const used = [7, 4, 9, 12, 18, 1, 6, 10][i];
-    const rate = [1100, 1000, 1200, 950, 1000, 1300, 1000, 1150][i];
+  const venues = [
+    { id: uid(), name: "大安館", address: "台北市大安區復興南路一段", costMode: "fixed", costValue: 300 },
+    { id: uid(), name: "信義館", address: "台北市信義區松仁路", costMode: "percent", costValue: 20 },
+  ];
+  const tags = clone(DEFAULT_SETTINGS.tags);
+  const tagId = (name) => tags.find((t) => t.name === name).id;
+
+  // name, 本期買幾堂, 已上, 單價, 標籤, 其他設定
+  const plan = [
+    ["林佳蓉", 10, 7,  1100, ["減脂"], { expiry: ago(-45) }],
+    ["陳彥廷", 20, 4,  1000, ["備賽", "VIP"], {}],
+    ["黃郁婷", 10, 9,  1200, ["康復"], { expiry: ago(-12) }],
+    ["張家豪", 30, 12, 950,  ["VIP"], {}],
+    ["吳孟儒", 20, 18, 1000, ["減脂"], { mayNotRenew: true }],
+    ["李思穎", 10, 1,  1300, [], {}],
+    ["王柏翰", 20, 6,  1000, ["備賽"], { employment: "independent" }],
+    ["劉宜靜", 10, 10, 1150, ["康復"], { status: "awaiting" }],
+    ["許雅筑", 0,  0,  1500, ["減脂"], { billingMode: "perSession", employment: "independent" }],
+    ["蔡宗翰", 10, 10, 1100, [], { status: "archived" }],
+  ];
+  const jobs = ["工程師", "護理師", "老師", "業務", "設計師", "工程師", "自由業", "護理師", "會計師", "學生"];
+  const genders = ["女", "男", "女", "男", "男", "女", "男", "女", "女", "男"];
+  const births = ["1994-03-12", "1988-11-02", "1999-06-25", "1985-01-30", "1996-09-08",
+                  "1992-12-19", "1979-04-14", "2001-07-07", "1990-05-21", "2003-10-03"];
+
+  const students = plan.map(([name, total, used, rate, tagNames, extra], i) => {
     const s = newStudent({
       name, phone: "09" + String(10000000 + i * 1111111).slice(0, 8),
       rate, totalPurchased: total, remaining: Math.max(0, total - used),
       color: STUDENT_COLORS[i % STUDENT_COLORS.length],
       acquisition: ["selfDeveloped", "referral", "companyLead"][i % 3],
       custom: { "性別": genders[i], "職業": jobs[i], "生日": births[i] },
-      renewalCount: i % 3,
+      tags: tagNames.map(tagId),
+      notes: i === 2 ? "右膝前十字韌帶術後，深蹲只做到 90 度" : "",
+      createdAt: iso(170 - i * 12),
+      ...extra,
     });
-    s.payments = [{ id: uid(), amount: rate * total, date: dayStr(addDays(new Date(), -20 - i * 9)),
-                    method: i % 2 ? "transfer" : "cash", notes: `${total} 堂方案`, createdAt: new Date().toISOString() }];
-    s.renewals = [{ id: uid(), date: dayStr(addDays(new Date(), -20 - i * 9)), sessions: total,
-                    amount: rate * total, notes: "", createdAt: new Date().toISOString() }];
+    if (s.billingMode === "perSession") return s;   // 單堂制沒有合約，收費在下面逐堂記
+    // 購買紀錄：第一筆是首購，之後是續約。日期散在這半年，逐月銷售才有起伏。
+    const history = [
+      ...(i % 3 === 0 ? [{ sessions: 10, daysAgo: 150 - i * 4 }] : []),
+      ...(i % 2 === 0 ? [{ sessions: 10, daysAgo: 95 - i * 3 }] : []),
+      { sessions: total, daysAgo: 18 + i * 5, carryOver: i === 3 ? 4 : 0 },
+    ];
+    history.forEach((h, k) => {
+      const r = { id: uid(), date: ago(h.daysAgo), sessions: h.sessions, amount: rate * h.sessions,
+                  carryOver: h.carryOver || 0, addOn: false, amountOk: true, notes: "",
+                  createdAt: iso(h.daysAgo) };
+      s.renewals.unshift(r);   // 新到舊
+      // 大包的分兩期付，看得到「一份合約兩筆收費」
+      const split = h.sessions >= 20 ? 2 : 1;
+      for (let q = 0; q < split; q++) {
+        s.payments.push({ id: uid(), renewalId: r.id, amount: Math.round(r.amount / split),
+          date: ago(Math.max(0, h.daysAgo - q * 14)), method: (i + q) % 2 ? "transfer" : "cash",
+          notes: split > 1 ? `第 ${q + 1} 期` : "", createdAt: iso(h.daysAgo) });
+      }
+    });
     return s;
   });
+  const by = (name) => students.find((x) => x.name === name);
+
+  // 加購：張家豪這期又多買 5 堂，綁在主約底下
+  {
+    const s = by("張家豪");
+    const main = s.renewals[0];
+    s.renewals.unshift({ id: uid(), date: ago(6), sessions: 5, amount: 4750, carryOver: 0,
+      addOn: true, mainId: main.id, amountOk: true, notes: "加購 5 堂", createdAt: iso(6) });
+    s.remaining += 5;
+    s.payments.push({ id: uid(), amount: 4750, date: ago(6), method: "transfer",
+      notes: "加購", renewalId: s.renewals[0].id, createdAt: iso(6) });
+  }
+  // 一筆還沒接到合約的收費（收費頁「還沒對應的收費」看得到）
+  by("陳彥廷").payments.push({ id: uid(), amount: 2000, date: ago(3), method: "cash",
+    notes: "訂金", createdAt: iso(3) });
+
+  // InBody：三位學生、每月量一次
+  const inbodyFor = (name, rows) => {
+    by(name).inbody = rows.map(([d, weight, bodyFat, muscleMass, visceralFat, bmr]) => ({
+      id: uid(), date: ago(d), time: "08:30", weight, bodyFat, muscleMass, visceralFat, bmr, notes: "" }));
+  };
+  inbodyFor("林佳蓉", [[150, 68.4, 33.1, 23.0, 9, 1310], [120, 66.9, 31.8, 23.3, 8, 1322],
+                       [90, 65.2, 30.2, 23.6, 8, 1335], [60, 63.8, 28.9, 23.9, 7, 1349], [30, 62.5, 27.4, 24.2, 6, 1361]]);
+  inbodyFor("陳彥廷", [[120, 78.2, 18.4, 36.1, 7, 1720], [60, 79.0, 16.9, 37.4, 6, 1756], [10, 79.6, 15.3, 38.5, 5, 1789]]);
+  inbodyFor("吳孟儒", [[100, 92.5, 29.7, 35.2, 13, 1802], [40, 89.1, null, 35.6, 12, 1798]]);
+
+  // 訓練菜單＋兩份公版
+  const upper = [["槓鈴臥推", 40, 8, 4], ["滑輪下拉", 35, 10, 3], ["啞鈴肩推", 10, 10, 3], ["伏地挺身", 0, 12, 3]];
+  const lower = [["槓鈴深蹲", 60, 6, 5], ["羅馬尼亞硬舉", 50, 8, 3], ["保加利亞分腿蹲", 12, 10, 3], ["棒式", 0, 0, 3]];
+  const toMenu = (list) => list.map(([name, weight, reps, sets], k) => ({
+    id: uid(), name, weight, unit: "kg", reps, sets, order: k, createdAt: iso(20) }));
+  by("陳彥廷").exercises = toMenu(upper);
+  by("張家豪").exercises = toMenu(lower);
+  by("黃郁婷").exercises = toMenu([["箱上蹲", 0, 12, 3], ["臀橋", 20, 12, 3], ["彈力帶側走", 0, 15, 3]]);
+  const templates = [["上肢日", upper], ["下肢日", lower]].map(([name, list]) => ({
+    id: uuid(), name,
+    items: list.map(([n, weight, reps, sets]) => ({ id: uuid(), name: n, weight, unit: "kg", reps, sets })) }));
+
+  // 名單：各種來源、各種階段
+  const leadRows = [["周子瑜", "referral", "converted"], ["何柏叡", "online", "contacted"],
+                    ["蔡沐恩", "company", "pending"], ["鄭雅文", "walkIn", "converted"],
+                    ["謝定澄", "online", "assessed"], ["曾苡宸", "referral", "assessed"],
+                    ["高子萱", "company", "converted"], ["羅振宇", "company", "lost"],
+                    ["邱品妍", "online", "contacted"]];
+  const leads = leadRows.map(([name, source, status], i) => ({
+    id: uid(), name, phone: "", email: "", source, status,
+    notes: status === "pending" ? "等對方回訊息" : status === "lost" ? "預算不夠，明年再說" : "",
+    createdAt: iso(120 - i * 12), updatedAt: iso(20 - i),
+  }));
 
   const lessons = [];
+  const push = (l) => lessons.push({
+    id: uid(), notes: "", location: "", partnerId: "", consumed: false, partnerConsumed: false,
+    owed: false, partnerOwed: false, kind: "lesson", outcome: "pending", color: "", leadId: "",
+    createdAt: iso(Math.max(0, -1 * 0)), ...l });
+
+  // 正課：往前半年、往後兩週。承攬的課在兩間場館輪流。
+  const onRosterNow = students.filter((x) => x.status !== "archived" && x.billingMode !== "perSession");
   const slots = [["09:00", 90], ["11:00", 60], ["14:00", 90], ["19:00", 60], ["20:30", 90]];
-  for (let d = -21; d <= 14; d++) {
-    const date = dayStr(addDays(new Date(), d));
+  for (let d = -170; d <= 14; d++) {
+    const date = dayStr(addDays(now, d));
     const wd = (parseDay(date).getDay() + 6) % 7;
-    if (wd >= 5) continue;
-    const n = 2 + (Math.abs(d) % 2);
+    if (wd === 6) continue;                          // 週日休
+    const n = wd === 5 ? 1 : 2 + (Math.abs(d) % 2);
     for (let k = 0; k < n; k++) {
       const [start, mins] = slots[(Math.abs(d) + k) % slots.length];
-      const st = students[(Math.abs(d) * 3 + k) % students.length];
-      lessons.push({
-        id: uid(), date, start, end: timeOf(minutesOf(start) + mins),
-        status: d < 0 ? (Math.abs(d) % 11 === 0 ? "absent" : "attended") : "scheduled",
-        notes: "", location: "", studentId: st.id, partnerId: "",
-        consumed: d < 0 && Math.abs(d) % 11 !== 0, partnerConsumed: false, owed: false, partnerOwed: false,
-        createdAt: new Date().toISOString(),
-      });
+      // 封存的那位只出現在三個月以前
+      const pool = d < -90 ? students.filter((x) => x.billingMode !== "perSession") : onRosterNow;
+      const st = pool[(Math.abs(d) * 3 + k) % pool.length];
+      const past = d < 0;
+      const status = !past ? "scheduled"
+        : Math.abs(d) % 17 === 0 ? "cancelled"
+        : Math.abs(d) % 11 === 0 ? "absent"
+        : Math.abs(d) % 7 === 0 ? "late" : "attended";
+      push({ date, start, end: timeOf(minutesOf(start) + mins), status, studentId: st.id,
+             location: venues[(Math.abs(d) + k) % 2].name,
+             consumed: past && CONSUMING.includes(status),
+             notes: status === "cancelled" ? "學生臨時加班" : "",
+             createdAt: iso(Math.max(0, -d + 2)) });
     }
   }
+  // 共同課（一對二）：陳彥廷＋王柏翰，每週四晚上
+  for (let d = -60; d <= 14; d++) {
+    const date = dayStr(addDays(now, d));
+    if (parseDay(date).getDay() !== 4) continue;
+    push({ date, start: "21:00", end: "22:00", status: d < 0 ? "attended" : "scheduled",
+           studentId: by("陳彥廷").id, partnerId: by("王柏翰").id, location: "大安館",
+           consumed: d < 0, partnerConsumed: d < 0, notes: "一對二", color: "#14B8A6",
+           createdAt: iso(Math.max(0, -d + 2)) });
+  }
+  // 單堂制：許雅筑每週二上一堂，上一堂收一堂
+  const perSession = by("許雅筑");
+  for (let d = -56; d <= 14; d++) {
+    const date = dayStr(addDays(now, d));
+    if (parseDay(date).getDay() !== 2) continue;
+    push({ date, start: "18:00", end: "19:00", status: d < 0 ? "attended" : "scheduled",
+           studentId: perSession.id, location: "信義館", consumed: false,
+           createdAt: iso(Math.max(0, -d + 2)) });
+    if (d < 0) perSession.payments.push({ id: uid(), amount: 1500, date, method: "transfer",
+      notes: "單堂", createdAt: iso(-d) });
+  }
+  // 檢測：接到名單上，各種結果都有
+  const assess = [["謝定澄", -20, "notClosed"], ["曾苡宸", -9, "followUp"], ["高子萱", -35, "closed"],
+                  ["周子瑜", -70, "closed"], ["鄭雅文", -110, "closed"], ["何柏叡", -2, "pending"],
+                  ["邱品妍", 3, "pending"]];
+  for (const [name, d, outcome] of assess) {
+    const lead = leads.find((x) => x.name === name);
+    push({ kind: "assessment", outcome, leadId: lead.id, studentId: "",
+           date: dayStr(addDays(now, d)), start: "12:30", end: "13:30",
+           status: d < 0 ? "attended" : "scheduled", location: "大安館",
+           notes: "體態評估＋動作檢測", createdAt: iso(Math.max(0, -d + 5)) });
+  }
 
-  const leadNames = [["周子瑜", "referral", "converted"], ["何柏叡", "online", "contacted"],
-                     ["蔡沐恩", "company", "pending"], ["鄭雅文", "walkIn", "converted"],
-                     ["謝定澄", "online", "pending"], ["曾苡宸", "referral", "contacted"],
-                     ["高子萱", "company", "converted"]];
-  const leads = leadNames.map(([name, source, status], i) => ({
-    id: uid(), name, phone: "", email: "", source, status,
-    notes: status === "pending" ? "等對方回訊息" : "",
-    createdAt: addDays(new Date(), -40 + i * 5).toISOString(),
-    updatedAt: addDays(new Date(), -6 + i).toISOString(),
-  }));
+  // 合約要買得夠上面那半年的課：「已上 37 堂」卻只買過 10 堂，看起來像資料壞了。
+  // 不夠的差額補成最早那一筆首購，剩餘堂數維持上面設定的樣子（待續約的那位要停在 0）。
+  for (const st of students) {
+    if (st.billingMode === "perSession") continue;
+    const used = lessons.filter((l) => (l.studentId === st.id && l.consumed)
+      || (l.partnerId === st.id && l.partnerConsumed)).length;
+    const bought = st.renewals.reduce((a, r) => a + r.sessions, 0);
+    const short = used + st.remaining - bought;
+    if (short > 0) {
+      const sessions = short;
+      const r = { id: uid(), date: ago(175), sessions, amount: st.rate * sessions, carryOver: 0,
+                  addOn: false, amountOk: true, notes: "", createdAt: iso(175) };
+      st.renewals.push(r);   // 最舊的排最後
+      st.payments.unshift({ id: uid(), renewalId: r.id, amount: r.amount, date: r.date,
+        method: "cash", notes: "", createdAt: iso(175) });
+    }
+    st.totalPurchased = st.renewals.reduce((a, r) => a + r.sessions, 0);
+    st.renewalCount = st.renewals.filter((r) => !r.addOn).length - 1;
+  }
 
   S = {
     students, lessons, leads,
-    settings: { ...clone(DEFAULT_SETTINGS), theme: S.settings.theme, employment: "company" },
+    settings: {
+      ...clone(DEFAULT_SETTINGS),
+      theme: S.settings.theme,
+      employment: "company",
+      role: "contractor",
+      locations: venues,
+      tags,
+      trainingMenuTemplates: templates,
+      salary: {
+        ...clone(DEFAULT_SALARY),
+        baseSalary: 28000, baseSalaryMode: "belowThreshold", baseSalaryThreshold: 40,
+        payoutBasisRaw: "both", salesPercent: 10,
+        salesTiers: [{ minAmount: 60000, mode: "percent", value: 12 },
+                     { minAmount: 100000, mode: "fixed", value: 5000 }],
+      },
+    },
   };
   save(); render();
-  toast(`已載入示範資料：${students.length} 位學生・${lessons.length} 堂課`);
+  toast(`已載入示範資料：${students.length} 位學生・${lessons.length} 堂課・${leads.length} 筆名單`);
 }
 
 /* ════════════════════════════════════════════════
@@ -10463,7 +10699,10 @@ function applyStudentSearch() {
   // 整區都被藏光就把區塊一起收掉。
   for (const sec of $$("[data-student-section]")) {
     const own = [...sec.querySelectorAll("[data-student-row]")];
-    sec.hidden = own.length > 0 && own.every((r) => r.hidden);
+    // 「已上完課，待續約 N 位」那一行沒有學生列，搜尋時直接收起來
+    //（找人的時候它只是一行擋路的字；iOS 搜尋時也不顯示）
+    sec.hidden = sec.querySelector("[data-due-line]") ? !!q
+      : own.length > 0 && own.every((r) => r.hidden);
   }
   const note = $("[data-search-count]");
   if (note) {
@@ -10649,7 +10888,7 @@ document.addEventListener("submit", (e) => {
     const mode = form.elements.costMode ? form.elements.costMode.value : "none";
     const raw = form.elements.costValue ? Math.max(0, Math.round(+form.elements.costValue.value) || 0) : 0;
     list.push({
-      id: uid(), name,
+      id: uid(), name, createdAt: new Date().toISOString(),
       address: form.elements.address.value.trim(),
       costMode: mode,
       costValue: mode === "none" ? 0 : (mode === "percent" ? Math.min(100, raw) : raw),
