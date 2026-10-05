@@ -151,6 +151,76 @@
   --shadow:     0 1px 2px rgba(22, 33, 58, .05);
 }
 
+/* 配色「咖啡」：9/28 換裝前的那一組（Krystal 10/04 許願要回來）。
+   html 上掛 data-palette="coffee" 才生效；深藍是預設，不掛。
+   淺色那條放在 [data-theme="light"] 後面、同樣的權重，所以後面這條贏；
+   深色兩條多一個條件，權重比淺色那條高，跟著系統或手動切深色都蓋得過去。 */
+:root[data-palette="coffee"] {
+  --paper:      #FBF9F6;
+  --surface:    #FFFFFF;
+  --surface-2:  #F4F0E9;
+  --ink:        #221D16;
+  --ink-2:      #5C5348;
+  --muted:      #8A8074;
+  --line:       #E7E1D8;
+  --line-2:     #D6CEC2;
+  --accent:       #A8721B;
+  --accent-soft:  rgba(168, 114, 27, 0.10);
+  --accent-line:  rgba(168, 114, 27, 0.35);
+  --cta:        #A8721B;
+  --cta-soft:   rgba(168, 114, 27, 0.10);
+  --cta-line:   rgba(168, 114, 27, 0.35);
+  --on-cta:     #FFFFFF;
+  --on-accent:  #FFFFFF;
+  --warn:       #B45309;
+  --warn-soft:  rgba(180, 83, 9, 0.10);
+  --shadow:     0 1px 2px rgba(34, 29, 22, .05);
+}
+@media (prefers-color-scheme: dark) {
+  :root[data-palette="coffee"]:not([data-theme="light"]) {
+    --paper:     #14110D;
+    --surface:   #1D1913;
+    --surface-2: #262019;
+    --ink:       #F2ECE3;
+    --ink-2:     #C6BCAE;
+    --muted:     #9A9083;
+    --line:      #2E2820;
+    --line-2:    #3D3529;
+    --accent:      #E4A94A;
+    --accent-soft: rgba(228, 169, 74, 0.12);
+    --accent-line: rgba(228, 169, 74, 0.38);
+    --cta:       #E4A94A;
+    --cta-soft:  rgba(228, 169, 74, 0.12);
+    --cta-line:  rgba(228, 169, 74, 0.38);
+    --on-cta:    #17130C;
+    --on-accent: #17130C;
+    --warn:      #FB923C;
+    --warn-soft: rgba(251, 146, 60, 0.12);
+    --shadow:    0 1px 2px rgba(0, 0, 0, .3);
+  }
+}
+:root[data-palette="coffee"][data-theme="dark"] {
+  --paper:     #14110D;
+  --surface:   #1D1913;
+  --surface-2: #262019;
+  --ink:       #F2ECE3;
+  --ink-2:     #C6BCAE;
+  --muted:     #9A9083;
+  --line:      #2E2820;
+  --line-2:    #3D3529;
+  --accent:      #E4A94A;
+  --accent-soft: rgba(228, 169, 74, 0.12);
+  --accent-line: rgba(228, 169, 74, 0.38);
+  --cta:       #E4A94A;
+  --cta-soft:  rgba(228, 169, 74, 0.12);
+  --cta-line:  rgba(228, 169, 74, 0.38);
+  --on-cta:    #17130C;
+  --on-accent: #17130C;
+  --warn:      #FB923C;
+  --warn-soft: rgba(251, 146, 60, 0.12);
+  --shadow:    0 1px 2px rgba(0, 0, 0, .3);
+}
+
 * { box-sizing: border-box; }
 
 body {
@@ -937,7 +1007,7 @@ const NOTICE_KEY = "coach-mate-web-notice-dismissed";
  * 版本標記。顯示在設定頁最下面，教練唸得出來就知道他手上是哪一版，
  * 不用再猜是不是拿到舊的快取。每次改版就把這個字串往上加。
  */
-const BUILD = "2026-10-03 · v111";
+const BUILD = "2026-10-05 · v112";
 
 /** 開發者署名，顯示在設定頁的「關於」 */
 const DEVELOPER = "杯子蛋糕好好吃";
@@ -1173,6 +1243,8 @@ const DEFAULT_SETTINGS = {
   ],
   salary: { ...DEFAULT_SALARY },
   theme: "auto",
+  // 配色：navy（深海藍，預設）／coffee（咖啡）。跟 theme 一樣是這台裝置的偏好
+  palette: "navy",
   // 顏色標籤。第一次使用給幾個範例，不要的直接刪。
   tags: [
     { id: "tag-fatloss", name: "減脂", color: "#E05B7B" },
@@ -3237,6 +3309,14 @@ function applyTheme() {
   const mode = S.settings.theme;
   if (mode === "auto") document.documentElement.removeAttribute("data-theme");
   else document.documentElement.setAttribute("data-theme", mode);
+  const coffee = S.settings.palette === "coffee";
+  if (coffee) document.documentElement.setAttribute("data-palette", "coffee");
+  else document.documentElement.removeAttribute("data-palette");
+  // 狀態列的顏色跟頁底走（build script 放了淺、深兩條 theme-color）
+  document.querySelectorAll('meta[name="theme-color"]').forEach((m) => {
+    const dark = (m.getAttribute("media") || "").includes("dark");
+    m.setAttribute("content", coffee ? (dark ? "#14110D" : "#FBF9F6") : (dark ? "#0E1422" : "#F3F5F9"));
+  });
 }
 
 /* ── 對話框 ─────────────────────────────────── */
@@ -9277,6 +9357,18 @@ function viewSettings() {
             </div>
           </div>
         </div>
+        <div class="row">
+          <div class="row-main">
+            <div class="row-title">配色</div>
+            <div class="row-sub">深海藍／咖啡</div>
+          </div>
+          <div class="row-end">
+            <div class="seg" style="width:210px">
+              ${[["navy", "深海藍"], ["coffee", "咖啡"]].map(([v, t]) =>
+                `<button type="button" data-action="set-palette" data-value="${v}" aria-pressed="${(st.palette || "navy") === v}">${t}</button>`).join("")}
+            </div>
+          </div>
+        </div>
       </section>
 
       <section class="card">
@@ -9773,9 +9865,9 @@ function buildBackup() {
       studentTags: JSON.stringify(allTags().map((t) => ({
         id: t.id, name: t.name, colorHex: t.color,
       }))),
-      // 網頁沒有主題色可以選，給 App 的預設值（2026-09-28 起是深藍）。
+      // 網頁的配色帶給 App（id 兩邊一樣：navy／coffee）。
       // 以前寫死 "amber"，從網頁匯入的人 App 會被帶回琥珀金，新預設等於沒生效。
-      colorTheme: "navy",
+      colorTheme: S.settings.palette === "coffee" ? "coffee" : "navy",
       // 菜單公版。iOS 的 UserDefaults 存的是 JSON 字串不是陣列，
       // 直接丟陣列過去它會整組讀不到（同 customFieldDefinitions 的處理）。
       trainingMenuTemplates: JSON.stringify(menuTemplates()),
@@ -10139,6 +10231,7 @@ function parseBackup(raw) {
       .map((t) => ({ id: t.id, name: t.name, color: t.colorHex || t.color || TAG_COLORS[0] }));
   }
   settings.theme = S.settings.theme;   // 外觀是這台裝置的偏好，不跟著備份走
+  settings.palette = S.settings.palette;
   // iOS 專屬的設定（提醒、一天的起訖時間、訓練菜單範本…）原封帶著
   const settingsCarry = carryOf(rawSettings, CARRY_SETTINGS_KNOWN);
   if (settingsCarry) settings._carry = settingsCarry;
@@ -10463,6 +10556,7 @@ function seedDemo() {
     settings: {
       ...clone(DEFAULT_SETTINGS),
       theme: S.settings.theme,
+      palette: S.settings.palette,
       employment: "company",
       role: "contractor",
       locations: venues,
@@ -10693,6 +10787,7 @@ document.addEventListener("click", (e) => {
       toast(value === "contractor" ? "排課時會出現上課地點" : "排課時不再問上課地點");
       break;
     case "set-theme": S.settings.theme = value; save(); render(); break;
+    case "set-palette": S.settings.palette = value; save(); render(); break;
     case "set-basis": S.settings.salary.payoutBasisRaw = value; save(); render(); break;
     case "edit-duration": durationSheet(); break;
     case "move-field":
