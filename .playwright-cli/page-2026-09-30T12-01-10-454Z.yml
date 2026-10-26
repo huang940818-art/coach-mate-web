@@ -1,0 +1,60 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e2]:
+    - navigation "主選單" [ref=e3]:
+      - generic [ref=e8]:
+        - generic [ref=e9]: 教練小幫手
+        - generic [ref=e10]: WEB
+      - generic [ref=e11]:
+        - button "總覽" [ref=e12] [cursor=pointer]
+        - button "學生" [ref=e16] [cursor=pointer]
+        - button "課表" [ref=e22] [cursor=pointer]
+        - button "收費" [ref=e27] [cursor=pointer]
+        - button "分析" [ref=e31] [cursor=pointer]
+        - button "設定" [ref=e36] [cursor=pointer]
+      - button "跟隨系統" [ref=e43] [cursor=pointer]
+    - main [ref=e48]:
+      - generic [ref=e49]:
+        - generic [ref=e51]:
+          - generic [ref=e52]: 學生頁可以直接改課，也能照時數扣堂
+          - paragraph [ref=e53]: 學生資料的「課程紀錄」每一堂都多了「編輯」，要改時間不用再回課表找那一天。另外設定頁「一般」多了「照時數扣堂」：選「一堂 1 小時」之後，上 2 小時就扣 2 堂，課程收入與薪資也照堂數算（不滿一堂的零頭不算）。只影響之後上的課，已經記過的不會重算；沒去設定的話一切跟以前一樣。有問題到設定最下面「回報問題」告訴我。
+          - generic [ref=e54]:
+            - button "看使用說明" [ref=e55] [cursor=pointer]
+            - button "知道了" [ref=e56] [cursor=pointer]
+        - generic [ref=e58]:
+          - heading "教練小幫手" [level=1] [ref=e59]
+          - paragraph [ref=e60]: 學生、課表、收費、客群分析，一個地方管完
+        - generic [ref=e61]:
+          - generic [ref=e62]:
+            - generic [ref=e63]:
+              - text: 這份資料
+              - strong [ref=e64]: 只存在你自己的瀏覽器裡
+              - text: ，其他教練看不到，你也看不到別人的。 從新增第一位學生開始就可以了。
+            - heading "先做這三件事" [level=2] [ref=e66]
+            - generic [ref=e67]:
+              - generic [ref=e68]: "1"
+              - generic [ref=e69]:
+                - generic [ref=e70]: 新增你的學生
+                - generic [ref=e71]: 姓名、每堂費用、購買與剩餘堂數。自訂欄位（性別、職業、生日…）填了才會進客群分析
+              - button "新增學生" [ref=e73] [cursor=pointer]
+            - generic [ref=e74]:
+              - generic [ref=e75]: "2"
+              - generic [ref=e76]:
+                - generic [ref=e77]: 排課
+                - generic [ref=e78]: 1 小時／1.5 小時／自訂時長，可以固定每週重複。課上完標「已出席」就自動扣一堂
+              - button "去課表" [ref=e80] [cursor=pointer]
+            - generic [ref=e81]:
+              - generic [ref=e82]: "3"
+              - generic [ref=e83]:
+                - generic [ref=e84]: 設定你的計薪方式
+                - generic [ref=e85]: 自己接案就收多少算多少；公司教練可以設抽成級距與業績獎金，收費頁會幫你試算實拿
+              - button "去設定" [ref=e87] [cursor=pointer]
+          - generic [ref=e88]:
+            - generic [ref=e89]:
+              - heading "想先看看長什麼樣子？" [level=2] [ref=e91]
+              - paragraph [ref=e92]: 載入一份示範資料（10 位學生、半年的課、9 筆名單），每個功能都有東西可以看。 隨時可以在設定頁清掉，換成你自己的。
+              - button "載入示範資料" [ref=e93] [cursor=pointer]
+            - generic [ref=e97]:
+              - heading "資料會留著嗎？" [level=2] [ref=e99]
+              - paragraph [ref=e100]: 會。關掉再打開、隔天再來都還在，因為它存在這台裝置的這個瀏覽器裡。 但清除瀏覽器資料、換手機、用無痕模式就會不見， iPhone 的 Safari 還會在你很久沒打開時自動清掉。 說明裡寫了兩個防止資料消失的做法，花兩分鐘設定好就沒事了。
+              - button "看使用說明" [ref=e101] [cursor=pointer]
+  - status

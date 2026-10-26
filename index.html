@@ -501,6 +501,7 @@ button.tile:active { background: var(--accent-soft); }
 .pill-good { color: var(--good); }
 .pill-warn { color: var(--warn); }
 .pill-crit { color: var(--crit); }
+.pill-charged { color: #DB2777; }
 .pill-info { color: var(--info); }
 .pill-accent { color: var(--accent); }
 .pill-mute { color: var(--muted); }
@@ -1010,7 +1011,7 @@ const NOTICE_KEY = "coach-mate-web-notice-dismissed";
  * 版本標記。顯示在設定頁最下面，教練唸得出來就知道他手上是哪一版，
  * 不用再猜是不是拿到舊的快取。每次改版就把這個字串往上加。
  */
-const BUILD = "2026-10-26 · v117";
+const BUILD = "2026-10-26 · v118";
 
 /** 開發者署名，顯示在設定頁的「關於」 */
 const DEVELOPER = "杯子蛋糕好好吃";
@@ -1570,9 +1571,16 @@ const LESSON_STATUS = {
   attended:  { label: "已出席", pill: "pill-good" },
   late:      { label: "遲到",   pill: "pill-warn" },
   absent:    { label: "缺席",   pill: "pill-crit" },
+  // 學生沒來，但堂數照扣、錢照收（臨時請假、放鳥，場館照扣）。
+  // 2026-10-26 使用者回報：只能標「已出席」的話，跟場館對課時出缺勤對不上。
+  charged:   { label: "扣課",   pill: "pill-charged" },
   cancelled: { label: "已取消", pill: "pill-mute" },
 };
-const CONSUMING = ["attended", "late"];   // 有上到課就要扣堂數
+// 要扣堂數的：有上到課的（遲到也上了課），加上「扣課」（人沒來、堂數照扣）。
+// 收入、薪資、場租都跟著這個走 —— 扣課那堂錢照收。
+const CONSUMING = ["attended", "late", "charged"];
+// 人真的有到。到課率、「上次上課」用這個 —— 扣課那天人沒來。跟 iOS 的 showedUp 同一把尺
+const SHOWED_UP = ["attended", "late"];
 
 /**
  * 課程種類。「檢測」是對還不是學生的人做的第一次試教／推銷：
@@ -2003,7 +2011,7 @@ function consumedSessions(student) {
 /**
  * 最後一次真的上到課是哪一天（"YYYY-MM-DD"，沒有就 null）。
  *
- * 只認 `CONSUMING`（已出席／遲到）—— 排定的課還沒發生，取消與缺席那天他人沒到，
+ * 只認 `SHOWED_UP`（已出席／遲到）—— 排定的課還沒發生，取消、缺席、扣課那天他人沒到，
  * 拿來當「上次上課」會讓一個三週沒來的人看起來像上週才上過。
  * **檢測不算**：那是還沒買課的人的試教，跟「這位學生多久沒來」是兩件事。
  * 未來日期的紀錄也排除（補課先標成已出席會讓天數變負的）。
@@ -2011,7 +2019,7 @@ function consumedSessions(student) {
 function lastAttendedDate(studentId) {
   const t = today();
   const days = lessonsOf(studentId)
-    .filter((l) => !isAssessment(l) && CONSUMING.includes(l.status) && l.date && l.date <= t)
+    .filter((l) => !isAssessment(l) && SHOWED_UP.includes(l.status) && l.date && l.date <= t)
     .map((l) => l.date)
     .sort();
   return days.length ? days[days.length - 1] : null;
@@ -2445,11 +2453,12 @@ const countsVenueCost = () =>
  *
  * 跟「課程收入」是**不同的口徑**，這是故意的：
  *   - 缺席算（學生沒來，場地還是租了）
+ *   - 扣課算（場館照扣）
  *   - 取消不算（事先取消，人沒去）
  *   - 檢測算（試教也要用場地，但它沒有收入 —— 抽成的那種算出來就是 0）
  *   - 還沒上的排定課不算（還沒發生）
  */
-const VENUE_BILLABLE = ["attended", "late", "absent"];
+const VENUE_BILLABLE = ["attended", "late", "absent", "charged"];
 
 /**
  * 這一堂的場地成本。
@@ -2910,7 +2919,7 @@ const RANK_METRICS = [
   {
     key: "attended",
     title: "上課最多",
-    sub: "已出席與遲到的堂數；沒有紀錄的依剩餘推算",
+    sub: "已出席、遲到與扣課的堂數；沒有紀錄的依剩餘推算",
     /**
      * 跟「買最多堂」同一個坑，而且更嚴重（2026-08-14 拿真實名單驗出來的）：
      * 補歷史進來的人**一筆課程紀錄都沒有**（堂數是照舊系統手填的），
@@ -2962,15 +2971,15 @@ const RANK_METRICS = [
     sub: `至少 ${RANK_RATE_MIN} 堂紀錄`,
     rows: (students, from, to) => students.map((s) => {
       const ls = rangeLessons(s.id, from, to)
-        .filter((l) => ["attended", "late", "absent"].includes(l.status));
+        .filter((l) => ["attended", "late", "absent", "charged"].includes(l.status));
       // 紀錄不足的人在「全部」裡照樣列出來，只是沒有百分比可以印。
       // value 給 -1：排在所有真的算得出來的人後面，前 5／前 10 也不會撈到他。
       if (ls.length < RANK_RATE_MIN) {
         return { student: s, value: -1, text: "—",
                  note: ls.length ? `只有 ${ls.length} 堂紀錄` : "沒有課程紀錄" };
       }
-      // 出席率把遲到算成有到（人有來，只是晚了）—— 跟學生詳情、iOS 同一把尺
-      const came = ls.filter((l) => CONSUMING.includes(l.status)).length;
+      // 出席率把遲到算成有到（人有來，只是晚了）、扣課算沒到 —— 跟學生詳情、iOS 同一把尺
+      const came = ls.filter((l) => SHOWED_UP.includes(l.status)).length;
       const pct = came / ls.length * 100;
       // weight＝分母。同樣 100%，8/8 比 3/3 更站得住腳，要排在前面
       return { student: s, value: pct, weight: ls.length,
@@ -4708,8 +4717,10 @@ function studentDetailSheet(student) {
   const attended = ls.filter((l) => l.status === "attended").length;
   const absent = ls.filter((l) => l.status === "absent").length;
   const late = ls.filter((l) => l.status === "late").length;
+  const charged = ls.filter((l) => l.status === "charged").length;
   const cancelled = ls.filter((l) => l.status === "cancelled").length;
-  const counted = attended + absent + late;
+  // 扣課算沒到（人沒來，只是堂數照扣）
+  const counted = attended + absent + late + charged;
   const rate = counted ? (attended + late) / counted : 0;
 
   const pays = (student.payments || []).slice()
@@ -4863,6 +4874,7 @@ function studentDetailSheet(student) {
           ${statCell(attended, "已出席", "var(--good)")}
           ${statCell(absent, "缺席", "var(--crit)")}
           ${statCell(late, "遲到", "var(--warn)")}
+          ${statCell(charged, "扣課", "#DB2777")}
           ${statCell(cancelled, "已取消", "var(--muted)")}
         </div>
         ${counted ? `
@@ -9515,7 +9527,7 @@ function viewSettings() {
             <input id="s-onlyAttended" type="checkbox" data-action="toggle-salary" data-key="onlyAttended" ${rule.onlyAttended ? "checked" : ""}>
           </div>
           <p class="hint">${rule.onlyAttended
-            ? "已出席與遲到才計薪，缺席與取消都不算。"
+            ? "已出席、遲到與扣課才計薪，缺席與取消都不算。"
             : "缺席也算一堂（只排除已取消），適合「學生放鴿子照算」的合約。"}</p>
 
           <div class="divider" style="margin:12px 0"></div>
