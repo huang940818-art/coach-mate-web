@@ -990,15 +990,18 @@ function showFatal(message, file, line) {
  * 換新公告時「一定要改 id」，否則之前按過「知道了」的人不會再看到。
  */
 const ANNOUNCEMENT = {
-  id: "2026-09-23",
-  title: "學生頁可以直接改課，也能照時數扣堂",
+  id: "2026-10-26",
+  title: "教練小幫手 App 上架了，網頁版之後不再更新",
   // 一段連續的文字（`.notice-text` 沒有 pre-wrap，換行會被吃掉）。
-  // 順序照「多少人會用到」排：學生頁的編輯人人都用得到，照時數扣堂要自己去開。
-  body: "學生資料的「課程紀錄」每一堂都多了「編輯」，要改時間不用再回課表找那一天。" +
-        "另外設定頁「一般」多了「照時數扣堂」：選「一堂 1 小時」之後，上 2 小時就扣 2 堂，" +
-        "課程收入與薪資也照堂數算（不滿一堂的零頭不算）。" +
-        "只影響之後上的課，已經記過的不會重算；沒去設定的話一切跟以前一樣。" +
-        "有問題到設定最下面「回報問題」告訴我。",
+  // 先講 App 在哪，再講網頁版會怎樣，最後講資料怎麼搬，順序就是教練會問的順序。
+  body: "教練小幫手已經在 App Store 上架了。網頁版之後不再新增功能，只會在壞掉的時候修；" +
+        "目前這個網址還是可以照常使用，你的資料也不會消失。" +
+        "想換成 App 的話，先到設定「匯出檔案」做一份備份，" +
+        "再到 App 的「設定 → 匯入資料」選那份檔案就能搬過去。" +
+        "新功能之後都只會出現在 App。",
+  // 有填 url 就會多一顆按鈕（首頁公告與設定頁都有）
+  url: "https://apps.apple.com/tw/app/%E6%95%99%E7%B7%B4%E5%B0%8F%E5%B9%AB%E6%89%8B-%E8%AA%B2%E8%A1%A8%E6%94%B6%E8%B2%BB%E7%AE%A1%E7%90%86/id6819143215",
+  urlLabel: "前往 App Store",
 };
 
 const NOTICE_KEY = "coach-mate-web-notice-dismissed";
@@ -1007,7 +1010,7 @@ const NOTICE_KEY = "coach-mate-web-notice-dismissed";
  * 版本標記。顯示在設定頁最下面，教練唸得出來就知道他手上是哪一版，
  * 不用再猜是不是拿到舊的快取。每次改版就把這個字串往上加。
  */
-const BUILD = "2026-10-17 · v114";
+const BUILD = "2026-10-26 · v115";
 
 /** 開發者署名，顯示在設定頁的「關於」 */
 const DEVELOPER = "杯子蛋糕好好吃";
@@ -3666,6 +3669,11 @@ function hasDemoData() {
   return S.students.some((s) => DEMO_NAMES.includes(s.name));
 }
 
+/** 公告裡的外部連結按鈕（App Store）。用 <a> 才能在主畫面版本直接跳去 App Store。 */
+function noticeLink(cls) {
+  return `<a class="btn ${cls}" style="text-decoration:none" href="${esc(ANNOUNCEMENT.url)}" target="_blank" rel="noopener">${esc(ANNOUNCEMENT.urlLabel || "了解更多")}</a>`;
+}
+
 function noticeBanner() {
   if (!ANNOUNCEMENT || dismissedNotice() === ANNOUNCEMENT.id) return "";
   return `
@@ -3674,10 +3682,11 @@ function noticeBanner() {
         <div class="notice-title">${esc(ANNOUNCEMENT.title)}</div>
         <p class="notice-text">${esc(ANNOUNCEMENT.body)}</p>
         <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
+          ${ANNOUNCEMENT.url ? noticeLink("btn-sm btn-primary") : ""}
           ${hasDemoData()
-            ? `<button class="btn btn-sm btn-primary" type="button" data-action="wipe">清除示範資料</button>
+            ? `<button class="btn btn-sm${ANNOUNCEMENT.url ? "" : " btn-primary"}" type="button" data-action="wipe">清除示範資料</button>
                <button class="btn btn-sm" type="button" data-action="open-guide">看使用說明</button>`
-            : `<button class="btn btn-sm btn-primary" type="button" data-action="open-guide">看使用說明</button>`}
+            : `<button class="btn btn-sm${ANNOUNCEMENT.url ? "" : " btn-primary"}" type="button" data-action="open-guide">看使用說明</button>`}
           <button class="btn btn-sm" type="button" data-action="dismiss-notice">知道了</button>
         </div>
       </div>
@@ -9680,6 +9689,7 @@ function viewSettings() {
         <div class="note-box">
           <div style="font-weight:650;margin-bottom:5px">${esc(ANNOUNCEMENT.title)}</div>
           <div style="line-height:1.7">${esc(ANNOUNCEMENT.body)}</div>
+          ${ANNOUNCEMENT.url ? `<div style="margin-top:10px">${noticeLink("btn-sm btn-primary")}</div>` : ""}
         </div>
         <p class="hint" style="margin-top:10px">
           首頁那則公告按過「知道了」之後就不再跳出來，但隨時可以回到這裡重看。
