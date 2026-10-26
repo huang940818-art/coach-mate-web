@@ -1010,7 +1010,7 @@ const NOTICE_KEY = "coach-mate-web-notice-dismissed";
  * 版本標記。顯示在設定頁最下面，教練唸得出來就知道他手上是哪一版，
  * 不用再猜是不是拿到舊的快取。每次改版就把這個字串往上加。
  */
-const BUILD = "2026-10-26 · v115";
+const BUILD = "2026-10-26 · v116";
 
 /** 開發者署名，顯示在設定頁的「關於」 */
 const DEVELOPER = "杯子蛋糕好好吃";
@@ -2161,12 +2161,29 @@ function currentPackageSessions(student) {
  * 拿 0 去乘，那幾個數字全部是 0（2026-08-12 回報「價格有問題」）。
  */
 function sessionPrice(student) {
-  if (student.rate > 0) return student.rate;
-  for (const r of renewalsOf(student)) {
-    if ((r.sessions || 0) > 0 && (r.amount || 0) > 0) {
-      return Math.round(r.amount / r.sessions);
-    }
+  return sessionPriceOn(student, "9999-12-31");
+}
+
+/**
+ * 某一天上的課，一堂值多少。
+ *
+ * 看**那天生效的合約**（簽約日不晚於那天、最新的一份主約）：總額 ÷ 堂數。
+ * 續約只會存新合約的總額，不會去動學生的「每堂費用」——
+ * 1200 續成 1300 之後若一律讀「每堂費用」，新約的課全被少算 100，
+ * 而改那格又會把已經上過的舊課跟著重算（2026-10-26 回報）。
+ * 加購（addOn）不算：那是主約底下的小活動，單價常常跟主約不同。
+ * 合約沒填金額、或那天之前沒有合約，才退回「每堂費用」，再退回任何一筆合約。
+ */
+function sessionPriceOn(student, date) {
+  const rs = renewalsOf(student);               // 新的排前面
+  const unit = (r) => Math.round(r.amount / r.sessions);
+  const priced = (r) => (r.sessions || 0) > 0 && (r.amount || 0) > 0;
+  for (const r of rs) {
+    if (!r.addOn && priced(r) && (r.date || "") <= date) return unit(r);
   }
+  if (student.rate > 0) return student.rate;
+  for (const r of rs) if (!r.addOn && priced(r)) return unit(r);
+  for (const r of rs) if (priced(r)) return unit(r);
   return 0;
 }
 
@@ -2461,7 +2478,7 @@ function lessonVenueCost(lesson) {
   // 抽的是課程收入的成，所以只抽自己接案那幾位的收入
   let revenue = 0;
   if (LESSON_KIND[kindOf(lesson)].paid) {
-    for (const st of mine) revenue += unitsOf(lesson) * sessionPrice(st);
+    for (const st of mine) revenue += unitsOf(lesson) * sessionPriceOn(st, lesson.date);
   }
   return Math.round(revenue * (venue.costValue || 0) / 100);
 }
@@ -2573,7 +2590,7 @@ function salaryFor(ym, opts = {}) {
         // 算進抽成等於把自己的收入乘上公司的趴數（2026-09-14 Krystal）。
         if (isSelfEmployedStudent(st)) continue;
         sessions += units;
-        lessonRevenue += units * (rule.useStudentRate ? sessionPrice(st) : (rule.perLessonRate || 0));
+        lessonRevenue += units * (rule.useStudentRate ? sessionPriceOn(st, l.date) : (rule.perLessonRate || 0));
       }
     }
   }
@@ -4736,7 +4753,7 @@ function studentDetailSheet(student) {
             ${student.mayNotRenew ? '<span class="pill pill-warn">可能不續約</span>' : ""}
           </div>
           <div class="row-sub">
-            ${student.phone ? esc(student.phone) + "　" : ""}${sessionPrice(student) ? `每堂 ${money(sessionPrice(student))}${student.rate > 0 ? "" : "（依合約換算）"}` : ""}
+            ${student.phone ? esc(student.phone) + "　" : ""}${sessionPrice(student) ? `每堂 ${money(sessionPrice(student))}${sessionPrice(student) === student.rate ? "" : "（依合約換算）"}` : ""}
           </div>
           ${// 上次上課。排課前最想知道的一件事，寫在表頭比翻課程分頁快。
             (() => {
@@ -8267,7 +8284,7 @@ function spanStats(span = "week", offset = 0) {
   for (const l of attended) {
     for (const id of [l.studentId, l.partnerId]) {
       const st = studentById(id);
-      if (st && incomeSideOf(st) === "own") revenue += unitsOf(l) * sessionPrice(st);
+      if (st && incomeSideOf(st) === "own") revenue += unitsOf(l) * sessionPriceOn(st, l.date);
     }
   }
   // 堂數跟薪資試算同一把尺：照時數算時一次課可能是好幾堂
