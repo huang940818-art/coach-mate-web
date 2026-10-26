@@ -1010,7 +1010,7 @@ const NOTICE_KEY = "coach-mate-web-notice-dismissed";
  * 版本標記。顯示在設定頁最下面，教練唸得出來就知道他手上是哪一版，
  * 不用再猜是不是拿到舊的快取。每次改版就把這個字串往上加。
  */
-const BUILD = "2026-10-26 · v116";
+const BUILD = "2026-10-26 · v117";
 
 /** 開發者署名，顯示在設定頁的「關於」 */
 const DEVELOPER = "杯子蛋糕好好吃";
@@ -1019,7 +1019,7 @@ const DEVELOPER = "杯子蛋糕好好吃";
 const DEVELOPER_EMAIL = "huang940818@gmail.com";
 
 /** 示範學生的名字。公告用它判斷這台裝置上還留著示範資料。 */
-const DEMO_NAMES = ["林佳蓉", "陳彥廷", "黃郁婷", "張家豪", "吳孟儒", "李思穎", "王柏翰", "劉宜靜", "許雅筑", "蔡宗翰"];
+const DEMO_NAMES = ["林佳蓉", "陳彥廷", "黃郁婷", "張家豪", "吳孟儒", "李思穎", "王柏翰", "劉宜靜", "許雅筑", "蔡宗翰", "鄭博文", "簡若涵"];
 
 /**
  * 使用說明。刻意用 Markdown 寫，之後要搬到 App 內的說明頁、
@@ -4016,7 +4016,7 @@ function welcomeView() {
         <section class="card">
           <div class="sec-head"><h2 class="sec-title">想先看看長什麼樣子？</h2></div>
           <p class="row-sub" style="margin:0 0 12px">
-            載入一份示範資料（10 位學生、半年的課、9 筆名單），每個功能都有東西可以看。
+            載入一份示範資料（12 位學生、半年的課、9 筆名單），每個功能都有東西可以看。
             隨時可以在設定頁清掉，換成你自己的。
           </p>
           <button class="btn" type="button" data-action="seed">${icon("refresh", 15)}載入示範資料</button>
@@ -4708,6 +4708,7 @@ function studentDetailSheet(student) {
   const attended = ls.filter((l) => l.status === "attended").length;
   const absent = ls.filter((l) => l.status === "absent").length;
   const late = ls.filter((l) => l.status === "late").length;
+  const cancelled = ls.filter((l) => l.status === "cancelled").length;
   const counted = attended + absent + late;
   const rate = counted ? (attended + late) / counted : 0;
 
@@ -4862,6 +4863,7 @@ function studentDetailSheet(student) {
           ${statCell(attended, "已出席", "var(--good)")}
           ${statCell(absent, "缺席", "var(--crit)")}
           ${statCell(late, "遲到", "var(--warn)")}
+          ${statCell(cancelled, "已取消", "var(--muted)")}
         </div>
         ${counted ? `
           <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:4px">
@@ -10419,11 +10421,17 @@ function seedDemo() {
     ["劉宜靜", 10, 10, 1150, ["康復"], { status: "awaiting" }],
     ["許雅筑", 0,  0,  1500, ["減脂"], { billingMode: "perSession", employment: "independent" }],
     ["蔡宗翰", 10, 10, 1100, [], { status: "archived" }],
+    // 太久沒上課：手上還有堂數、沒排下一堂（2026-10-07 加，之前一個都沒有，總覽頁那區整個不出現）。
+    // 一位剛過門檻、一位超過兩倍。他們不進下面輪流排的課，課在後面單獨放。
+    ["鄭博文", 10, 4,  1000, [], { notes: "工作忙，上次說月底再約" }],
+    ["簡若涵", 10, 3,  1200, ["減脂"], { notes: "出國回來還沒約" }],
   ];
-  const jobs = ["工程師", "護理師", "老師", "業務", "設計師", "工程師", "自由業", "護理師", "會計師", "學生"];
-  const genders = ["女", "男", "女", "男", "男", "女", "男", "女", "女", "男"];
+  const IDLE_DEMO = { "鄭博文": 19, "簡若涵": 40 };   // 名字 → 最後一次上課是幾天前
+  const jobs = ["工程師", "護理師", "老師", "業務", "設計師", "工程師", "自由業", "護理師", "會計師", "學生", "業務", "行銷"];
+  const genders = ["女", "男", "女", "男", "男", "女", "男", "女", "女", "男", "男", "女"];
   const births = ["1994-03-12", "1988-11-02", "1999-06-25", "1985-01-30", "1996-09-08",
-                  "1992-12-19", "1979-04-14", "2001-07-07", "1990-05-21", "2003-10-03"];
+                  "1992-12-19", "1979-04-14", "2001-07-07", "1990-05-21", "2003-10-03",
+                  "1992-02-17", "1997-08-09"];
 
   const students = plan.map(([name, total, used, rate, tagNames, extra], i) => {
     const s = newStudent({
@@ -10516,7 +10524,8 @@ function seedDemo() {
     createdAt: iso(Math.max(0, -1 * 0)), ...l });
 
   // 正課：往前半年、往後兩週。承攬的課在兩間場館輪流。
-  const onRosterNow = students.filter((x) => x.status !== "archived" && x.billingMode !== "perSession");
+  const rotating = students.filter((x) => x.billingMode !== "perSession" && !(x.name in IDLE_DEMO));
+  const onRosterNow = rotating.filter((x) => x.status !== "archived");
   const slots = [["09:00", 90], ["11:00", 60], ["14:00", 90], ["19:00", 60], ["20:30", 90]];
   for (let d = -170; d <= 14; d++) {
     const date = dayStr(addDays(now, d));
@@ -10526,7 +10535,7 @@ function seedDemo() {
     for (let k = 0; k < n; k++) {
       const [start, mins] = slots[(Math.abs(d) + k) % slots.length];
       // 封存的那位只出現在三個月以前
-      const pool = d < -90 ? students.filter((x) => x.billingMode !== "perSession") : onRosterNow;
+      const pool = d < -90 ? rotating : onRosterNow;
       const st = pool[(Math.abs(d) * 3 + k) % pool.length];
       const past = d < 0;
       const status = !past ? "scheduled"
@@ -10548,6 +10557,14 @@ function seedDemo() {
            studentId: by("陳彥廷").id, partnerId: by("王柏翰").id, location: "大安館",
            consumed: d < 0, partnerConsumed: d < 0, notes: "一對二", color: "#14B8A6",
            createdAt: iso(Math.max(0, -d + 2)) });
+  }
+  // 太久沒上課的兩位：每週一堂，最後一堂停在 IDLE_DEMO 那天，之後沒排
+  for (const [name, last] of Object.entries(IDLE_DEMO)) {
+    for (let w = 0; w < 6; w++) {
+      const d = last + w * 7;
+      push({ date: ago(d), start: "19:00", end: "20:00", status: "attended", studentId: by(name).id,
+             location: venues[w % 2].name, consumed: true, createdAt: iso(d + 2) });
+    }
   }
   // 單堂制：許雅筑每週二上一堂，上一堂收一堂
   const perSession = by("許雅筑");
@@ -10879,7 +10896,7 @@ document.addEventListener("click", (e) => {
     case "copy-backup": copyBackupSheet(); break;
     case "paste-backup": pasteBackupSheet(); break;
     case "seed":
-      confirmSheet("載入示範資料", "會先清空目前的資料，再放入 8 位示範學生、約 60 堂課與 7 筆名單。",
+      confirmSheet("載入示範資料", "會先清空目前的資料，再放入 12 位示範學生、半年的課與 9 筆名單。",
         () => seedDemo(), "載入");
       break;
     case "wipe":
